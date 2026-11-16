@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import type { MeasuredClass, MeasuredDetection, SkyPos } from "../api/types";
 import { pixelToSky } from "../app/astro";
-import { combine, forcedFlux, momentSize, onePhoto, onePhotoChecks, onePhotoChecksAsync, onePhotoWords, sizeRatio, type OPFrame, type OPGrid } from "./onephoto";
+import { combine, forcedFlux, momentSize, onePhoto, onePhotoChecks, onePhotoChecksAsync, onePhotoCounts, onePhotoSay, sizeRatio, type OPFrame, type OPGrid } from "./onephoto";
 
 const N = 72;
 const grid: OPGrid = { size: [N, N], pixel_arcsec: 6.152 };
@@ -90,9 +90,30 @@ describe("one-photo dots", () => {
     // its own light not measurable (flagged pixels, or below the background): too_few, said as such
     const own = onePhoto(NaN, [2, 2], [5, 5]);
     expect(own.verdict).toBe("too_few");
-    expect(onePhotoWords(own)).toMatch(/its own pixels can't be measured/);
-    expect(onePhotoWords(own, true)).toMatch(/not measurable in this one\)$/);
-    expect(onePhotoWords(onePhoto(100, [50], [10]))).toBe("in this photo only; too few other photos of this detector to tell");
+    expect(onePhotoSay(own)).toBe(
+      "Circled in this photo only, but its own light can't be measured here (flagged pixels, or nothing above the background), so the other 2 photos of this visit can't be compared with it.",
+    );
+    // too few photos to tell, said as such (and that more are coming, while they are)
+    expect(onePhotoSay(onePhoto(100, [50], [10]))).toBe(
+      "Circled in this photo only. Only 1 photo of this visit with data at its spot is loaded: too few to tell whether it is there in them.",
+    );
+    expect(onePhotoSay(onePhoto(100, [], []), true)).toMatch(/^Circled in this photo only\. No other photo .* More photos of this visit are loading, so this may change\.$/);
+    // the words a person reads, with the numbers
+    expect(onePhotoSay(onePhoto(100, [40, 40], [10, 10]))).toBe(
+      "Circled in this photo only. At the same spot the other 2 photos of this visit show fainter light too (40 ± 7.1 µJy on average, 40% of its 100 µJy here): too faint to circle each time, but it is there. A real object that stays put.",
+    );
+    expect(onePhotoSay(onePhoto(100, [2, 2], [5, 5], { sizeRatio: 0.5 }))).toBe(
+      "Circled in this photo only, and nothing shows at its spot in the other 2 photos of this visit (at most 13 µJy there, against 100 µJy here). It is also sharper than a star (0.50 × a star's width): most likely a cosmic ray, a particle hitting the camera, not something in the sky.",
+    );
+    const moving = { ...onePhoto(100, [2, 2], [5, 5], { sizeRatio: 0.9, moved: true }), step: { arcsec: 8.2, minutes: 2.1 } };
+    expect(onePhotoSay(moving)).toBe(
+      "Circled in this photo only, nothing shows at its spot in the other 2 photos of this visit, and something similar sits 8″ away in the photo 2.1 minutes later: it may be moving. Blink to check.",
+    );
+    expect(onePhotoSay(onePhoto(100, [2, 2], [5, 5], { sizeRatio: 0.9 }))).toMatch(/^Circled in this photo only, and nothing shows .* as wide as a star, so not a particle hit/);
+    expect(onePhotoSay(onePhoto(100, [5, 5], [30, 30]))).toMatch(/too noisy to tell whether it is there too/);
+    // the panel counts them by kind; dots linked to a mover are not one-photo dots
+    const counts = onePhotoCounts([onePhoto(100, [40, 40], [10, 10]), onePhoto(100, [40, 40], [10, 10]), moving, { ...moving, track: true }]);
+    expect([...counts]).toEqual([["stays", 2], ["moving", 1]]);
   });
 
   it("tells a steady faint source, a cosmic ray, a flash and a mover apart", () => {
@@ -125,10 +146,11 @@ describe("one-photo dots", () => {
     expect(verdict(dots[6])).toBeUndefined(); // artefacts are left out
     // the stars are in every photo: not one-photo dots
     expect(verdict(stars.find((s) => s.epoch_id === own.id)!)).toBeUndefined();
-    expect(onePhotoWords(verdict(dots[0])!)).toBe("also faintly in the other photos: a steady source below the cut");
-    expect(onePhotoWords(verdict(dots[1])!)).toBe("only in this photo and sharp: likely a cosmic ray or flash");
-    expect(onePhotoWords(verdict(dots[3])!)).toBe("moves");
-    expect(onePhotoWords(verdict(dots[0])!, true)).toMatch(/^also faintly .* \(the other 7 photos: \d+ ± \d+ µJy there, \d+ in this one, [\d.]+ × a star's width\)$/);
+    expect(onePhotoSay(verdict(dots[0])!)).toMatch(/^Circled in this photo only\. At the same spot the other 7 photos of this visit show fainter light too \([\d.]+ ± [\d.]+ µJy on average, \d+% of its [\d.]+ µJy here\)/);
+    expect(onePhotoSay(verdict(dots[1])!)).toMatch(/most likely a cosmic ray, a particle hitting the camera, not something in the sky\.$/);
+    // the moving dot: how far its likely next place is, and when
+    expect(verdict(dots[3])!.step!.arcsec).toBeCloseTo(8, 0);
+    expect(onePhotoSay(verdict(dots[3])!)).toMatch(/something similar sits 8″ away in the photo [\d.]+ minutes later: it may be moving\. Blink to check\.$/);
   });
 
   it("gives the same verdicts a photo at a time, and gives up when told", async () => {

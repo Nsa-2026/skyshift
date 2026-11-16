@@ -60,6 +60,8 @@ export interface OnePhoto {
   limit_ratio: number;
   size_ratio: number;
   moved: boolean | null;
+  /** `moved`: the nearest new dot in the photo before or after (″ away, minutes later; negative: before). */
+  step?: { arcsec: number; minutes: number };
 }
 
 /** One photo of one detector, on the field's grid, MJy/sr (NaN: no data). */
@@ -478,40 +480,109 @@ function* onePhotoSteps(grid: OPGrid, frames: OPFrame[], own: OPFrame, dets: Mea
     }
     // A new dot within reach of motion in the photo before or after, at no place of this photo's dots.
     let moved: boolean | null = neighbours.length ? false : null;
+    let step: { arcsec: number; minutes: number } | null = null;
     for (const f of neighbours) {
       const reach = MOVE_RATE_ARCSEC_H * Math.abs(f.mjd - own.mjd) * 24 + MOVE_SLACK_ARCSEC;
-      if ((fresh.get(f.id) ?? []).some((o) => {
+      for (const o of fresh.get(f.id) ?? []) {
         const s = sep(o, d);
-        return s > SAME_SPOT_ARCSEC && s <= reach;
-      })) moved = true;
+        if (s <= SAME_SPOT_ARCSEC || s > reach) continue;
+        moved = true;
+        // The nearest such dot, for the words ("12″ away in the photo 2 minutes later").
+        if (!step || s < step.arcsec) step = { arcsec: s, minutes: (f.mjd - own.mjd) * 1440 };
+      }
     }
-    out.set(detKey(d), onePhoto(ownFlux, oFlux, oErr, { sizeRatio: sr, transientPx: null, moved }));
+    const v = onePhoto(ownFlux, oFlux, oErr, { sizeRatio: sr, transientPx: null, moved });
+    if (step) v.step = step;
+    out.set(detKey(d), v);
   });
   return out;
 }
 
-const n0 = (x: number) => Math.round(x).toLocaleString("en-GB");
+// ---- the words ----------------------------------------------------------------------------------
+/** µJy in plain digits: whole numbers from 10 up, one decimal below. */
+const uj = (x: number) => (Math.abs(x) >= 10 ? Math.round(x).toLocaleString("en-GB") : x.toFixed(1));
+const photos = (n: number) => `${n} photo${n === 1 ? "" : "s"}`;
 
-/** The circle's words: what the other photos say about a dot circled in this one only. */
-export function onePhotoWords(v: OnePhoto, numbers = false): string {
-  const words: Record<Verdict, string> = {
-    steady: "also faintly in the other photos: a steady source below the cut",
-    cosmic_ray: "only in this photo and sharp: likely a cosmic ray or flash",
-    moved: "moves",
-    flash: "only in this photo, as wide as a star: a one-photo flash (something fast that left, or a glint)",
-    unclear: "in this photo only; the others are too noisy to tell if it is there",
-    too_few: "in this photo only; too few other photos of this detector to tell",
-  };
-  // too_few also when its own light can't be measured (flagged pixels, or nothing above the background):
-  // then the other photos are there, but there is nothing to compare them with.
-  const unmeasured = v.verdict === "too_few" && v.n_other >= MIN_OTHERS;
-  const w = v.track
-    ? "moves: SkyShift linked it to a moving object"
-    : unmeasured
-      ? "in this photo only; its own pixels can't be measured (flagged, or nothing above the background), so the other photos can't tell"
-      : words[v.verdict];
-  if (!numbers || v.track || !v.n_other) return w;
-  const sharp = Number.isFinite(v.size_ratio) ? `, ${v.size_ratio.toFixed(2)} × a star's width` : "";
-  const own = Number.isFinite(v.own_flux_ujy) ? `${n0(v.own_flux_ujy)} in this one` : "not measurable in this one";
-  return `${w} (the other ${v.n_other} photos: ${n0(v.other_flux_ujy)} ± ${n0(v.other_err_ujy)} µJy there, ${own}${sharp})`;
+/** What the hint means, in one group a visitor can count: the panel's rows and the circle's badge. */
+export type OnePhotoKind = "stays" | "cosmic" | "moving" | "once" | "unknown";
+export function onePhotoKind(v: OnePhoto): OnePhotoKind {
+  if (v.verdict === "steady") return "stays";
+  if (v.verdict === "cosmic_ray") return "cosmic";
+  if (v.verdict === "moved") return "moving";
+  if (v.verdict === "flash") return "once";
+  return "unknown";
+}
+
+/**
+ * What the other photos say about a dot circled in this photo only, in one or two plain sentences with
+ * the numbers. `loading`: more photos of the visit are still on their way (the hint may change).
+ */
+export function onePhotoSay(v: OnePhoto, loading = false): string {
+  if (v.track) return "SkyShift linked it to a moving object: see its arrow.";
+  const n = v.n_other;
+  const others = `the other ${photos(n)} of this visit`;
+  const own = `${uj(v.own_flux_ujy)} µJy here`;
+  const limit = `at most ${uj(Math.max(v.other_flux_ujy, 0) + 3 * v.other_err_ujy)} µJy there, against ${own}`;
+  const more = loading ? " More photos of this visit are loading, so this may change." : "";
+  switch (v.verdict) {
+    case "steady": {
+      const pct = Math.round(100 * v.ratio);
+      const faint = pct < 90;
+      return (
+        `Circled in this photo only. At the same spot ${others} show ${faint ? "fainter " : ""}light too ` +
+        `(${uj(v.other_flux_ujy)} ± ${uj(v.other_err_ujy)} µJy on average, ${pct}% of its ${own}): ` +
+        `${faint ? "too faint to circle each time, but it is there" : "it is there each time, only not circled"}. A real object that stays put.`
+      );
+    }
+    case "cosmic_ray":
+      return (
+        `Circled in this photo only, and nothing shows at its spot in ${others} (${limit}). ` +
+        `It is also sharper than a star (${v.size_ratio.toFixed(2)} × a star's width): most likely a cosmic ray, ` +
+        "a particle hitting the camera, not something in the sky."
+      );
+    case "moved": {
+      const s = v.step;
+      const where = s
+        ? `${Math.round(s.arcsec)}″ away in the photo ${Math.abs(s.minutes).toFixed(1)} minutes ${s.minutes < 0 ? "earlier" : "later"}`
+        : "a little further along in the photo before or after";
+      return `Circled in this photo only, nothing shows at its spot in ${others}, and something similar sits ${where}: it may be moving. Blink to check.`;
+    }
+    case "flash":
+      return (
+        `Circled in this photo only, and nothing shows at its spot in ${others} (${limit}). ` +
+        "It is as wide as a star, so not a particle hit: something that shone in this photo only, such as a fast mover already gone from the next one, or a glint." +
+        more
+      );
+    case "unclear":
+      return (
+        `Circled in this photo only. At its spot ${others} are too noisy to tell whether it is there too ` +
+        `(${uj(v.other_flux_ujy)} ± ${uj(v.other_err_ujy)} µJy on average, against ${own}).` +
+        more
+      );
+    case "too_few":
+      // also when its own light can't be measured: then the other photos are there, but there is nothing to compare
+      if (n >= MIN_OTHERS)
+        return `Circled in this photo only, but its own light can't be measured here (flagged pixels, or nothing above the background), so ${others} can't be compared with it.`;
+      return (
+        `Circled in this photo only. ${n ? `Only ${photos(n)} of this visit with data at its spot ${n === 1 ? "is" : "are"}` : "No other photo of this visit with data at its spot is"} ` +
+        `loaded: too few to tell whether it is there in them.${more}`
+      );
+  }
+}
+
+/** The panel's rows: how many of each kind, and what that kind means. */
+export const KIND_WORDS: Record<OnePhotoKind, (n: number) => string> = {
+  stays: (n) => `${n} ${n === 1 ? "stays" : "stay"} put: fainter light shows at the same spot in the other photos, too faint to circle each time. Real objects.`,
+  cosmic: (n) => `${n} ${n === 1 ? "is" : "are"} most likely ${n === 1 ? "a cosmic ray" : "cosmic rays"}: nothing there in the other photos, and sharper than a star. A particle hitting the camera, not something in the sky.`,
+  moving: (n) => `${n} may be moving: nothing at the spot in the other photos, but something similar a little further along in the photo before or after. Blink to check.`,
+  once: (n) => `${n} shone once: nothing there in the other photos, yet as wide as a star. A fast mover already gone, or a glint.`,
+  unknown: (n) => `${n} can't be told: too few photos with data there, too much noise, or flagged pixels of its own.`,
+};
+export const KIND_ORDER: OnePhotoKind[] = ["stays", "cosmic", "moving", "once", "unknown"];
+
+/** Counts by kind of the one-photo hints given so far (dots the pipeline linked to a mover left out). */
+export function onePhotoCounts(list: Iterable<OnePhoto>): Map<OnePhotoKind, number> {
+  const out = new Map<OnePhotoKind, number>();
+  for (const v of list) if (!v.track) out.set(onePhotoKind(v), (out.get(onePhotoKind(v)) ?? 0) + 1);
+  return out;
 }
