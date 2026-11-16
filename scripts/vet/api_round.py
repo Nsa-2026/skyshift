@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import functools
 import glob
 import json
 import os
@@ -117,6 +118,10 @@ DRAWS = {"packet", "session", "stamps", "spectrum"}  # these take --out and retu
 VERDICTS = ["real_mover_known", "real_mover_unknown", "static_source", "artifact", "no_source", "real_known", "real_other",
             "engine_claim_wrong", "unsure"]
 _S = {"type": "string"}
+# what counts as proof that a mover is junk (the skill's section 4); doubt alone is not on this list
+PROOFS = ["none", "hot_pixel_seen_at_other_sky_positions", "same_detector_pixel_without_telescope_step", "same_brightness_at_same_spot_at_other_times",
+          "trail_across_the_stamp", "one_pixel_spike_no_psf", "glow_or_ghost_tied_to_a_bright_star_or_detector_column", "nothing_at_the_position",
+          "not_applicable"]
 RECORD_SCHEMA = {
     "type": "object", "additionalProperties": False,
     "properties": {
@@ -134,10 +139,13 @@ RECORD_SCHEMA = {
             "properties": {"what": _S, "why": _S, "would_need": _S}, "required": ["what", "why", "would_need"]}},
         "engine_problems": {"type": "array", "items": _S},
         "decisive": {"type": "string", "description": "The one check that settled it."},
+        "junk_proof": {"type": "string", "enum": PROOFS,
+                       "description": "Movers only: the measured proof that it is NOT a real mover (section 4 of the skill). 'none' when "
+                                      "you have doubts but no proof (then the verdict is unsure or real_*); 'not_applicable' for other kinds."},
         "harness_feedback": {"type": "string", "description": "Tool output that was missing, confusing or wrong; checks the tools cannot do. Empty if none."},
     },
     "required": ["verdict", "confidence", "interest", "what_it_is", "checks", "could_not_check", "engine_problems", "decisive",
-                 "harness_feedback"],
+                 "junk_proof", "harness_feedback"],
 }
 
 
@@ -262,8 +270,10 @@ POOL: ToolPool | None = None  # set by main(); None = start vet.py for every cal
 CACHE_DIR: str | None = None  # set by main(): finished tool calls are kept here and reused by later runs
 
 
+@functools.lru_cache(maxsize=1)
 def _tools_version() -> str:
-    """Changes whenever the tools, the data folder or the blind switch change, so a cached answer is never stale."""
+    """Changes whenever the tools, the data folder or the blind switch change, so a cached answer is never stale.
+    Read once per run: the loaded workers keep the tools they started with, even if the files change meanwhile."""
     import hashlib
     h = hashlib.sha1()
     for f in ("vet.py", "vetlib.py"):
@@ -367,6 +377,10 @@ def contradiction(rec: dict, kind: str, tools: list[str] = ()) -> str | None:
     drop = v in ("static_source", "artifact", "no_source", "engine_claim_wrong")
     keep = v in ("real_mover_known", "real_mover_unknown", "real_known", "real_other")
     why = None
+    if kind == "mover" and drop and rec.get("junk_proof") in (None, "none", "not_applicable"):
+        return ("Not recorded yet: a mover is dropped only on proof (section 4 of the skill), and junk_proof says there is none. "
+                "Doubt alone (motion not significant, one detector, seen once, near a star, stationary, odd shape) is not proof: "
+                "use unsure, or name the measured proof in junk_proof, then submit again.")
     if kind == "mover" and v in ("real_mover_unknown", "unsure") and not ({"session", "stamps"} <= set(tools)):
         return ("Not recorded yet: a mover gets real_mover_unknown or unsure only after you have looked at `session` (every exposure, all "
                 "detectors) and `stamps` (the same spot in the other visits), and run the check each packet warning names (section 3). "

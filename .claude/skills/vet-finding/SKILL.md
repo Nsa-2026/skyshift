@@ -6,7 +6,9 @@ description: Vet one SkyShift finding (mover, fast star, spectral lead, shape) l
 
 You are an observational astronomer checking one finding of SkyShift's engine on NASA SPHEREx images.
 Decide what it really is, find what the engine got wrong, and record exactly what you checked and what
-you could not check. A wrong "new discovery" costs more than a missed one: the default is doubt.
+you could not check. Two errors matter, and they are not symmetric: calling junk a discovery wastes a
+person's hour, but dropping a real mover loses it for good. So claim "real" only on evidence, and drop
+a mover only on proof (section 4). Everything in between is `unsure`, and stays on the list.
 
 Round 1 (100 findings, 16 Nov 2026, checked four times over) is the baseline: of 64 mover candidates
 none was a real unknown object (42 instrument artifacts, 21 fixed stars, 1 open); 11 of 16 fast stars
@@ -85,8 +87,9 @@ pass: the warnings cover the common failures only. Before a mover gets `unsure` 
 look at `session` and `stamps`, and run the check each warning names.
 
 **A. Is each detection a real source?**
-1. Shape: compact PSF-like blob. Size under 2.2″ or PSF-fit χ² over 10, or a position on a whole
-   pixel (x.0, y.0), is a spike: in round 1 an artifact every time.
+1. Shape: compact PSF-like blob. A position on a whole pixel (x.0, y.0) or a size under 2.2″ is a
+   one-pixel spike when the picture shows a single hot pixel with no wings. A bad PSF fit (χ² over 10)
+   alone means little: 22% of real known asteroids have it, bright and saturated ones above all.
 2. Flags at the peak: any masked flag means the detection sits on bad pixels.
 3. Hot pixels. The packet warns `HOT PIXEL` when a detection's detector pixel has detections in three or
    more exposures of the zone. Two hot pixels one telescope step apart (about 115 or 230 px in y) land on
@@ -106,9 +109,13 @@ look at `session` and `stamps`, and run the check each warning names.
 9. Edge of the detector, masked pixels inside the source, the first 20 px of a detector edge.
 
 **B. Is it a fixed source the engine failed to recognise?**
-1. Same spot at other times (packet row 3): a source there in other sessions and in the other visit is
-   a star or galaxy. The strongest single test. A pair that moved less than 1× its error with +3 to
-   +8σ at the spot at other times is a faint fixed source.
+1. Same spot at other times (packet row 3): a source there in other sessions and in the other visit,
+   as bright as the detection, is a star or galaxy. The strongest single test, with two traps. The
+   S/N is measured in a 9″ circle, so a neighbour 6–9″ away shows up as "a source at other times":
+   look where the light is in row 3, at the mark or beside it. And a mover can pass over or beside a
+   star: then the detection is brighter than the same spot at other times and the difference image
+   keeps signal (`BRIGHTER NOW THAN AT OTHER TIMES`). Only "same place, same brightness" is a fixed
+   source.
 2. Difference image (row 2): a real mover keeps most of its signal; a star cancels. A red/blue pair
    around a bright star is residue. A hot pixel on a fixed star keeps the difference high: when other
    times show a source, it is the source.
@@ -204,6 +211,24 @@ Choose the verdict by the engine's claim, not by how interesting the object is:
 | high_pm | `real_known` when a catalogue we read lists that motion (a Gaia or CatWISE proper motion, or a primary with the same motion); `real_other` when the motion is confirmed and no catalogue we read lists it ("motion new; novelty not checked") | `static_source` when it does not move (pair method: two fixed sources); `engine_claim_wrong` when it moves but the value is wrong by more than about half |
 | spectral, shape | `real_known` when any catalogue we read (Gaia, 2MASS, AllWISE, CatWISE) lists the object (for a shape: the second object); otherwise `real_other` | `engine_claim_wrong`, whatever the object is instead (an AGN called a brown dwarf; no second object). Never `static_source`. |
 
+**Dropping a mover needs proof.** In a blind test on 44 real known bodies, checkers dropped up to one in
+five, almost always on doubt. A mover gets `static_source`, `artifact` or `no_source` only with one of
+these measured proofs, named in `junk_proof`:
+- a hot pixel: the detector pixel has detections in exposures that looked at other parts of the sky
+  (`HOT PIXEL` warning or `pixel`), and the other exposures of the session, on other pixels, do not
+  show the source;
+- the same detector pixel in a session without a telescope step;
+- the same brightness at the same spot at other times (a fixed source: at the mark, not beside it);
+- a trail across the stamp; a single pixel with no PSF wings; a glow, ghost or column tied to a bright
+  star or to the detector; nothing at the position.
+
+These are never proof, alone or together: motion under 3σ or "stationary" (moons and slow bodies move
+less than the error in four minutes), one detector only (D5-only and D6-only are common for real
+asteroids), seen in one exposure or two detectors at one moment, a star or fixed source nearby, a bad
+PSF fit, a direction off the ecliptic, no second session. With doubts and no proof the verdict is
+`unsure`; with the evidence of section 3 and no proof against, `real_mover_unknown`. A mover that is
+dropped wrongly is gone; one left `unsure` costs a person a minute.
+
 `real_mover_*` are for movers only. A claim that is half right ("catalogues list one object" when AllWISE
 lists two) takes the "holds" verdict, with the wrong half under `engine_problems`. `unsure` when the
 deciding check could not be run. Say what the object is in `what_it_is`. Give a confidence 0–1 and
@@ -225,6 +250,7 @@ One JSON object per finding, exactly these keys:
  "could_not_check": [{"what": "...", "why": "tool missing | data missing | tool error", "would_need": "..."}],
  "engine_problems": ["what the engine did wrong or which of its numbers is wrong, with the right value if you know it"],
  "decisive": "the one check that settled it",
+ "junk_proof": "movers: the proof from section 4 when you drop it, else none; other kinds: not_applicable",
  "tools_used": ["info", "packet"]
 }
 ```
