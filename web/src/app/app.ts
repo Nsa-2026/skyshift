@@ -15,7 +15,7 @@ import { mountLearn } from "../learn";
 import { mountTools } from "../tools";
 import { mountLive } from "../live";
 import { mountDetailsSwitch } from "../prefs/details";
-import { candidateView, mountReview, mountSuspect, suspectFrames, suspectWave } from "../review";
+import { candidateView, mountReview, mountSuspect, suspectFrames, suspectShown, suspectWave } from "../review";
 import { mountAbout, mountCommunity } from "../community";
 import { mountWorkbench, targetFor, type Layer } from "../product/workbench";
 import {MODES, workspaceHref, type WorkspaceState} from "../product/workspace-state";
@@ -196,6 +196,17 @@ export function startApp(root: HTMLElement): void {
       vote.pick(pick, false);
       selectSignal(pick);
     },
+    // More photos of the hours visit joined the blink: the page's lookups (flag, workbench) see them,
+    // and an object to check counts them in its note and gets its red circles in them.
+    onFrames(f) {
+      if (!frames || frames.clock !== f.clock || frames.center.ra !== f.center.ra || frames.center.dec !== f.center.dec) return;
+      frames = f;
+      if (suspectCand && view && atSuspect(view) && f.clock === 'hours') {
+        const s = suspectShown(suspectCand, f, view.det, suspectAll);
+        suspect.note(s.note);
+        blink.track?.(s.marks);
+      }
+    },
     onEpoch(e) {
       epochMjd = e.mjd_mid;
       highlightSelected();
@@ -366,8 +377,13 @@ export function startApp(root: HTMLElement): void {
       sky.goto(next, frames);
       filters.goto(next, frames);
       card.show(next, object, frames);
-      await blink.show({ ...next, slug: layer === 'raw' ? next.slug : null }, loaded.frames, loaded.jsonUrl,
-        {singleDetector:layer !== 'raw' || viewerNow().tab === 'play'});
+      // Hours: every plate loads its whole visit behind what it shows first. An object to check
+      // loads the visit of its find, and shows the day of its find unless the person asked for all.
+      const all = suspectAll;
+      await blink.show({ ...next, slug: layer === 'raw' ? next.slug : null }, forCand?.whole ?? loaded.frames, loaded.jsonUrl,
+        {singleDetector:layer !== 'raw' || viewerNow().tab === 'play', pages: layer === 'raw' && viewerNow().tab !== 'play',
+          visitMjd: cand && cand.clock === 'hours' && cand.mjd > 0 ? cand.mjd : null,
+          filter: forCand && cand ? (f) => suspectShown(cand, f, next.det, all).frames : null});
       if (fsig.aborted) return;
       blink.status('idle');
       if (cand) suspect.ready(true);

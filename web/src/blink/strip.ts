@@ -21,6 +21,24 @@ export function plateDate(mjd: number, withTime = false): string {
   return `${day}, ${hh}:${mm} UTC`;
 }
 
+/**
+ * A visit's weeks: "12–28 Dec 2025", "28 Nov – 14 Dec 2025", "20 Dec 2025 – 6 Jan 2026", or one day.
+ * The months clock shows a visit as one stack of photos taken over these weeks, so its date is a
+ * span, never one day (an hours photo of the same visit has its own date and time).
+ */
+export function visitSpan(start: number, end: number): string {
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return plateDate(Number.isFinite(start) ? start : end);
+  const a = mjdToDate(start);
+  const b = mjdToDate(end);
+  const day = (d: Date) => d.getUTCDate();
+  const mon = (d: Date) => MONTHS[d.getUTCMonth()];
+  const yr = (d: Date) => d.getUTCFullYear();
+  if (yr(a) !== yr(b)) return `${day(a)} ${mon(a)} ${yr(a)} – ${day(b)} ${mon(b)} ${yr(b)}`;
+  if (mon(a) !== mon(b)) return `${day(a)} ${mon(a)} – ${day(b)} ${mon(b)} ${yr(b)}`;
+  if (day(a) !== day(b)) return `${day(a)}–${day(b)} ${mon(b)} ${yr(b)}`;
+  return plateDate(start);
+}
+
 /** Date for the strip's red label: "26 Aug 2025" on months, "12 Dec, 04:27" on hours. */
 export function stripDate(mjd: number, clock: Clock): string {
   if (clock === "months") return plateDate(mjd);
@@ -111,7 +129,9 @@ export function updateStrip(parts: StripParts, s: StripState): void {
       now.hidden = false;
       now.style.left = pc(x);
     }
-    if (nowl) nowl.textContent = stripDate(epochs[s.current].mjd_mid, s.clock);
+    const e = epochs[s.current];
+    // Months: the visit's weeks (its bar), the same words as the plate's label.
+    if (nowl) nowl.textContent = s.clock === "months" ? visitSpan(e.mjd_start, e.mjd_end) : stripDate(e.mjd_mid, s.clock);
   }
   if (ref) {
     ref.hidden = s.ref === null;

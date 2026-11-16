@@ -47,6 +47,17 @@ def test_pixel_exposures_and_columns():
     assert list(V.column_dots(q, free)) == [3, 0, 0]
 
 
+def test_column_need_grows_with_the_photos_free_dots():
+    """A sparse photo needs VET_COLUMN_MIN_DOTS (3) in the column; a crowded one more than chance gives there."""
+    rng = np.random.default_rng(1)
+    sparse = pd.DataFrame({"obs": "A", "det": 4, "x": rng.uniform(0, 2040, 50), "y": rng.uniform(0, 2040, 50)})
+    crowd = pd.DataFrame({"obs": "B", "det": 4, "x": rng.uniform(0, 2040, 800), "y": rng.uniform(0, 2040, 800)})
+    q = pd.DataFrame({"obs": ["A", "B", "C"], "det": [4, 4, 4], "x": [10.0, 10.0, 10.0], "y": [5.0, 5.0, 5.0]})
+    need = V.column_need(q, pd.concat([sparse, crowd], ignore_index=True))
+    assert need[0] == 3 and need[2] == 3  # 50 free dots: 0.02 others per column; photo C has none
+    assert need[1] == 5  # 800: 0.39 others expected, P(>= 3) = 0.8%, P(>= 4) = 0.08%: 4 others + itself
+
+
 def test_gates_grades_and_reasons():
     rows = [
         clean(0),                                                         # B
@@ -119,7 +130,7 @@ def _run_zone(tmp_path) -> tuple[Store, C.Zone, pd.DataFrame]:
     store.write_parquet("refcat/pilot.parquet", pd.DataFrame([
         dict(cat="gaia", ra=130.0, dec=20.0, epoch_mjd=57388.5, pmra=0.0, pmdec=0.0),
         dict(cat="catwise", ra=130.1, dec=20.0, epoch_mjd=57170.0, pmra=np.nan, pmdec=np.nan),
-        dict(cat="tmass", ra=t3[0], dec=t3[1], epoch_mjd=51000.0, pmra=np.nan, pmdec=np.nan)]))
+        dict(cat="2mass", ra=t3[0], dec=t3[1], epoch_mjd=51000.0, pmra=np.nan, pmdec=np.nan)]))  # refcat.py writes `2mass`
     store.write_parquet(results_rel(z.name, C.VET_QA_NAME), pd.DataFrame({"obs_id": ["E9"], "detector": [4], "grade": ["red"],
                                                                          "reasons": ["test"]}))
     return store, z, m
@@ -134,10 +145,14 @@ def test_run_writes_grades_vetoes_and_ranks(tmp_path, monkeypatch):
     st = S.run(store, z, pred=NO_PRED)
     assert st["suspects"] == 4 and st["vetting"]["grades"] == {"A": 0, "B": 2, "C": 2}
     j = store.read_json(results_rel(z.name, "suspects.json"))
-    assert j["vetoes"] == ["mpc", "planets", "gaia", "catwise"] and j["provisional"] is False
+    assert j["vetoes"] == ["mpc", "planets"] and j["catalogues"] == ["gaia", "catwise", "2mass"] and j["provisional"] is False
     assert [x["grade"] for x in j["suspects"]] == ["B", "B", "C", "C"]
     assert [x["snr"] for x in j["suspects"]] == [20.0, 9.0, 50.0, 30.0]  # by grade, then S/N
     assert [x["reasons"] for x in j["suspects"]] == [[], [], ["edge"], ["2mass"]]
+    assert [x["warn_codes"] for x in j["suspects"]] == [[], [], ["edge"], ["catalogue_star"]]
+    assert j["suspects"][2]["warn_values"] == {"edge": {"edge_px": 3.0}}
+    assert j["suspects"][3]["warn_values"]["catalogue_star"]["tmass_sep_arcsec"] == 4.0
+    assert j["warnings"] == {"catalogue_star": 1, "edge": 1}
     near = {x["cell"]: x["near_source_arcsec"] for x in j["suspects"]}
     assert near[1] == 8.0 and near[3] == 4.0 and near[2] is None
     assert j["grades"] == {"A": 0, "B": 2, "C": 2} and j["gates"]["edge"] == 1
@@ -145,7 +160,27 @@ def test_run_writes_grades_vetoes_and_ranks(tmp_path, monkeypatch):
     assert list(p["grade"]) == ["B", "B", "C", "C"] and "dot_x" in p and "gate_2mass" in p
     # no tracklets.parquet: no track fields, nothing graded A
     assert "tracklet_id" not in p and all("rate_arcsec_h" not in x for x in j["suspects"])
-    assert st["vetting"]["tracklets"] == {"source": None, "on_track": 0, "graded_a": 0}
+    assert st["vetting"]["tracklets"] == {"source": None, "on_track": 0, "graded_a": 0, "fast_held": 0}
+
+
+def test_run_catalogue_reason_only_for_a_source_as_bright_as_the_mover(tmp_path, monkeypatch):
+    """A Gaia star within 6″ is a reason (gaia, grade C) when at most 2 mag fainter than the mover; a much fainter one is
+    a chance neighbour: catalogue_star only. The movers are AB 17.67 (310 µJy)."""
+    monkeypatch.setattr(C, "VET_ALLWISE", False)
+    store, z, m = _run_zone(tmp_path)
+    g1 = offset_radec(m.loc[1, "ra"], m.loc[1, "dec"], 2.0, 0.0)
+    g2 = offset_radec(m.loc[2, "ra"], m.loc[2, "dec"], 0.0, 3.0)
+    store.write_parquet("refcat/pilot.parquet", pd.DataFrame([
+        dict(cat="gaia", ra=g1[0], dec=g1[1], epoch_mjd=57388.5, pmra=0.0, pmdec=0.0, g_mag=17.0),
+        dict(cat="gaia", ra=g2[0], dec=g2[1], epoch_mjd=57388.5, pmra=0.0, pmdec=0.0, g_mag=19.9),
+        dict(cat="catwise", ra=130.1, dec=20.0, epoch_mjd=57170.0, pmra=np.nan, pmdec=np.nan, g_mag=np.nan)]))
+    S.run(store, z, pred=NO_PRED)
+    j = {x["cell"]: x for x in store.read_json(results_rel(z.name, "suspects.json"))["suspects"]}
+    assert j[1]["grade"] == "C" and j[1]["reasons"] == ["gaia"]
+    assert j[1]["warn_values"]["catalogue_star"]["fainter_mag"] == -0.7
+    assert j[2]["grade"] == "B" and j[2]["reasons"] == [] and j[2]["warn_codes"] == ["catalogue_star"]
+    assert j[2]["warn_values"]["catalogue_star"] == {"sep_arcsec": 3.0, "gaia_sep_arcsec": 3.0, "gaia_g_mag": 19.9,
+                                                     "mover_ab_mag": 17.67, "fainter_mag": 2.2}
 
 
 def _sid(z, m, k) -> str:
@@ -174,7 +209,7 @@ def test_run_grades_a_from_tracklets(tmp_path, monkeypatch):
     store.write_parquet(results_rel(z.name, "tracklets.parquet"), _tracklets(z, m))
     st = S.run(store, z, pred=NO_PRED)
     assert st["vetting"]["grades"] == {"A": 1, "B": 1, "C": 2}
-    assert st["vetting"]["tracklets"] == {"source": "tracklets.parquet", "on_track": 3, "graded_a": 1}
+    assert st["vetting"]["tracklets"] == {"source": "tracklets.parquet", "on_track": 3, "graded_a": 1, "fast_held": 0}
     j = store.read_json(results_rel(z.name, "suspects.json"))
     assert j["grades"] == {"A": 1, "B": 1, "C": 2}
     assert [(x["cell"], x["grade"]) for x in j["suspects"]] == [(1, "A"), (2, "B"), (0, "C"), (3, "C")]  # A leads
@@ -212,15 +247,62 @@ def test_track_grades_rule():
     tr = pd.DataFrame({"mover_id": ids[:5], "tracklet_id": [0, 1, 2, -1, 3], "n_sessions": [3, 1, 2, 1, 3],
                        "rate_arcsec_h": 10.0, "pa_deg": 0.0, "rate_sigma": 2.0, "rate_snr": [5.0, 9.0, 4.99, np.nan, 9.0]})
     out, st = S.track_grades(s, ids, tr)
-    assert list(out["grade"]) == ["A", "B", "B", "B", "C", "B"] and st == {"source": "tracklets.parquet", "on_track": 4, "graded_a": 1}
+    assert list(out["grade"]) == ["A", "B", "B", "B", "C", "B"]
+    assert st == {"source": "tracklets.parquet", "on_track": 4, "graded_a": 1, "fast_held": 0}
     assert list(out["tracklet_id"]) == [0, 1, 2, -1, 3, -1] and out["rate_arcsec_h"].isna().tolist() == [False] * 3 + [True, False, True]
     same, st0 = S.track_grades(s, ids, None)
     assert same is s and st0["graded_a"] == 0
 
 
+def test_fast_track_needs_a_recovered_dot_or_a_detector_partner_for_a():
+    """Above VET_A_FAST_ARCSEC_H a track's movers alone don't make A (a single-detector artefact links too): it needs a
+    recovered dot or a suspect of the track seen by both detectors of a simultaneous pair; slower tracks are unchanged."""
+    ids = [f"m{i}" for i in range(6)]
+    # tracks: 0 fast (400 < 600″/h) no evidence, 1 fast with a D2+D5 partner on its second mover, 2 fast with a
+    # recovered dot, 3 slow (exactly the limit counts as slow)
+    tr = pd.DataFrame({"mover_id": ids, "tracklet_id": [0, 0, 1, 1, 2, 3], "n_sessions": 2,
+                       "rate_arcsec_h": [600.0, 600.0, 600.0, 600.0, 600.0, C.VET_A_FAST_ARCSEC_H], "pa_deg": 0.0,
+                       "rate_sigma": 10.0, "rate_snr": 60.0})
+    s = pd.DataFrame({"grade": ["B"] * 6, "paired_exposures": [0, 0, 0, 1, 0, 0]})
+    out, st = S.track_grades(s, ids, tr, recovered={2: 1, 0: 0})
+    assert list(out["grade"]) == ["B", "B", "A", "A", "A", "A"] and st["fast_held"] == 2 and st["graded_a"] == 4
+    # without paired_exposures: the dot lists tell (D3 and D6 in one exposure)
+    s2 = pd.DataFrame({"grade": ["B"] * 6, "dot_obs": [["e1", "e2"]] * 3 + [["e1", "e1"]] + [["e1"]] * 2,
+                       "dot_det": [[6, 6]] * 3 + [[3, 6]] + [[6]] * 2})
+    for c in ("dot_x", "dot_y", "dot_mjd", "dot_flux", "dot_snr", "dot_size", "dot_chi2", "dot_fpk"):
+        s2[c] = [[0.0] * len(v) for v in s2["dot_obs"]]
+    assert list(S.detector_partner(s2)) == [False, False, False, True, False, False]
+    out2, st2 = S.track_grades(s2, ids, tr)
+    assert list(out2["grade"]) == ["B", "B", "A", "A", "B", "A"] and st2["fast_held"] == 3
+
+
+def test_track_grades_keep_the_in_session_motion():
+    """rate_arcsec_h / pa_deg become the track's (NaN off a track); link's own motion stays in session_*."""
+    s = pd.DataFrame({"grade": ["B", "B"], "rate_arcsec_h": [100.0, 5.0], "pa_deg": [80.0, 10.0]})
+    tr = pd.DataFrame({"mover_id": ["m0"], "tracklet_id": [0], "n_sessions": [3], "rate_arcsec_h": [107.0], "pa_deg": [54.0],
+                       "rate_sigma": [1.0], "rate_snr": [50.0]})
+    out, _ = S.track_grades(s, ["m0", "m1"], tr)
+    assert out["rate_arcsec_h"].tolist()[0] == 107.0 and np.isnan(out["rate_arcsec_h"][1])
+    assert out["session_rate_arcsec_h"].tolist() == [100.0, 5.0] and out["session_pa_deg"].tolist() == [80.0, 10.0]
+    same, _ = S.track_grades(s, ["m0", "m1"], None)
+    assert same["session_rate_arcsec_h"].tolist() == [100.0, 5.0] and same["rate_arcsec_h"].tolist() == [100.0, 5.0]
+
+
+def test_load_recovered_leaves_out_dots_inside_a_star(tmp_path):
+    store = Store(str(tmp_path))
+    z = C.ZONES["pilot"]
+    assert S.load_recovered(store, z) is None
+    store.write_parquet(results_rel(z.name, "tracklet_dots.parquet"),
+                        pd.DataFrame({"tracklet_id": [0, 0, 1, 2], "in_fixed": [True, False, True, False]}))
+    assert S.load_recovered(store, z) == {0: 1, 2: 1}
+    store.write_parquet(results_rel(z.name, "tracklet_dots.parquet"), pd.DataFrame({"tracklet_id": [0, 1, 1]}))
+    assert S.load_recovered(store, z) == {0: 1, 1: 2}
+
+
 def test_allwise_reason_where_catwise_was_the_veto(tmp_path, monkeypatch):
     from skyshift_pipeline.forced_sky import pixel_of
     monkeypatch.setattr(C, "VET_ALLWISE", True)
+    monkeypatch.setattr(C, "SUSPECTS_ALLWISE", "auto")  # conftest turns both off
     monkeypatch.setattr(C, "ALLWISE_CACHE", False)
     z = C.ZONES["pilot"]
     store = Store(str(tmp_path))
@@ -233,7 +315,64 @@ def test_allwise_reason_where_catwise_was_the_veto(tmp_path, monkeypatch):
         return cat[cpix == pix]
 
     empty = pd.DataFrame(columns=["ra", "dec"])
-    out, st = S.grade(store, z, s, s, empty, None, "refcat/pilot.parquet (CatWISE2020)", allwise_reader=reader)
-    assert list(out["reasons"]) == [[], ["allwise"]] and st["catalogs_checked"] == ["allwise"]
-    out2, st2 = S.grade(store, z, s, s, empty, None, "AllWISE on S3", allwise_reader=reader)  # AllWISE was the veto
-    assert list(out2["reasons"]) == [[], []] and st2["catalogs_checked"] == []
+    ra, dec, mjd = (s[c].to_numpy(np.float64) for c in ("ra", "dec", "mjd"))
+    # CatWISE2020 in the refcat (nothing near): AllWISE is a second WISE catalogue, its 3″ source is a reason
+    ref = pd.DataFrame([dict(cat="gaia", ra=130.0, dec=20.0, epoch_mjd=57388.5, pmra=0.0, pmdec=0.0),
+                        dict(cat="catwise", ra=130.1, dec=20.0, epoch_mjd=57170.0, pmra=np.nan, pmdec=np.nan)])
+    cats, info = S.catalogue_matches(store, z, ra, dec, mjd, ref, allwise_reader=reader)
+    assert sorted(cats) == ["allwise", "catwise", "gaia"] and info["wise"] == "catwise"
+    w = S.Warnings(len(s))
+    S.catalogue_warnings(cats, s["flux_ujy"].to_numpy(), w)
+    out, st = S.grade(store, z, s, s, empty, ref, cats, w)
+    assert list(out["reasons"]) == [[], ["allwise"]] and "allwise" in st["catalogs_checked"]
+    assert w.codes[1] == ["catalogue_star"] and w.values[1]["catalogue_star"]["allwise_sep_arcsec"] == 3.0
+    # a Gaia-only refcat: AllWISE is the WISE catalogue; its source is the same reason (and no longer a cut)
+    cats2, info2 = S.catalogue_matches(store, z, ra, dec, mjd, ref[ref["cat"] == "gaia"], allwise_reader=reader)
+    assert sorted(cats2) == ["allwise", "gaia"] and info2["wise"] == "allwise" and info2["catwise_source"].startswith("AllWISE")
+    out2, _ = S.grade(store, z, s, s, empty, ref, cats2, S.Warnings(len(s)))
+    assert list(out2["reasons"]) == [[], ["allwise"]]
+
+
+def test_allwise_cache_without_magnitudes(tmp_path, monkeypatch):
+    """A partition cached before 16 Nov (ra, dec only) is read again from S3 for the magnitudes, then cached with them;
+    with ALLWISE_REREAD_MAGS off it is used as it is, magnitudes NaN."""
+    monkeypatch.setattr(C, "ALLWISE_CACHE", True)
+    monkeypatch.setattr(C, "ALLWISE_REREAD_MAGS", False)
+    store = Store(str(tmp_path))
+    rel = f"{C.ALLWISE_CACHE_DIR}/p00007.parquet"
+    store.write_parquet(rel, pd.DataFrame({"ra": [1.0], "dec": [2.0]}))
+    calls = []
+
+    def reader(pix):
+        calls.append(pix)
+        return pd.DataFrame({"ra": [1.0], "dec": [2.0], "w1mpro": [11.5], "w2mpro": [11.0]})
+
+    df = S.allwise_partition(store, 7, reader)
+    assert calls == [] and list(df.columns) == list(C.ALLWISE_COLUMNS) and np.isnan(df["w1mpro"][0])
+    monkeypatch.setattr(C, "ALLWISE_REREAD_MAGS", True)
+    df = S.allwise_partition(store, 7, reader)
+    assert calls == [7] and df["w1mpro"][0] == 11.5
+    df2 = S.allwise_partition(store, 7, lambda p: (_ for _ in ()).throw(AssertionError()))
+    assert df2["w2mpro"][0] == 11.0
+
+
+def test_dot_numbers_and_gate_warnings():
+    """edge, persistence, sharp and flux_jump warnings carry the numbers behind the gates."""
+    persist = 1 << 17
+    rows = [clean(0), clean(1, x=3.0), clean(2, fpk=(SOURCE | persist, SOURCE)), clean(3, size=(2.0, 4.9), fpk=(OUTLIER, SOURCE)),
+            clean(4, flux=(100.0, 500.0))]
+    s = pd.DataFrame(rows)
+    num = V.dot_numbers(s)
+    assert num["edge_px"][1] == 3.0 and num["edge_px"][0] == 885.0
+    assert list(num["persist_dots"]) == [0, 0, 1, 0, 0]
+    ratio = round(2.0 / C.VET_STAR_SIZE_ARCSEC[4][1], 2)
+    assert round(num["size_ratio"][3], 2) == ratio
+    assert num["flux_ratio"][4] == 5.0 and round(num["flux_ratio"][0], 3) == round(320 / 300, 3)
+    out, _ = V.vet(s, s, None, None, None)
+    w = S.Warnings(len(out))
+    S.gate_warnings(out, w)
+    assert w.codes == [[], ["edge"], ["persistence"], ["sharp"], ["flux_jump"]]
+    assert w.values[1]["edge"] == {"edge_px": 3.0} and w.values[2]["persistence"] == {"dots_at_peak": 1, "n_dots": 2}
+    assert w.values[3]["sharp"] == {"size_ratio": ratio, "outlier_at_peak": 1}
+    assert w.values[4]["flux_jump"] == {"ratio": 5.0}
+    assert V.dot_numbers(s.drop(columns=list(V.DOT_LISTS)))["edge_px"].isna().all()

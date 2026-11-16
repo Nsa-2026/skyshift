@@ -69,6 +69,10 @@ export interface FramesResponse {
   measured?: Measured | null;
   /** v3.3, optional: why `measured` is null; null when it is set. */
   measured_reason?: MeasuredReason | null;
+  /** v3.23, live hours only: a further `page` has exposures of this visit. Absent: false. */
+  more?: boolean;
+  /** v3.23, live hours only: exposures of `det` in the shown visit, all pages together. Absent: null. */
+  visit_exposures?: number | null;
 }
 
 // ---- The measured layer (contracts/api.md v3.3, "measured: what SkyShift measured") ------------

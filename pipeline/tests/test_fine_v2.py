@@ -13,13 +13,14 @@ from skyshift_pipeline.psf import residual_companions
 
 from test_dots_extras import epsf, star_field, synthetic_mef  # noqa: F401  (epsf is a fixture)
 
-FINE = C.DetectSettings(1e-4, 3.0, 6.0, True)
+FINE = C.DetectSettings(1e-4, 3.0, 6.0, True, True)  # + the glow model (16 Nov)
+FINE_NO_GLOW = C.DetectSettings(1e-4, 3.0, 6.0, True)
 
 
 def test_settings_and_folder():
     assert C.zone_detect("t_rdra") == FINE and C.zone_detect("hunt") == C.DetectSettings()
     assert C.DetectSettings().is_sky and not FINE.is_sky
-    assert FINE.folder == "dots_deblend1e-4_cp3_g6_psf"
+    assert FINE.folder == "dots_deblend1e-4_cp3_g6_psf_glow"
     assert C.dots_dir_for(1e-4) == "dots_deblend1e-4"  # tonight's plain 1e-4 folder keeps its name
     assert C.dots_dir_for(0.005, 3.0) == "dots_cp3"
     assert C.dots_dir_for(0.005, 1.0, 6.0) == "dots_g6"
@@ -132,7 +133,8 @@ def test_dots_table_second_pass_on_a_real_photo(tmp_path):
     assert (np.hypot(sky.x - px, sky.y - py) < 1.0).any()
     assert not (np.hypot(sky.x - cx, sky.y - cy) < 1.0).any()
     counts: dict = {}
-    fine = D.dots_table(l2, "X", 1, settings=FINE, counts=counts)
+    # the second pass itself (v2 without the glow model: it leaves the companion's aperture alone, flux 1 % apart)
+    fine = D.dots_table(l2, "X", 1, settings=FINE_NO_GLOW, counts=counts)
     hit = fine[np.hypot(fine.x - cx, fine.y - cy) < 0.6]
     assert len(hit) == 1
     h = hit.iloc[0]

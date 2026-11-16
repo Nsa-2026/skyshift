@@ -50,6 +50,9 @@ export interface BlinkOptions {
   onPick(pick: DotPick): void;
   /** Current epoch changed (for the sky view and the card). */
   onEpoch?(epoch: { id: string; mjd_mid: number; det: Det; presentation?: BlinkPresentation }): void;
+  /** Hours (show() with `pages`): more exposures of the visit were loaded; the response handed to
+   *  show() with all of them (contracts/api.md v3.23 `page`), before show()'s filter. */
+  onFrames?(frames: FramesResponse): void;
   /**
    * The Viewer tab's plate (Alexandra's layout): SkyShift's measured circles start off and their
    * list is folded to one line that turns them on; Close-up/Wide field buttons; double-click zooms.
@@ -64,12 +67,22 @@ export interface BlinkOptions {
 }
 
 export interface BlinkHandle {
-  /** Show frames for this view. jsonUrl resolves epoch data_url. Preloads every epoch before playing. */
+  /** Show frames for this view. jsonUrl resolves epoch data_url. Preloads every epoch before playing.
+   *  pages (hours): the frames show at once, then the rest of their visit loads from the live API, a
+   *  few pages at a time (contracts/api.md v3.23 `page`), and joins the blink without stopping it.
+   *  visitMjd: a time inside the visit to load (an object's find); else one of the frames' own.
+   *  filter: what of the loaded visit the plate shows (an object to check: the day of its find);
+   *  onFrames gets the whole visit. */
   show(
     view: View,
     frames: FramesResponse,
     jsonUrl: string,
-    options?: { singleDetector?: boolean },
+    options?: {
+      singleDetector?: boolean;
+      pages?: boolean;
+      visitMjd?: number | null;
+      filter?: ((frames: FramesResponse) => FramesResponse) | null;
+    },
   ): Promise<void>;
   /** Hours clock: has the shown photo a no-data part (past the detector's edge) worth filling? */
   needsFill?(): boolean;

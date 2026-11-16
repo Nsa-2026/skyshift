@@ -16,7 +16,12 @@ History: #64 compared MPC with SkyBoT on the pilot (docs/research/2026-11-14-mpc
 - Each photo is a kete SpherexCmos field: its s_region corners pushed out by MPC_FOV_PAD_DEG (the exact
   footprint cut stays in load_predictions). One kete.fov_state_check per visit propagates every
   object once with n-body physics across all that visit's photos and corrects for light time.
-- V from H and G (MPC_G_DEFAULT when missing) with kete's H-G model; fainter than MPC_V_MAX is dropped.
+- V from H and G (MPC_G_DEFAULT when missing) with kete's H-G model; fainter than MPC_V_STORE (23) is dropped. The
+  cache kept V < MPC_V_MAX (21) before 16 Nov; consumers still apply that cut where they match by position alone
+  (known.brighter), and match fainter objects only by place, rate and direction (known.certain_known).
+- Comets (16 Nov): cometels.json.gz holds only comets at the MPC's current epoch; allcometels.json.gz adds the rest
+  (306P/LINEAR was missing). See config MPC_COMETS_ALL_URL and merge_comets; an older cometels-only snapshot is
+  completed on first use where the MPC can be reached (summary `comets_complete`).
 
 Cache per session, cache/mpc/<zone>/run_<first obs_id>.json, in the shape known.py describes, which
 score and suspects read through known.load_predictions:
@@ -80,17 +85,87 @@ def _snapshot(store: Store, prefix: str, fetch, refresh: bool = False) -> tuple[
 
 
 def _fetch_asteroids() -> pd.DataFrame:
-    return _kete().mpc.fetch_known_orbit_data(url=C.MPC_ORBITS_URL)
+    # force_download: kete keeps its own copy of every file it downloaded and returns that copy otherwise, so a
+    # "new" snapshot could be days old (16 Nov: kete's cometels copy was the 14 Nov file)
+    return _kete().mpc.fetch_known_orbit_data(url=C.MPC_ORBITS_URL, force_download=True)
+
+
+COMET_COLS = ("desig", "group_name", "peri_dist", "ecc", "incl", "lon_node", "peri_arg", "peri_time", "epoch")
+ORBIT_FILE = "orbit_file"  # comets: which MPC file the row came from ("cometels" or "allcometels"); marks a merged snapshot
+
+
+def comet_table(objs: list[dict]) -> pd.DataFrame:
+    """MPC comet JSON records (cometels.json, allcometels.json: the same fields) → kete's comet table, exactly as
+    kete.mpc.fetch_known_comet_orbit_data builds it (desig = "Designation_and_name" up to "(", perihelion and epoch
+    dates are TT; without an epoch the perihelion date is the epoch). The MPC's H and G of a comet are its total
+    magnitude law, not an H-G pair: left out, as kete does."""
+    T = _kete().Time
+    rows = []
+    for c in objs:
+        peri = (c["Year_of_perihelion"], c["Month_of_perihelion"], c["Day_of_perihelion"])
+        ep = (c["Epoch_year"], c["Epoch_month"], c["Epoch_day"]) if "Epoch_year" in c else peri
+        rows.append({
+            "desig": c.get("Designation_and_name", "").split("(")[0], "group_name": f"Comet {c['Orbit_type']}",
+            "peri_dist": c["Perihelion_dist"], "ecc": c["e"], "incl": c["i"], "lon_node": c["Node"], "peri_arg": c["Peri"],
+            "peri_time": T(T.from_ymd(*peri).utc_jd, scaling="tt").jd, "epoch": T(T.from_ymd(*ep).utc_jd, scaling="tt").jd,
+        })
+    return pd.DataFrame.from_records(rows, columns=list(COMET_COLS))
+
+
+def merge_comets(current: pd.DataFrame, every: pd.DataFrame, min_jd: float = C.MPC_ALLCOMETS_MIN_JD) -> pd.DataFrame:
+    """One row per comet: every row of `current` (cometels: the MPC's current epoch), then the rows of `every`
+    (allcometels) whose designation `current` lacks and whose epoch is from min_jd on (an allcometels row without an
+    epoch has its perihelion date there, as in comet_table). Designations are compared without surrounding spaces.
+    Column ORBIT_FILE says where each row came from."""
+    cur = current.copy()
+    if ORBIT_FILE not in cur:
+        cur[ORBIT_FILE] = "cometels"
+    have = set(cur["desig"].astype(str).str.strip())
+    key = every["desig"].astype(str).str.strip()
+    add = every[~key.isin(have) & ~key.duplicated() & (pd.to_numeric(every["epoch"], errors="coerce") >= min_jd)].copy()
+    add[ORBIT_FILE] = "allcometels"
+    return pd.concat([cur, add], ignore_index=True)
+
+
+def _fetch_all_comets() -> pd.DataFrame:
+    return comet_table(_kete().mpc.download_json(C.MPC_COMETS_ALL_URL, force_download=True))
 
 
 def _fetch_comets() -> pd.DataFrame:
-    return _kete().mpc.fetch_known_comet_orbit_data()
+    """cometels + allcometels, both downloaded now, merged (merge_comets)."""
+    current = comet_table(_kete().mpc.download_json(C.MPC_COMETS_URL, force_download=True))
+    return merge_comets(current, _fetch_all_comets())
 
 
-def orbit_table(store: Store) -> tuple[pd.DataFrame, str]:
-    """Asteroids then comets, one row per object, and the snapshot names ("mpcorb_… + cometels_…")."""
+def _complete_comets(store: Store, com: pd.DataFrame, name: str) -> tuple[pd.DataFrame, str, bool]:
+    """A cometels snapshot made before 16 Nov holds cometels.json only (no ORBIT_FILE column). Add allcometels' comets
+    to its rows and save that as today's snapshot, which every later run then uses; the cometels rows stay as they were.
+    When the MPC can't be reached (the GCP machines) the old snapshot is used and the third value is False (summary
+    `comets_complete`): run `skyshift-pipeline mpc-orbits` from a laptop."""
+    if ORBIT_FILE in com.columns:
+        return com, name, True
+    try:
+        merged = merge_comets(com, _fetch_all_comets())
+    except Exception as e:  # noqa: BLE001
+        L.warning("comets: %s has cometels.json only and allcometels could not be fetched (%s): comets last seen before "
+                  "the MPC's current epoch (e.g. 306P) are missing; run `skyshift-pipeline mpc-orbits` from a laptop",
+                  name, str(e)[:200])
+        return com, name, False
+    merged["desig"] = merged["desig"].astype(str)
+    new = _snapshot_name("cometels")
+    store.write_parquet(f"{C.MPC_ORBITS_DIR}/{new}", merged)
+    L.info("comets: %s + %d from allcometels saved as %s", name, int((merged[ORBIT_FILE] == "allcometels").sum()), new)
+    return merged, new, True
+
+
+def orbit_table(store: Store, stats: dict | None = None) -> tuple[pd.DataFrame, str]:
+    """Asteroids then comets, one row per object, and the snapshot names ("mpcorb_… + cometels_…").
+    stats (optional) gets `comets_complete` and `comets`."""
     ast, a = _snapshot(store, "mpcorb", _fetch_asteroids)
     com, c = _snapshot(store, "cometels", _fetch_comets)
+    com, c, complete = _complete_comets(store, com, c)
+    if stats is not None:
+        stats.update({"comets_complete": complete, "comets": int(len(com))})
     return pd.concat([ast, com], ignore_index=True), f"{a} + {c}"
 
 
@@ -210,7 +285,7 @@ def padded_corners(s_region: str, pad_deg: float) -> list[tuple[float, float]]:
 def seen_in_photos(kete, states: list, objs: pd.DataFrame, photos: pd.DataFrame, observers: dict) -> pd.DataFrame:
     """One fov_state_check over the photos' fields (states first moved to one epoch, the first field's
     time, as kete requires). Rows: obs_id, detector, row (orbit row), ra, dec, dra_arcsec_h,
-    ddec_arcsec_h, v; objects fainter than MPC_V_MAX dropped."""
+    ddec_arcsec_h, v; objects fainter than MPC_V_STORE dropped (kete's work is the same at any V cut)."""
     t0 = time.time()
     states = kete.propagate_n_body(states, min(observers[o][0].jd for o in set(photos["obs_id"])))
     L.info("orbits moved to the visit start in %.0f s", time.time() - t0)
@@ -231,7 +306,7 @@ def seen_in_photos(kete, states: list, objs: pd.DataFrame, photos: pd.DataFrame,
         h, g = objs["h"].to_numpy()[rows], objs["g"].to_numpy()[rows]
         v = np.array([kete.flux.hg_apparent_mag(st.pos, sun2obs, float(hh), float(gg)) if np.isfinite(hh) else np.nan
                       for st, hh, gg in zip(ss.states, h, g)], float)
-        keep = ~(v >= C.MPC_V_MAX)  # unknown V is kept: better a known object too many than a false suspect
+        keep = ~(v >= C.MPC_V_STORE)  # unknown V is kept: better a known object too many than a false suspect
         parts.append(pd.DataFrame({
             "obs_id": obs_id, "detector": det, "row": rows[keep], "ra": rd[keep, 0] % 360.0, "dec": rd[keep, 1],
             "dra_arcsec_h": rd[keep, 2] * DEG_DAY_TO_ARCSEC_H, "ddec_arcsec_h": rd[keep, 3] * DEG_DAY_TO_ARCSEC_H,
@@ -297,7 +372,7 @@ def run(store: Store, zone: C.Zone, limit: int | None = None) -> dict:
     if not todo:
         return {**out, "wall_s": round(time.time() - t_start, 1)}
 
-    orb, snapshot = orbit_table(store)
+    orb, snapshot = orbit_table(store, out)
     objs = object_table(orb)
     t0 = time.time()
     states = build_states(orb)
@@ -315,7 +390,7 @@ def run(store: Store, zone: C.Zone, limit: int | None = None) -> dict:
     L.info("SPHEREx position for %d exposures in %.0f s (%d fell back to the Earth's centre)", len(need),
            time.time() - t0, n_geo)
 
-    query = {"source": "mpc", "orbits": snapshot, "kete": getattr(kete, "__version__", "?"), "v_max": C.MPC_V_MAX,
+    query = {"source": "mpc", "orbits": snapshot, "kete": getattr(kete, "__version__", "?"), "v_max": C.MPC_V_STORE,
              "fov_pad_deg": C.MPC_FOV_PAD_DEG, "observer": "SPHEREx (IMAGE header X_SC.., MJD-AVG)"}
     chunks = pd.concat(todo).groupby("visit", sort=True) if "visit" in photos.columns else [(0, pd.concat(todo))]
     n_obj, n_rows = [], 0

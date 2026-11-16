@@ -117,6 +117,8 @@ DOTS_FINE_CLEAN_PARAM = 3.0    # sep clean_param (1.0 = sep's default = the sky 
 DETECT_SAT_GUARD_PX = 6.0      # a dot the sky run's setting doesn't also find (within 1 px) is dropped this close to an
                                # OVERFLOW/NONLINEAR pixel; second-pass dots too
 DOTS_FINE_PSF_PASS = True      # the ePSF second pass (psf.residual_companions) for the fine zones
+DOTS_FINE_GLOW = True          # the glow model (core.glow; GLOW_* below) for the fine zones: folder suffix _glow
+DOTS_SKY_GLOW = False          # ... and for the sky run (off: dots/ stays as written; on: dots_glow/)
 # ePSF second pass: subtract the ePSF of every unsaturated dot with S/N >= PSF_PASS_PRIMARY_SNR (ePSF position, then
 # flux), run sep on the residual within PSF_PASS_R_PX of those dots (noise √(noise² + (PSF_PASS_MODEL_FRAC · model)²),
 # minarea PSF_PASS_MINAREA, deblend_cont PSF_PASS_DEBLEND_CONT), keep new dots > PSF_PASS_DEDUP_PX from every dot with
@@ -135,6 +137,33 @@ PSF_PASS_MIRROR_R_PX = 1.5
 PSF_PASS_MIRROR_FRAC = 0.5
 PSF_PASS_MIRROR_SIGMA = 3.0
 SEP_FLAG_PSF_PASS = 0x200      # sep_flag bit of a dot found by the second pass (sep's own flags use bits 0x1–0x80)
+# Extraction v2 (16 Nov; docs/extraction-v2.md): the settings of the one combined rerun of every photo. Off until that
+# rerun (DOTS_V2, env SKYSHIFT_DOTS_V2=1): every zone then uses DOTS_V2_SETTINGS (fine detection v2 + glow + the matched-filter pass and the
+# v2 columns, peaks file and photo metadata), folder dots_deblend1e-4_cp3_g6_psf_glow_v2/. Measured on ecl04 D2
+# (2025W34_1B_0173_1D2, full frame) and 256-row bands of ecl04 / hunt photos: see docs/extraction-v2.md.
+DOTS_V2 = os.environ.get("SKYSHIFT_DOTS_V2", "0") == "1"   # env SKYSHIFT_DOTS_V2=1 turns it on
+# Matched-filter pass: the ePSF-matched filter (inverse-variance weighted, ePSF of the pixel's zone, source centred on
+# the pixel) on the residual of the second pass (IMAGE minus its background and the ePSF models of the S/N >= 10 dots;
+# noise √(noise² + (PSF_PASS_MODEL_FRAC · model)²)). A local maximum (3 × 3) of its S/N >= MF_PASS_SNR, more than
+# MF_PASS_DEDUP_PX from every dot, outside the saturation guard and a glow star's own pixels, and passing the mirror test
+# when it lies within PSF_PASS_R_PX of a subtracted dot, is a dot (sep_flag SEP_FLAG_MF_PASS), measured on the residual.
+# Its aperture snr may be < DOT_MIN_SNR (MF S/N ≈ 1.5 × aperture S/N at S/N 5–7). Every dot gets snr_mf.
+MF_PASS_SNR = 5.0
+MF_PASS_DEDUP_PX = 1.0
+MF_KERNEL_HALF = 3             # ePSF kernel (2h+1)² px
+MF_PHASES = 1                  # sub-pixel source positions per axis (2: 4 kernels per tile; on ecl04 D2 Gaia at aperture
+                               # S/N 3–4 64 → 80% found, but 4× the noise peaks (negative image, >= 5: 30 → 131): off)
+MF_ZONE_GROUP = 3              # ePSF zones merged 3 × 3 per kernel tile (21 × 21 zones per photo -> 7 × 7 tiles)
+SEP_FLAG_MF_PASS = 0x400
+# Peaks file (v2): every other local maximum of the same S/N map >= MF_PEAK_SNR with no dot within MF_PASS_DEDUP_PX
+# (S/N 4–5, and the >= 5 peaks the guard / glow / mirror test refused): <folder>_peaks/<obs_id>D<det>.parquet.
+MF_PEAK_SNR = 4.0
+DOTS_TRANSIENT_R_PX = 3.0      # v2 column n_transient: TRANSIENT pixels within this radius of the dot
+EMPIRICAL_NOISE_N = 400        # v2 photo metadata: r = 2 px forced aperture at this many random places ...
+EMPIRICAL_NOISE_MIN_SEP_PX = 8.0  # ... at least this far from every dot
+EMPIRICAL_NOISE_SEED = 0
+PARTNER_DETECTOR = {1: 4, 4: 1, 2: 5, 5: 2, 3: 6, 6: 3}  # exposed at the same moment (CLAUDE.md)
+SAT_CORES_MAX = 1000           # v2 photo metadata: OVERFLOW/NONLINEAR clumps listed (largest first)
 
 
 @dataclass(frozen=True)
@@ -144,10 +173,12 @@ class DetectSettings:
     clean_param: float = 1.0
     sat_guard_px: float = 0.0
     psf_pass: bool = False
+    glow: bool = False
+    v2: bool = False               # extraction v2: matched-filter pass, v2 columns, peaks file, v2 metadata
 
     @property
     def folder(self) -> str:
-        return dots_dir_for(self.deblend_cont, self.clean_param, self.sat_guard_px, self.psf_pass)
+        return dots_dir_for(self.deblend_cont, self.clean_param, self.sat_guard_px, self.psf_pass, self.glow, self.v2)
 
     @property
     def is_sky(self) -> bool:
@@ -161,10 +192,12 @@ def _num(v: float) -> str:
     return f"{mant}e{int(exp)}"
 
 
-def dots_dir_for(deblend_cont: float, clean_param: float = 1.0, sat_guard_px: float = 0.0, psf_pass: bool = False) -> str:
+def dots_dir_for(deblend_cont: float, clean_param: float = 1.0, sat_guard_px: float = 0.0, psf_pass: bool = False,
+                 glow: bool = False, v2: bool = False) -> str:
     """The folder of dot files made with these settings: DOTS_DIR for the sky run's, else DOTS_DIR plus one part per
-    setting that differs: _deblend<v> (1e-4 -> dots_deblend1e-4), _cp<clean_param>, _g<guard px>, _psf
-    (the fine zones' v2: dots_deblend1e-4_cp3_g6_psf)."""
+    setting that differs: _deblend<v> (1e-4 -> dots_deblend1e-4), _cp<clean_param>, _g<guard px>, _psf, _glow, _v2
+    (the fine zones' v2: dots_deblend1e-4_cp3_g6_psf; with the glow model, 16 Nov: dots_deblend1e-4_cp3_g6_psf_glow;
+    extraction v2: dots_deblend1e-4_cp3_g6_psf_glow_v2)."""
     name = DOTS_DIR
     if float(deblend_cont) != float(DOTS_DEBLEND_CONT):
         name += f"_deblend{_num(deblend_cont)}"
@@ -174,14 +207,24 @@ def dots_dir_for(deblend_cont: float, clean_param: float = 1.0, sat_guard_px: fl
         name += f"_g{float(sat_guard_px):g}"
     if psf_pass:
         name += "_psf"
+    if glow:
+        name += "_glow"
+    if v2:
+        name += "_v2"
     return name
 
 
+DOTS_V2_SETTINGS = DetectSettings(DOTS_FINE_DEBLEND_CONT, DOTS_FINE_CLEAN_PARAM, DETECT_SAT_GUARD_PX, True, True, True)
+
+
 def zone_detect(zone: str | None) -> DetectSettings:
-    """The detection settings of the `dots` step for this zone (None: the sky run's)."""
+    """The detection settings of the `dots` step for this zone (None: the sky run's); DOTS_V2: extraction v2 for all."""
+    if DOTS_V2:
+        return DOTS_V2_SETTINGS
     if zone in DOTS_FINE_ZONES:
-        return DetectSettings(DOTS_FINE_DEBLEND_CONT, DOTS_FINE_CLEAN_PARAM, DETECT_SAT_GUARD_PX, DOTS_FINE_PSF_PASS)
-    return DetectSettings(DOTS_DEBLEND_CONT)
+        return DetectSettings(DOTS_FINE_DEBLEND_CONT, DOTS_FINE_CLEAN_PARAM, DETECT_SAT_GUARD_PX, DOTS_FINE_PSF_PASS,
+                              DOTS_FINE_GLOW)
+    return DetectSettings(DOTS_DEBLEND_CONT, glow=DOTS_SKY_GLOW)
 
 
 def zone_dots(zone: str | None) -> tuple[str, float]:
@@ -207,8 +250,30 @@ ELONG_BKG_PX = (3.5, 5.5)      # local background annulus for elong
 # One cache file per session in cache/mpc/<zone>/; score and suspects read it.
 MPC_ORBITS_URL = "https://minorplanetcenter.net/Extended_Files/mpcorb_extended.json.gz"
 MPC_ORBITS_DIR = "cache/mpc/orbits"  # mpcorb_<date>.parquet + cometels_<date>.parquet: dated snapshots, newest used everywhere
-MPC_V_MAX = 21.0                     # keep objects brighter than this (score uses V < 16 to 18)
+# Comets (16 Nov): cometels.json.gz (what kete reads, = CometEls.txt) holds only the comets whose orbits the MPC moved to
+# its current epoch (973 on 16 Nov 2026: epoch 2026-11-15); comets last observed earlier in the mission are left out
+# (306P/LINEAR, the ecl04 "grade A" mover: epoch 2025-11-21). allcometels.json.gz (= AllCometEls.txt, 4,666 comets) has
+# every comet's latest orbit. The cometels snapshot is both, by designation, cometels' row first; from allcometels
+# only orbits with an epoch (or, without one, a perihelion) from MPC_ALLCOMETS_MIN_JD on: older ones are lost or
+# historical comets (SOHO sungrazers, 19th-century apparitions) whose elements say nothing about 2025–2026.
+MPC_COMETS_URL = "https://minorplanetcenter.net/Extended_Files/cometels.json.gz"         # kete's comet file
+MPC_COMETS_ALL_URL = "https://minorplanetcenter.net/Extended_Files/allcometels.json.gz"
+MPC_ALLCOMETS_MIN_JD = 2457023.5     # 2015-01-01
+MPC_V_MAX = 21.0                     # the 30″ position-only known cut (suspects) and nearest_known_arcsec use objects brighter
+                                     # than this (or without V: comets, planets); score uses V < 16 to 18
+MPC_V_STORE = 23.0                   # the cache keeps objects to this V (16 Nov; was MPC_V_MAX): fainter known asteroids and
+                                     # NEOs glowing in D5–D6 are flagged by the certain rule below, never by position alone.
+                                     # Rows per photo vs V < 21: x2.5 at 22, x5.1 at 23, x8.9 at 25 (1,754 movers, 16 Nov); the
+                                     # faintest body SPHEREx put on a mover was V 21.3 (an NEO), so 23 leaves 1.7 mag; the check
+                                     # producer scripts/candidates/known_check.py matches near candidates with no V cut at all
 MPC_G_DEFAULT = 0.15                 # H-G slope when the MPC has none
+# Certain known body (contracts/api.md v3.23 `status` known): predicted within KNOWN_CERTAIN_ARCSEC of every dot's time and
+# place, its on-sky rate within KNOWN_RATE_TOL (fraction) of ours and its direction within KNOWN_PA_TOL_DEG when both move.
+# Any brightness. Nearer than KNOWN_NEARBY_ARCSEC but not certain: a `known_nearby` check (warn) for a person to look at.
+KNOWN_CERTAIN_ARCSEC = 10.0
+KNOWN_RATE_TOL = 0.2
+KNOWN_PA_TOL_DEG = 15.0
+KNOWN_NEARBY_ARCSEC = 120.0
 MPC_HEADER_WORKERS = 32              # parallel IMAGE header reads (one per exposure; ~1 s each, I/O bound)
 MPC_HEADER_BLOCK = 262_144           # bytes per HTTPS read: the primary and IMAGE headers fit in the first block
 MPC_FOV_PAD_DEG = 0.05               # kete fields are the s_region corners pushed out 3′; load_predictions cuts exactly
@@ -248,6 +313,27 @@ SIMULTANEOUS_PAIRS = ((1, 4), (2, 5), (3, 6))
 PAIR_CONFIRMED_RATE_ARCSEC_PER_MIN = 5.0  # two dots that each have a simultaneous partner also pair up to 3″ + this × Δt
                               # (fast movers, ~140–380″/h, step past the plain rule; their per-exposure D1+D4 pairs
                               # would otherwise be one-exposure candidates that MOVER_MAX_MISSED_FEW drops)
+# Fast movers without a detector partner (16 Nov; near-Earth asteroids glowing in D5/D6 alone, or too faint in the
+# partner): beyond the plain rule two dots of different exposures pair up to 3″ + this × Δt only when a dot of a third
+# exposure of the session lies within PAIR_FAST_LINE_ARCSEC of their constant-rate line at its time (a straight,
+# evenly spaced chain of >= 3 exposures). 15″/min = 900″/h: a trail of 28″ in 113 s, where the dots reach
+# MOVER_MAX_ELONG (elong × √(1 + L²/12σ²), σ = 3.2″). None = off. Injection (pilot centre, one detector only, 16 Nov):
+# movers found 146–250″/h 5% → 68%, 250–400 0 → 69%, 400–600 0 → 52%, 600–900 0 → 20%; slower bins unchanged.
+# Known asteroids (MPC): ecl08 146–400″/h 0 → 7 found (every one with a free dot), pilot 0 → 1.
+PAIR_FAST_RATE_ARCSEC_PER_MIN = 15.0
+PAIR_FAST_LINE_ARCSEC = 3.0
+# ... and above PAIR_FAST_TRAIL_MIN_ARCSEC_H the chain's dots must look trailed: median elong >= 1 + PAIR_FAST_TRAIL_FRAC ×
+# (√(1 + L²/12σ²) − 1), L = rate × PAIR_EXPOSURE_S (point-like dots: median elong 1.3 at S/N 5–10). ecl08 (crowded, b ~ 0°)
+# fast movers after the flux veto, real vs shuffled control: 146–250″/h 11 vs 0, 250–400 5 vs 3, 400–900 5 vs 5 without
+# this test, 3 vs 1 with it (0.5: 5 vs 5; 1.0: 2 vs 0). None = no trail test.
+PAIR_FAST_TRAIL_MIN_ARCSEC_H = 400.0
+PAIR_FAST_TRAIL_FRAC = 0.75
+PAIR_EXPOSURE_S = 113.0
+# Shuffled-exposure control (16 Nov; link stats `control`): the free dots, every dot and the footprints of each exposure
+# moved by its own offset (LINK_CONTROL_OFFSET_ARCSEC, directions spread evenly per session from a seeded random start,
+# so no two exposures of a session move together) and paired, covered and vetted like the real ones: no real object
+# links any more, chance pairs of unrelated dots stay. The movers it makes are the chance level. None = off.
+LINK_CONTROL_OFFSET_ARCSEC = 300.0
 MOVER_MAX_ELONG = 3.0         # dots longer than this (trails, cosmic rays) don't pair
 MOVER_MIN_COVER_SESSIONS = 3  # sessions whose footprints contain the candidate
 # Fixed groups: an asteroid at ~40″/h moves ~1.4″ per exposure, so the 4″ FoF chains its dots, and a track passing a
@@ -261,6 +347,12 @@ FIXED_RELEASE_ARCSEC = 6.0
 # s75: a 2,600 µJy asteroid chained into a 476 µJy star 3.4–4.8″ away), and the release made 85 uncatalogued fixed sources
 # on a 2.1 deg² box (wing fragments ~7.7″ from S/N ~370 stars, seen in a few of the star's sessions). So also released:
 FIXED_RELEASE_FLUX_RATIO = 3.0      # a dot >= this × its group's median flux in its detector (not saturated at the peak)
+# ... and (16 Nov, variable-safe) only when it also sits off the group (FIXED_RELEASE_SESSION_ARCSEC + _SIGMA × its σ from
+# the median) or the group's bright dots lie in one session and it sits > FIXED_RELEASE_FLUX_ONE_SESSION_ARCSEC off: a
+# variable star's bright state (Mira, young star) lies on the star over several sessions and stays one source; an
+# asteroid crossing a fainter star is one session, 2–5″ off (Alekto s75: 2.5–4.8″). False = the flux alone.
+FIXED_RELEASE_FLUX_SAFE = True
+FIXED_RELEASE_FLUX_ONE_SESSION_ARCSEC = 1.0
 FIXED_RELEASE_SESSION_ARCSEC = 2.0  # a session whose dots' mean is > this + FIXED_RELEASE_SESSION_SIGMA × the mean's σ from
 FIXED_RELEASE_SESSION_SIGMA = 3.0   # the median of the group's session means (those of its visit when it has >= 3 there)
 # ... and > this × the median offset of those sessions: a slow mover (0.02–0.2″/h, a distant planet) drifts through all
@@ -278,6 +370,14 @@ FIXED_RELEASE_CATALOG_ARCSEC = 2.5
 # A free dot >= this × the median flux, in its detector, of every fixed source within FIXED_VETO_ARCSEC (not saturated at
 # the peak) escapes the 6″ veto: an asteroid passing a fainter star. None = the plain veto.
 FIXED_VETO_BRIGHT_RATIO = 3.0
+# Star crossings (16 Nov): an asteroid passing within 4″ of a star is chained into its fixed group (hunt: 2.4% of known
+# V < 16 sightings, 10% at V 17–18; ecl08 5–24%). nonfixed_dots.parquet also lists (in_fixed) a group's member dots that
+# sit > FIXED_OFF_ARCSEC + FIXED_OFF_SIGMA × σ off its median in their photo, or are a second dot of the group in one photo
+# > FIXED_OFF_ARCSEC off, unless another session has such a dot within FIXED_OFF_REPEAT_ARCSEC (a neighbour, a wing piece).
+# tracklets recovers them only on a track's predicted path (TRACK_RECOVER_IN_FIXED). None = off.
+FIXED_OFF_ARCSEC = 1.5
+FIXED_OFF_SIGMA = 3.0
+FIXED_OFF_REPEAT_ARCSEC = 2.0
 # Mover vetting (link.vet_reason, after the session-coverage test; stats vetoed_<rule>; SKYSHIFT_MOVER_VET=off keeps
 # every candidate, with the columns). Hunt, 14 Nov: of 6,143 movers 4,464 were seen in two exposures and 4,045 of those
 # matched no MPC object; 209 of the 228 suspects were two-dot pairs. Known asteroids with V < 17 showed a dot in every
@@ -356,14 +456,40 @@ G2_RECALL_MIN = 0.5
 V_BINS = (-99.0, 12.0, 14.0, 15.0, 16.0, 17.0, 18.0)
 
 # --- suspects ------------------------------------------------------------------------------
-KNOWN_ARCSEC = 30.0
-GAIA_ARCSEC = 6.0
-CATWISE_ARCSEC = 6.0
-BRIGHT_FIXED_ARCSEC = 30.0
+# 16 Nov: only what is certain is removed (a known body matching place and, where measured, rate and direction; a
+# planet, its moons or its glare). Every other former cut stays on the suspect as a warning: warn_codes (contracts/api.md
+# v3.23 check codes) and warn_values ({code: {name: number}}); the exporter turns them into `checks`.
+KNOWN_ARCSEC = 30.0            # a known object this close (same session) that isn't certainly it: warning `known_nearby`
+# removed as that known body: within SUSPECT_KNOWN_CERTAIN_ARCSEC at the mover's time (place alone), or within KNOWN_ARCSEC
+# with our measured motion at its rate (50% or 3σ) and direction (45° or 3σ). ecl04, 1,911 movers within 5″ of an MPC
+# prediction with our motion measured (2–6 exposures): rate ratio p1–p99 0.43–1.94, direction p95 30°, p99 59°; a
+# 20% / 15° test would have kept 32% of them (619) as suspects, 50% / 45° keeps 6%: motion alone never overrules place.
+SUSPECT_KNOWN_CERTAIN_ARCSEC = 5.0
+SUSPECT_KNOWN_RATE_TOL = 0.5
+SUSPECT_KNOWN_PA_TOL_DEG = 45.0
+SUSPECT_KNOWN_MOTION_SNR = 3.0  # our motion is measured: two exposures at motion_snr >= this, or a line through >= 3
+SUSPECT_HOT_PIXEL_PX = 1.0     # removed as a hot pixel: in one detector, dots of >= 2 exposures all this close (px) to
+SUSPECT_HOT_SKY_PX = 3.0       # their median pixel while the sky under them moved >= this many pixels (rate × Δt)
+GAIA_ARCSEC = 6.0              # catalogue_star (and reason `gaia`): a Gaia DR3 star (G < 20) this close
+CATWISE_ARCSEC = 6.0           # catalogue_star (and reason `catwise`): a CatWISE2020 source this close
+# a catalogue source within its radius is a vetting reason (gaia, catwise, allwise, 2mass: grade C) only when it is at
+# most this much fainter than the mover (AB, the catalogue's brightest band; unknown brightness counts as catalogued);
+# fainter, it is a chance neighbour: catalogue_star only. ecl04: real asteroids' sources p50 3.3 mag fainter, junk 1.1–1.6.
+SUSPECT_CATALOGUE_FAINTER_MAG = 2.0
+SUSPECT_VEGA_TO_AB = {"g_mag": 0.0, "w1_mag": 2.699, "w2_mag": 3.339, "j_mag": 0.91, "k_mag": 1.85}  # catalogue (Vega) -> AB
+BRIGHT_FIXED_ARCSEC = 30.0     # bright_star: a fixed source with snr >= BRIGHT_FIXED_SNR this close
 BRIGHT_FIXED_SNR = 100.0       # a fixed source this bright makes ghosts and halos around it
-SUSPECT_VETO_BITS = (1 << 22) | (1 << 23) | (1 << 24) | (1 << 20) | (1 << 28) | (1 << 26)
-# GHOST, GHOST_FPA, GHOST_EXT, CROSSTALK, HALO, BLOOM
-SOURCE_BIT = 1 << 21           # catalogue stars / compact galaxies to AB ~19; in flags_peak -> drop
+# GHOST, GHOST_FPA, GHOST_EXT, CROSSTALK, HALO, BLOOM in a dot's 3×3: warnings since 16 Nov, no longer a cut
+SUSPECT_FLAG_WARN = {"flag_bloom": 1 << 26, "flag_halo": 1 << 28, "flag_ghost": (1 << 22) | (1 << 23) | (1 << 24),
+                     "flag_crosstalk": 1 << 20}  # warn code -> record bits in any dot's 3×3 (`flags`)
+# the strong form of a warning is also a vetting reason (grade C, ranked last, never removed). Measured on every mover of
+# ecl04 / ecl11 (real = an MPC prediction within 5″; rest = no known body within 60″), share hit real vs rest:
+#   BLOOM in a dot's 3×3 0.0 / 0.5% vs 13.5 / 3.4%; at every dot's peak 0.0 / 0.0% vs 11.3 / 2.8%   -> reason `bloom`
+#   HALO in a dot's 3×3 20.4 / 22.1% vs 21.9 / 24.4% (no use); at every dot's peak 0 / 0% vs 5.2 / 5.9% -> reason `halo`
+#   bright fixed source within 30″ 1.0 / 2.9% vs 26.4 / 18.4%; within 15″ 0.2 / 0.3% vs 23.5 / 11.0%   -> `bright_star`
+SUSPECT_PEAK_ALL_GATES = {"bloom": 1 << 26, "halo": 1 << 28}  # reason -> bit at every dot's peak (flags_peak_all)
+SUSPECT_BRIGHT_GATE_ARCSEC = 15.0  # reason `bright_star`: the bright fixed source this close (the warning goes to 30″)
+SOURCE_BIT = 1 << 21           # catalogue stars / compact galaxies to AB ~19; at every dot's peak -> catalogue_star
 SOURCE_PHOTO_MAX_FRAC = 0.9    # a photo with SOURCE at the peak of more than this share of its dots
                                # (seen: 99.98% on 2025W42_2A_0111_1D1) carries no information: ignore it there
 CATALOG_BATCH = 50
@@ -598,6 +724,15 @@ REFCAT_GAIA_G_MAX = 20.0
 # refcat/<zone>_forced.parquet is written (Gaia part), so extraction can start fast; a later normal
 # refcat run sees the full refcat missing, reuses the cached Gaia tiles and adds CatWISE + 2MASS.
 REFCAT_CATALOGS = tuple(c.strip() for c in os.environ.get("SKYSHIFT_REFCAT_CATALOGS", "gaia,catwise,2mass").split(",") if c.strip())
+# The env var limits only a standalone `refcat` run: `all` (the combine) always builds every catalogue (16 Nov: the
+# sky run's global SKYSHIFT_REFCAT_CATALOGS=gaia left 64 combined zones Gaia-only: 59 ecliptic, 5 featured targets).
+# When IRSA's TAP fails for CatWISE2020 or 2MASS, the tile comes from AllWISE on S3 (and AllWISE's 2MASS
+# associations); "0" turns that off.
+REFCAT_S3_FALLBACK = os.environ.get("SKYSHIFT_REFCAT_S3_FALLBACK", "1") != "0"
+# "1": CatWISE's and 2MASS's roles come from AllWISE on S3 first, IRSA's TAP only if S3 fails. For a many-zone rerun:
+# IRSA's CatWISE took 60–444 s per 1° tile (14 and 16 Nov), an AllWISE partition (~3.4 deg²) ~33 s from a laptop.
+# Costs: no CatWISE motions (AllWISE positions at ~2010.5), 2MASS only where AllWISE matched a source within 3″.
+REFCAT_S3_FIRST = os.environ.get("SKYSHIFT_REFCAT_S3_FIRST", "0") == "1"
 # Gaia DR3 synthetic photometry (GSPC z, y: calib's D1 anchors) joins the ESA Gaia query since 15 Nov. A full (not
 # partial) refcat run over a zone whose Gaia tiles were cached without it refetches those tiles only, best effort.
 REFCAT_GSPC_UPGRADE = os.environ.get("SKYSHIFT_REFCAT_GSPC_UPGRADE", "1") != "0"
@@ -784,13 +919,14 @@ FORCED_SKY_PAD_DEG = 0.05                          # extra radius when picking a
 FORCED_SKY_CACHE_PARTITIONS = 16                   # partitions kept in memory per dots worker (a photo reads ~10-14)
 
 # --- final pass (15 Nov): zones with a Gaia-only refcat (SKYSHIFT_REFCAT_CATALOGS=gaia) -----------
-# suspects: the WISE veto. refcat/<zone>.parquet without CatWISE rows (Gaia-only) -> AllWISE from IRSA's HEALPix
-# Parquet on AWS S3 (anonymous): only the order-5 partitions (nside 32, nested, 3.36 deg²) the remaining movers' 6″
-# circles touch, columns ra and dec only (each file is ONE row group, so row-group predicate pushdown skips nothing:
-# the saving is the partition choice and the column projection, ~1 MB of a ~22 MB file). CatWISE2020 is not on S3
+# suspects: the WISE catalogue (16 Nov: a reason and a warning, no longer a veto). refcat/<zone>.parquet without CatWISE
+# rows (Gaia-only) -> AllWISE from IRSA's HEALPix Parquet on AWS S3 (anonymous): only the order-5 partitions (nside 32,
+# nested, 3.36 deg²) the suspects' 6″ circles touch, columns ALLWISE_COLUMNS only (each file is ONE row group, so
+# row-group predicate pushdown skips nothing: the saving is the partition choice and the column projection, ~1 MB of
+# a ~22 MB file; 38–43 partitions for a 10° × 10° zone). CatWISE2020 is not on S3
 # (s3://nasa-irsa-wise/ has wise/{allsky,allwise,cryo-3band,neowiser,postcryo} and unwise/neo7, 14 Nov).
 # AllWISE positions are the non-moving fit at ~2010.5 (MJD ~55400), no proper motion applied: a source moving
-# > ~400 mas/yr has left the 6″ circle by 2025 (Gaia, moved by its own pm, still vetoes those down to G < 20).
+# > ~400 mas/yr has left the 6″ circle by 2025 (Gaia, moved by its own pm, still matches those down to G < 20).
 # "auto": AllWISE when the refcat has no CatWISE rows; "always": also instead of the TAP services when the refcat is
 # missing; "off": never (a Gaia-only refcat then leaves catwise_checked false).
 SUSPECTS_ALLWISE = os.environ.get("SKYSHIFT_SUSPECTS_ALLWISE", "auto")
@@ -800,10 +936,14 @@ ALLWISE_S3_PREFIX = "wise/allwise/catalogs/p3as_psd/healpix_k5/wise-allwise.parq
 ALLWISE_NSIDE = 32             # partition order k = 5, nested
 ALLWISE_ARCSEC = CATWISE_ARCSEC  # same veto radius as CatWISE
 ALLWISE_EPOCH_MJD = 55400.0    # ~2010.5: documentation only, positions are used as they are
-ALLWISE_COLUMNS = ("ra", "dec")
+ALLWISE_COLUMNS = ("ra", "dec", "w1mpro", "w2mpro")  # magnitudes for catalogue_star (16 Nov)
+# a partition cached before 16 Nov (ra, dec only: 1,752 files, 1.6 GB in the bucket) is read again from S3 for the
+# magnitudes (the catalogue reasons compare them with the mover's); SKYSHIFT_ALLWISE_REREAD_MAGS=0 uses it as it is
+# (magnitudes NaN: every AllWISE source within 6″ is then a reason, as before 16 Nov)
+ALLWISE_REREAD_MAGS = os.environ.get("SKYSHIFT_ALLWISE_REREAD_MAGS", "1") == "1"
 ALLWISE_WORKERS = 8            # partitions read in parallel
 ALLWISE_TIMEOUT_S = 120.0      # per S3 request
-ALLWISE_CACHE_DIR = "cache/allwise/k5"  # p<pixel:05d>.parquet (ra, dec) at the store root: neighbouring zones and reruns reuse it
+ALLWISE_CACHE_DIR = "cache/allwise/k5"  # p<pixel:05d>.parquet (ALLWISE_COLUMNS) at the store root: neighbouring zones and reruns reuse it
 ALLWISE_CACHE = os.environ.get("SKYSHIFT_ALLWISE_CACHE", "1") != "0"
 
 # calib: instrument-level terms borrowed from a reference zone's calib.json when the zone can't fit them itself.
@@ -855,9 +995,10 @@ TILE_DISK_RESERVE_GB = 3.0     # the slim mirror is made only when the work dir'
                                # slim dots + 1.9 GB forced on a 30 GB boot disk
 
 # --- vetting: gates, grades and reasons on the suspects (vet.py, suspects.py) ---------------------
-# Run on the suspects only (after the MPC/flag/bright/SOURCE cuts and the Gaia/WISE vetoes), never before link's pairing,
-# so known-asteroid recall (score) is untouched. A suspect that fails a gate stays in suspects.json with grade C and its
-# reasons. Hunt zone (14 Nov, 228 suspects): recurring detector pixels 94, within 6 px of the edge 70, sharp/poor PSF 22,
+# Run on the suspects only (every mover but the certain removals: a known body, a planet, a hot pixel; 16 Nov), never
+# before link's pairing, so known-asteroid recall (score) is untouched. A suspect that fails a gate stays in
+# suspects.json with grade C and its reasons. Until 16 Nov the flag bits, a bright source within 30″, SOURCE at every
+# peak and Gaia/WISE within 6″ removed movers first. Hunt zone (14 Nov, 228 suspects): recurring detector pixels 94, within 6 px of the edge 70, sharp/poor PSF 22,
 # masked bit at the peak 13, one D6 column 2; ~4 unexplained. link carries each mover's dots as lists (dot_obs, dot_det,
 # dot_x, dot_y, dot_mjd, dot_flux, dot_snr, dot_size, dot_chi2, dot_fpk, dot_row) and writes freedots.parquet (every
 # free dot: obs_id, detector, x, y, ra, dec) for the zone-level hot-pixel and column maps.
@@ -869,6 +1010,10 @@ VET_HOT_MIN_EXP_FREE = 5       # ... or its free dots in >= 5 (hunt: 133k free d
                                # hit 3.4% of real dots by chance, >= 5 0.01%; the five worst pixels made 10–14 suspects each)
 VET_COLUMN_PX = 0.5            # bad column: free dots of one exposure and detector within ±0.5 px in x ...
 VET_COLUMN_MIN_DOTS = 3        # ... at least this many (hunt: ~216 free dots per photo, 0.1 per column: 0.5% by chance)
+# ... and more than chance gives at the photo's free-dot density: Poisson tail <= this (16 Nov). Ecliptic photos hold
+# p50 65–94, p90 680–780 free dots: >= 3 alone hit 12.5% / 11.9% of the real asteroids (MPC within 5″) of ecl04 / ecl11
+# and 10.2% / 19.5% of the rest; with the tail <= 0.1% 0.3% / 0.4% vs 0.3% / 9.3%. At the hunt's ~216 it needs 4.
+VET_COLUMN_CHANCE_P = 1e-3
 # sharp: √(a·b) below VET_SHARP_FRAC[det] × the detector's stellar √(a·b) at that S/N, with OUTLIER (19) at the peak.
 # OUTLIER alone is set at the peak of 52–69% of MPC-matched movers' dots, so it never vetoes on its own. 150 MPC-matched
 # hunt movers (643 dots): ratio p1 0.69, p5 0.78; with OUTLIER, 10 dots at 0.62–0.69, all in D1–D3, none below 0.6. The
@@ -895,19 +1040,24 @@ VET_PEAK_BITS = 0x0A02CEC7 & ~0x00008002
 VET_FLUX_RATIO_MAX = 4.0       # brightest / faintest dot within one detector (cosmic ray + a 5–20× fainter partner)
 VET_QA_NAME = "qa_photos.parquet"  # results/<zone>/qa_photos.parquet (qa.py): obs_id, detector, grade green|amber|red, reasons
 VET_CATALOG_ARCSEC = 6.0       # a 2MASS PSC source (refcat) within this: catalogued (`2mass`), grade C
-# AllWISE within 6″ (`allwise`, grade C) where CatWISE2020 was the zone's WISE veto (where AllWISE was the veto they are
-# gone already): hunt, 5 of the 28 suspects that pass every gate have one. Read from S3 as suspects' AllWISE veto does
-# (cache/allwise/k5 at the root); a failure only skips the reason (stats `allwise`). SKYSHIFT_VET_ALLWISE=0: off.
+# AllWISE within 6″ (`allwise`, grade C) also where CatWISE2020 is the zone's WISE catalogue: hunt, 5 of the 28
+# suspects that passed every gate on 14 Nov had one. Read from S3 as for a Gaia-only refcat (cache/allwise/k5 at the
+# root); a failure only skips the reason (stats `allwise`). SKYSHIFT_VET_ALLWISE=0: off.
 VET_ALLWISE = os.environ.get("SKYSHIFT_VET_ALLWISE", "1") != "0"
-VET_NEAR_SOURCE_ARCSEC = 10.0  # nearest refcat (Gaia/CatWISE/2MASS) or fixed source within this, beyond the 6″ vetoes:
+VET_NEAR_SOURCE_ARCSEC = 10.0  # nearest refcat (Gaia/CatWISE/2MASS) or fixed source within this:
                                # near_source_arcsec, a blend/wing warning (not a gate)
 VET_MOTION_SIGMA = 5.0         # grade A: B and on a tracklets track with rate_snr >= this (tracklets.parquet) ...
 VET_A_MIN_SESSIONS = 2         # ... and movers in >= this many sessions (tracks need TRACK_MIN_SESSIONS = 3 anyway)
+# ... and a track faster than this needs more than its movers' own dots: a recovered dot (tracklet_dots.parquet, not
+# one inside a star's group: `in_fixed`) or a suspect of the track with a detector partner (paired_exposures >= 1).
+# Fast tracks (> 150″/h, 2 sessions; tracklets TRACK_FAST_*, PR #367) link single-detector artefacts too: in hunt the
+# one fast track was a D6-only artefact (exposures 1, 2, 4, one direction, brightness falling 12–22×). Else it stays B.
+VET_A_FAST_ARCSEC_H = 400.0
 VET_GRADE_RANK = {"A": 0, "B": 1, "C": 2}
 # reasons are listed in this order; not_vetted = the movers table has no dot lists (link before 14 Nov evening)
 VET_GATES = ("not_vetted", "hot_pixel", "bad_column", "edge", "masked_peak", "sharp_outlier", "very_sharp", "flux_ratio",
-             "red_photo", "2mass", "allwise")
-VET_CATALOGS = ("2mass", "allwise")  # the catalogue reasons among VET_GATES
+             "red_photo", "bloom", "halo", "bright_star", "gaia", "catwise", "2mass", "allwise")
+VET_CATALOGS = ("gaia", "catwise", "2mass", "allwise")  # the catalogue reasons among VET_GATES
 
 # --- qa: a grade per photo (qa.py; results/<zone>/qa_photos.parquet, qa.json) ------------------------------------
 # NASA's header QA passes every photo (FINAST 0, L1/L2DQAFLG "Pass" on the bad ones too), so qa grades each photo against
@@ -1108,6 +1258,15 @@ TRACK_NSIGMA = 4.0               # match radius = NSIGMA × prediction σ + curv
 TRACK_R_MIN_ARCSEC = 3.0
 TRACK_R_MAX_ARCSEC = 30.0
 TRACK_MIN_SESSIONS = 3           # a tracklet: movers in >= 3 sessions (2 sessions alone are any pair in the rate range)
+# Fast tracks (16 Nov; tracklets.fast_tracks): above TRACK_RATE_MAX_ARCSEC_H up to this, two movers of sessions <= 36 h
+# apart link when the chord between them agrees with both their own within-session velocities (a fast mover shows its
+# motion inside its session: 14″ per 2.1 min at 400″/h). None = off.
+TRACK_FAST_RATE_MAX_ARCSEC_H = 900.0    # link's fast pairing limit (PAIR_FAST_RATE_ARCSEC_PER_MIN × 60)
+TRACK_FAST_OWN_MIN_ARCSEC_H = 100.0     # a mover's own speed at least this ...
+TRACK_FAST_OWN_SNR = 4.0                # ... measured at >= this × its σ
+TRACK_FAST_VEL_FRAC = 0.3               # chord vs own velocity: within this × the speed or NSIGMA × σ, the larger
+TRACK_FAST_VEL_NSIGMA = 3.0
+TRACK_FAST_MIN_SESSIONS = 2
 TRACK_SHORT_MAX_SPAN_H = 36.0    # ... and with exactly 3, over at most this long (hunt control: chance 3-session tracks
                                  # all spanned 37-72 h, their third mover far out on the extrapolated path)
 TRACK_VISIT_MAX_S = 30.0         # time budget of one linking pass over a visit (hunt: ~1 s); then the weakest seeds are skipped
@@ -1120,6 +1279,7 @@ TRACK_RECOVER_EXT_H = 60.0       # sessions up to this far before the first / af
 TRACK_RECOVER_R_MIN_ARCSEC = 3.0
 TRACK_RECOVER_R_MAX_ARCSEC = 8.0
 TRACK_RECOVER_NEAR_FIXED = True  # also dots 4-6″ from a fixed source (link's veto zone; not in its group)
+TRACK_RECOVER_IN_FIXED = True    # also the fixed groups' member dots that sit off their star (link off_star_members)
 
 # --- stack (stack.py, 15 Nov night): detect on per-visit stacks, then a joint ePSF fit in every photo ---------------
 # Single photos (6.15″ px, FWHM 7.5″) miss sources below their limit, 8–15″ pairs and stars in a bright star's glow.
@@ -1176,3 +1336,34 @@ STACK_ARTIFACT_RADIUS_ARCSEC = 60.0
 STACK_ARTIFACT_CORE_ARCSEC = 8.0
 STACK_ARTIFACT_RING_ARCSEC = (20.0, 30.0)
 STACK_TASK_PHOTOS = 8            # photos per worker task (one detector × visit, so the worker sums its own stack)
+# Glow model (16 Nov; core.glow): a bright star's wings and halo stay above the sky to ~25–30 px (Barnard's Star D1:
+# 0.5 MJy/sr at 10 px, 0.16 at 15–20 px, sky noise 0.04); detection cut them into "sources" (Barnard frames.json:
+# stack-only sources 20.8 / 6.4 / 6.7 / 5.0 per arcmin² per epoch within 30 / 30–60 / 60–90 / 90–120″ vs 1.4 at
+# 120–180″). Per photo: saturated cores and peaks >= GLOW_MIN_PEAK_SNR are modelled (ePSF where the unmasked wings
+# constrain it + polar medians of the rest out to GLOW_R_MAX_PX), subtracted, and the detection noise is scaled by the
+# residual's local scatter over the field's (noise factor k >= 1).
+GLOW_R_MAX_PX = 40.0
+GLOW_MIN_PEAK_SNR = 300.0
+GLOW_MAX_STARS = 400
+GLOW_R_KEEP_PX = 3.5           # each star's own pixels (beyond the ePSF's ±3.2 px; a saturated core + 1.5 px) stay as observed
+GLOW_SELF_PX = 2.0             # dots: a modelled star's own dot (nearest within max(this, core radius + 1) px) comes
+                               # from the unmodified image; residual dots that close are dropped
+# Stack: each photo block's glow (outside STACK_GLOW_R_KEEP_PX of each star: its ePSF fit sees it as observed) is
+# subtracted at load and its noise scaled by k; then each S/N map is divided by its own local scatter around bright
+# stars (holes with a bright rim, or peaks >= STACK_GLOW_MIN_SNR), polar bins of >= STACK_GLOW_BIN_MIN_PX grid px out to
+# STACK_GLOW_R_MAX_ARCSEC (the leftovers are coherent over a visit's photos: the formal noise underrates them).
+STACK_GLOW = True
+STACK_GLOW_R_KEEP_PX = 3.5
+STACK_GLOW_CORE_PAD_PX = None  # Glow.outside: STACK_GLOW_R_KEEP_PX for saturated stars too (their unmasked rim is modelled; rim_peaks stands for the star)
+STACK_GLOW_MIN_SNR = 300.0
+STACK_GLOW_RIM_ARCSEC = 12.0
+STACK_GLOW_HOLE_MAX_ARCSEC = 120.0
+STACK_GLOW_MERGE_ARCSEC = 20.0
+STACK_GLOW_R_MAX_ARCSEC = 250.0
+STACK_GLOW_BIN_MIN_PX = 300
+STACK_GLOW_RING_MIN_ARCSEC = 4.0
+GLOW_MAX_SECTORS = 12
+STACK_GLOW_HOLE_RIM_SNR = 100.0  # a hole with no Gaia star in it is a saturated star when its rim reaches this S/N
+STACK_GLOW_HOLE_MIN_ARCSEC = 4.0  # smaller holes (a few masked pixels) are not a saturated core
+STACK_GLOW_GAIA_G = 11.0         # Gaia stars this bright confirm a hole as a saturated star's core
+STACK_GLOW_PEAK_R_MAX_ARCSEC = 60.0  # an unsaturated bright peak's local scatter is measured this far out

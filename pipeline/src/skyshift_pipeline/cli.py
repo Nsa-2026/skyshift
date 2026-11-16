@@ -55,7 +55,8 @@ def _run_step(step: str, store: Store, zone: C.Zone, args: argparse.Namespace) -
         return photolist.run(store, zone, force=args.force)
     if step == "refcat":
         from . import refcat
-        return refcat.run(store, zone, force=args.force)
+        # the combine (`all`) needs every catalogue whatever SKYSHIFT_REFCAT_CATALOGS says (that is for extraction prep)
+        return refcat.run(store, zone, force=args.force, catalogs=refcat.FULL if args.step == "all" else None)
     if step == "dots":
         from . import dots
         return dots.run(store, zone, workers=args.workers, limit=args.limit)
@@ -112,6 +113,20 @@ def step_dots_dir(store: Store, zone: C.Zone, step: str) -> str:
     if step in ("dots", "link"):
         return C.zone_dots(zone.name)[0]
     return linked_dots_dir(store, zone.name)
+
+
+def ensure_full_refcat(store: Store, zone: C.Zone) -> dict | None:
+    """`all --from <later step>`: a refcat built Gaia-only (extraction prep, its marker says so) gets the other
+    catalogues first, so link, crossid, fragments, highpm, orphans and suspects never run on Gaia alone again."""
+    from . import refcat
+    if not refcat.built_partial(store, zone.name):
+        return None
+    L.info("=== refcat (%s): built with %s only; the combine needs every catalogue ===", zone.name,
+           ",".join(refcat.catalogs_in(store, zone.name) or []))
+    t0 = time.time()
+    out = refcat.run(store, zone, catalogs=refcat.FULL)
+    _update_summary(store, zone, "refcat", out, time.time() - t0)
+    return out
 
 
 def _update_summary(store: Store, zone: C.Zone, step: str, out: dict, seconds: float) -> None:
@@ -182,6 +197,8 @@ def main(argv: list[str] | None = None) -> int:
             grid = None
     L.info("skyshift-pipeline %s --zone %s --root %s --workers %d --limit %s%s", args.step, zone.name, store.root, args.workers,
            args.limit, f", tiled {grid[0]} × {grid[1]}" if grid else "")
+    if args.step == "all" and "refcat" not in steps:
+        ensure_full_refcat(store, zone)
     for step in steps:
         if grid and step in TILED_STEPS:
             if step == TILED_STEPS[0]:

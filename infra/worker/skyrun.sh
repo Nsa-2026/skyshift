@@ -14,8 +14,11 @@
 # CPU priority: combines at nice SKYRUN_COMBINE_NICE (default 19), dots at nice SKYRUN_DOTS_NICE (default 0). For
 # combines that keep pace with extraction, swap them (COMBINE_NICE=0, DOTS_NICE=19) and give dots about every core:
 # the combines take what they need and extraction soaks up the rest, so no core idles either way. SKYRUN_STAGE picks the pass:
-#   provisional (default): Gaia-only refcat, markers in skyrun/<state>/       (zone edges, no WISE check, no calib)
-#   final: + calib borrowed from the hunt zone, AllWISE veto in suspects, markers in skyrun/final/<state>/
+#   provisional (default): markers in skyrun/<state>/       (zone edges, no calib)
+#   final: + calib borrowed from the hunt zone when a zone lacks its own anchors, AllWISE veto in suspects (auto: only
+#   when the refcat has no CatWISE), markers in skyrun/final/<state>/
+#   Both: the prep's refcat is Gaia-only (fast start); each combine's `all` adds CatWISE2020 + 2MASS (AllWISE from S3
+#   when IRSA's TAP fails) before link reads it.
 #   combining -> combined | combine_failed
 # SKYRUN_COMBINE_ONLY="z1 z2 ...": combine only these zones (rehearsal, morning priorities).
 # Every step after `known` recomputes, so a final combine of a provisionally combined zone redoes link..suspects;
@@ -32,7 +35,10 @@ KX=${SKYRUN_COMBINE_SLOTS_AFTER:-$K}
 CNICE=${SKYRUN_COMBINE_NICE:-19}
 DNICE=${SKYRUN_DOTS_NICE:-0}
 UNTIL=$(date -u -d "${SKYRUN_EXTRACT_UNTIL:-2026-11-15T05:00:00Z}" +%s)
-export SKYSHIFT_REFCAT_CATALOGS=gaia
+# Gaia-only refcat for the extraction prep ONLY (prep below). It was exported here for the whole script until 16 Nov,
+# so every combine's `all` skipped its refcat too and 64 zones (59 ecliptic, 5 featured targets) were combined
+# without CatWISE and 2MASS.
+# The pipeline's `all` now builds every catalogue whatever the environment says (refcat.FULL).
 case $STAGE in
   provisional) CB=$B ;;
   final) CB=$B/final
@@ -62,7 +68,7 @@ names() {
   echo "SKYRUN cannot list $1/$2/" >&2; return 1
 }
 # time limits: refcat/photolist queries have no HTTP timeout, and a hung prep would block the loop at `wait`
-prep() { timeout 900 uv run skyshift-pipeline photolist --zone "$1" && timeout 1200 uv run skyshift-pipeline refcat --zone "$1"; }
+prep() { timeout 900 uv run skyshift-pipeline photolist --zone "$1" && SKYSHIFT_REFCAT_CATALOGS=gaia timeout 1200 uv run skyshift-pipeline refcat --zone "$1"; }
 
 # missing only when the bucket answers and the file isn't there; a failed call is retried
 has_photolist() {

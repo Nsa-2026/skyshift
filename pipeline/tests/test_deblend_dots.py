@@ -25,7 +25,7 @@ FEATURED = ("t_rdra", "t_barnard", "t_rwaur", "t_epsindib", "t_wise0855")
 def test_zone_settings_and_folder_names():
     assert C.DOTS_DEBLEND_CONT == 0.005 and C.DOTS_FINE_DEBLEND_CONT == 1e-4
     for z in FEATURED:  # fine detection v2 (15 Nov night): its own folder, named from every setting
-        assert C.zone_dots(z) == ("dots_deblend1e-4_cp3_g6_psf", 1e-4)
+        assert C.zone_dots(z) == ("dots_deblend1e-4_cp3_g6_psf_glow", 1e-4)
     for z in ("hunt", "pilot", "t_nep", "ecl26n3", "ecl07n1", None):  # the sky run is unchanged
         assert C.zone_dots(z) == ("dots", 0.005)
     assert C.dots_dir_for(0.005) == "dots"
@@ -103,7 +103,7 @@ def test_fine_zone_writes_its_own_folder_and_never_touches_existing_files(tmp_pa
     st = D.process_photos(str(root), [(OBS, 1, str(src), 3, 1)], fine_zone)[0]
     assert st["status"] == "done" and st.get("forced_kept") is True and st["forced_bytes"] == 0
     folder = C.zone_dots(fine_zone)[0]
-    assert folder == "dots_deblend1e-4_cp3_g6_psf"
+    assert folder == "dots_deblend1e-4_cp3_g6_psf_glow"
     new = root / dots_rel(OBS, 1, folder)
     meta = D.photo_meta(new)
     assert meta["detect"]["deblend_cont"] == 1e-4 and meta["detect"]["dots_dir"] == folder
@@ -141,7 +141,7 @@ def test_dots_dir_follows_link(tmp_path):
     assert linked_dots_dir(store, "t_rdra") == "dots"  # never linked
     store.write_json(results_rel("t_rdra", "summary.json"), {"steps": {"link": {"fixed": 3}}})
     assert linked_dots_dir(store, "t_rdra") == "dots"  # linked before 15 Nov: dots/
-    assert step_dots_dir(store, zone, "dots") == step_dots_dir(store, zone, "link") == "dots_deblend1e-4_cp3_g6_psf"
+    assert step_dots_dir(store, zone, "dots") == step_dots_dir(store, zone, "link") == "dots_deblend1e-4_cp3_g6_psf_glow"
     assert step_dots_dir(store, zone, "spectra") == "dots"  # link hasn't read the new folder yet
     store.write_json(results_rel("t_rdra", "summary.json"), {"steps": {"link": {"dots_dir": "dots_deblend1e-4"}}})
     assert step_dots_dir(store, zone, "spectra") == step_dots_dir(store, zone, "suspects") == "dots_deblend1e-4"

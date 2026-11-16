@@ -33,6 +33,8 @@ from skyshift_pipeline.refcat import move_to_epoch
 from skyshift_pipeline.sky import Footprint, angsep, offset_radec
 
 DATA = Path(os.environ.get("SKYSHIFT_VET_DATA", "~/.cache/skyshift-vet/data")).expanduser()
+# Blind tests: every known-body line is left out, so a checker must judge a mover from the images and numbers alone.
+HIDE_KNOWN = os.environ.get("SKYSHIFT_VET_HIDE_KNOWN") == "1"
 N, SCALE = 41, 6.15
 C0 = N // 2
 MAX_DET_PANELS, N_SAME_VISIT, N_OTHER_VISIT = 6, 2, 2
@@ -194,6 +196,16 @@ def ap_snr(a, s, pts, r: float = 1.5):
     return best
 
 
+def ring_snr(a, s, centre, pt, n: int = 8) -> list[float]:
+    """Aperture S/N at the other n-1 spots at the same distance from the centre as pt, evenly round the circle.
+    Tells a companion from the star's own halo at that radius."""
+    dx, dy = pt[0] - centre[0], pt[1] - centre[1]
+    rad, ang = math.hypot(dx, dy), math.atan2(dy, dx)
+    vals = [ap_snr(a, s, [(centre[0] + rad * math.cos(ang + 2 * math.pi * k / n), centre[1] + rad * math.sin(ang + 2 * math.pi * k / n))])
+            for k in range(1, n)]
+    return [float(v) for v in vals if np.isfinite(v)]
+
+
 def fs(x):
     return "masked" if not np.isfinite(x) else f"{x:+.0f}σ"
 
@@ -334,8 +346,25 @@ def session_steps(rows: list[dict]) -> list[float]:
     return out
 
 
+# How often each warning fires on real movers (1,200 movers within 2" of a known body) and on the movers the site
+# lists (167, almost all junk in round 1). Measured 16 Nov 2026 with calibrate_warnings.py. A warning that is common
+# on real movers is no evidence of junk.
+RATES = {"FIXED SOURCE": (4.0, 67.7), "BROAD": (6.6, 45.5), "HOT PIXEL": (2.3, 36.5), "WHOLE-PIXEL POSITION": (3.2, 31.1),
+         "NOT STAR-LIKE": (21.6, 25.1), "BRIGHT STAR": (5.8, 11.4), "SAME DETECTOR PIXEL": (0.1, 9.6), "BETWEEN TWO STARS": (0.4, 8.4)}
+
+
 def warnings_for(mv, dots, rows, measured, ctx) -> list[str]:
-    """Automatic warnings from the numbers (round 1: these settled most movers at a glance)."""
+    """Automatic warnings from the numbers. Each names a failure mode; where measured, it says how often it fires on real
+    movers, because a warning is a reason to look, not proof of junk."""
+    W = _warnings(mv, dots, rows, measured, ctx)
+    out = []
+    for w in W:
+        key = next((k for k in RATES if w.startswith(k)), None)
+        out.append(w + (f" [fires on {RATES[key][0]:g}% of real known movers and {RATES[key][1]:g}% of the site's listed ones]" if key else ""))
+    return out
+
+
+def _warnings(mv, dots, rows, measured, ctx) -> list[str]:
     W = []
     ex = {}
     for d in dots:
@@ -352,10 +381,26 @@ def warnings_for(mv, dots, rows, measured, ctx) -> list[str]:
                 seen.add((a["n"], b["n"]))
                 W.append(f"SAME DETECTOR PIXEL: detections #{a['n']} and #{b['n']} sit on D{a['det']} pixel {a['x']:.1f},{a['y']:.1f} in different "
                          f"exposures: the telescope did not step between them, so a hot pixel stays on one sky spot and looks like a source.")
+    fd = (ctx or {}).get("freedots")
+    if fd is not None:
+        for d in dots:
+            f = fd[(fd.detector == d["det"]) & (np.abs(fd.x - d["x"]) <= 1.5) & (np.abs(fd.y - d["y"]) <= 1.5)]
+            # a hot pixel repeats at OTHER sky positions; repeats at this same sky spot are a sky source (within a visit one spot
+            # lands on nearly the same pixel in several sessions), so they do not count
+            away = angsep(mv.ra, mv.dec, f.ra.to_numpy(float), f.dec.to_numpy(float)) * 3600 > 30 if len(f) else np.zeros(0, bool)
+            nexp, here = f[away].obs_id.nunique(), f[~away].obs_id.nunique()
+            if nexp >= 3:
+                W.append(f"HOT PIXEL: detection #{d['n']} sits on D{d['det']} pixel {d['x']:.0f},{d['y']:.0f}, which has unassigned detections in "
+                         f"{nexp} exposures that looked at OTHER parts of the sky: a detector defect. A real source can still sit on it "
+                         f"by chance: the detection is real only if the other exposures of the session, on other pixels, show it too.")
+            elif here >= 3:
+                W.append(f"REPEATS AT THIS SKY SPOT: D{d['det']} pixel {d['x']:.0f},{d['y']:.0f} has unassigned detections in {here} exposures, all at "
+                         f"this same sky position: something on the sky is here more than once (a faint fixed source, or a slow body), not a hot pixel.")
     sharp = [d for d in dots if d["size"] < 2.2 or d["chi2"] > 10]
     if sharp:
         W.append("NOT STAR-LIKE: " + ", ".join(f"#{d['n']} (size {d['size']:.1f}\", PSF-fit χ² {d['chi2']:.0f})" for d in sharp) +
-                 ": sharper than a star (size < 2.2\") or a bad PSF fit (χ² > 10); in round 1 these were artifacts every time.")
+                 ": sharper than a star (size < 2.2\") or a bad PSF fit (χ² > 10). Bright and saturated real bodies fit the PSF badly too, "
+                 "so this is no evidence by itself: look at the picture.")
     broad = [d for d in dots if d["size"] > 5.8]
     if broad:
         W.append("BROAD: " + ", ".join(f"#{d['n']} ({d['size']:.1f}\")" for d in broad) + ": wider than a star: a blend, a diffuse glow or a streak.")
@@ -370,30 +415,65 @@ def warnings_for(mv, dots, rows, measured, ctx) -> list[str]:
         miss = [r for r in rows if r["det"] in own_dets and r["dot"] is None and np.isfinite(r["snr"]) and r["snr"] < 3]
         if miss and not gaps:
             W.append(f"NOT SEEN in {len(miss)} exposure(s) of the same detector(s) in this session (S/N < 3 at the track).")
+        paired_sn = [r["snr"] for d in dots for r in rows if r["det"] == PAIRED[d["det"]] and abs(r["mjd"] - d["mjd"]) < 2e-4 and np.isfinite(r["snr"])]
+        # a neighbour within the 9" aperture puts its own light at the track: that is not the mover seen in the paired detector
+        leak = None
+        fx0 = (ctx or {}).get("fixed")
+        if fx0 is not None:
+            s0 = angsep(mv.ra, mv.dec, fx0.ra.to_numpy(float), fx0.dec.to_numpy(float)) * 3600
+            leak = float(s0.min()) if len(s0) and s0.min() <= 12 else None
+        paired_seen = bool(paired_sn) and float(np.median(paired_sn)) >= 4 and leak is None
+        if bool(paired_sn) and float(np.median(paired_sn)) >= 4 and leak is not None and len(own_dets) == 1:
+            W.append(f"PAIRED DETECTOR SIGNAL IS A NEIGHBOUR'S: the paired detector shows a median S/N of {np.median(paired_sn):.0f} at the track, "
+                     f"but a fixed source sits {leak:.1f}\" away, inside the 9\" aperture: that light is the neighbour's, not evidence for the mover.")
         for d in dots:
             pr = [r for r in rows if r["det"] == PAIRED[d["det"]] and abs(r["mjd"] - d["mjd"]) < 2e-4]
-            if pr and np.isfinite(pr[0]["snr"]) and pr[0]["snr"] < 3 and d["snr"] > 15:
+            if pr and np.isfinite(pr[0]["snr"]) and pr[0]["snr"] < 3 and d["snr"] > 15 and not paired_seen:
                 W.append(f"PAIRED DETECTOR EMPTY: #{d['n']} is S/N {d['snr']:.0f} in D{d['det']} but D{pr[0]['det']}, exposed at the same moment, "
                          f"shows {fs(pr[0]['snr'])} at the spot (cosmic rays and hot pixels hit one detector only; a very red or blue source can do this too).")
-        if len(own_dets) == 1 and not any(r["dot"] is not None and r["det"] != next(iter(own_dets)) for r in rows):
-            W.append(f"ONE DETECTOR ONLY: every detection is in D{next(iter(own_dets))}. D6-only is common for real asteroids (heat glow); "
-                     f"D4-only or D5-only with nothing in D1/D2 was junk in round 1.")
+        if len(own_dets) == 1 and paired_seen:
+            W.append(f"PAIRED DETECTOR SEES IT: the engine has detections in D{next(iter(own_dets))} only, but the paired detector shows a median "
+                     f"S/N of {np.median(paired_sn):.0f} at the track at the same moments: the light is in both, so it is on the sky and not a "
+                     f"one-detector defect (a real mover does this; so does a fixed star).")
+        elif len(own_dets) == 1 and not any(r["dot"] is not None and r["det"] != next(iter(own_dets)) for r in rows):
+            W.append(f"ONE DETECTOR ONLY: every detection is in D{next(iter(own_dets))}. D6-only and D5-only are common for real asteroids "
+                     f"(heat glow, faint in reflected light); it is a reason to check the pixel history, not to drop.")
         steps = session_steps(rows)
         if steps and max(steps) < 3:
             W.append("NO TELESCOPE STEP in this session: the spot stays on the same detector pixels, so detector defects cannot be told from the sky here.")
     if len(ex) >= 2 and measured.get("_motion_sigma") is not None and measured["_motion_sigma"] < 2:
-        W.append(f"STATIONARY within the errors: the positions agree to {measured['_motion_sigma']:.1f}σ over the session.")
+        W.append(f"STATIONARY within the errors: the positions agree to {measured['_motion_sigma']:.1f}σ over the session. Moons, distant "
+                 f"bodies and slow asteroids (under about 10\"/h) also do this in a few minutes: never a reason to drop by itself.")
     r3 = [v for v in measured.get("ref", []) if np.isfinite(v)]
+    r1 = [v for v in measured.get("det", []) if np.isfinite(v)]
+    r2 = [v for v in measured.get("dif", []) if np.isfinite(v)]
     if len(r3) >= 2 and np.median(r3) >= 5:
-        W.append(f"SOURCE AT OTHER TIMES: median S/N {np.median(r3):.0f} at the marks in other sessions and visits: a fixed source is here.")
+        now, then, dif = (float(np.median(r1)) if r1 else float("nan")), float(np.median(r3)), (float(np.median(r2)) if r2 else float("nan"))
+        if np.isfinite(now) and np.isfinite(dif) and now >= 1.5 * then and dif >= 5:
+            W.append(f"BRIGHTER NOW THAN AT OTHER TIMES: {now:+.0f}σ in the detections against {then:+.0f}σ at the same spot at other times; "
+                     f"the difference keeps {dif:+.0f}σ. Something extra is here in this session: a mover passing over or beside a fixed "
+                     f"source looks exactly like this. Not a fixed source alone.")
+        else:
+            W.append(f"SOURCE AT OTHER TIMES: median S/N {then:.0f} at the marks in other sessions and visits"
+                     + (f", against {now:.0f} in the detections (difference keeps {dif:+.0f}σ)" if np.isfinite(now) and np.isfinite(dif) else "")
+                     + ": a fixed source is in the aperture. It explains the detection only when the brightness is the same now and then.")
     if ctx:
         fx, ref = ctx.get("fixed"), ctx.get("refcat")
         if fx is not None:
             sep = angsep(mv.ra, mv.dec, fx.ra.to_numpy(float), fx.dec.to_numpy(float)) * 3600
             near = np.sort(sep[sep <= 12])
             if len(near) >= 1 and near[0] <= 9.5:
-                W.append(f"FIXED SOURCE {near[0]:.1f}\" away (1.5 px): the engine's veto radius is 6\"; in round 1 movers 6-9\" from a fixed source were that source.")
+                W.append(f"FIXED SOURCE {near[0]:.1f}\" away (1.5 px), inside the 9\" aperture used for every S/N here: its light is in the "
+                         f"'other times' numbers and in the paired-detector numbers. A mover can pass this close to a star: it is the star "
+                         f"only if the detection is no brighter than the same spot at other times.")
         if ref is not None:
+            b = ref[(ref["cat"] == "gaia") & (ref.g_mag < 7.5) & (np.abs(ref.dec - mv.dec) < 600 / 3600.0)]
+            if len(b):
+                bs = angsep(mv.ra, mv.dec, b.ra.to_numpy(float), b.dec.to_numpy(float)) * 3600
+                j = int(np.argmin(bs))
+                if bs[j] <= 600:
+                    W.append(f"BRIGHT STAR G={b.g_mag.iloc[j]:.1f} at {bs[j] / 60:.1f}': a broad detection, or one seen in a single detector, this close "
+                             f"to such a star is scattered light, a ghost or a diffraction spike until shown otherwise (rule A6).")
             g = ref[ref["cat"] == "gaia"]
             g = g[np.abs(g.dec - mv.dec) < 15 / 3600.0]
             if len(g):
@@ -591,11 +671,14 @@ def packet_text(mv, dots, ref_dt, mode, ctx, measured, keys, rows=None) -> str:
     L.append("  row 2 detection - other times: " + (f(measured["dif"]) or "no reference"))
     L.append("  row 3 other times: " + (f(measured["ref"]) or "none") + "   (times: " + ", ".join(fmt_dt(x) for x in ref_dt) + ")")
     L.append(f"  numeric rule on these: {numbers_verdict(measured)}  (static = a source is there at other times and the difference keeps "
-             f"< half the signal; mover = difference keeps >= half and other times are empty; the rule cannot see artifacts: "
-             f"in round 1 every candidate it called mover was a hot pixel, a streak or a glow)")
+             f"< half the signal; mover = difference keeps >= half and other times are empty; the rule cannot see detector "
+             f"artifacts, and it measures in a 9\" circle, so a neighbour inside it counts as 'a source at other times')")
     W = warnings_for(mv, dots, rows or [], measured, ctx if mode == "full" else None)
     L.append("")
-    L.append("AUTOMATIC WARNINGS: " + ("none" if not W else ""))
+    if any(w.startswith(("HOT PIXEL", "SAME DETECTOR PIXEL", "WHOLE-PIXEL POSITION", "SOURCE AT OTHER TIMES")) for w in W):
+        L.append("  (the numeric rule only compares brightness now and at other times: a warning below about the detector or a fixed "
+                 "source overrules it)")
+    L.append("AUTOMATIC WARNINGS: " + ("none: no automatic test fired, which is NOT a pass; look at session and stamps before deciding" if not W else ""))
     L += [f"  ! {w}" for w in W]
     if mode == "full" and ctx:
         L.append("")
@@ -606,7 +689,7 @@ def packet_text(mv, dots, ref_dt, mode, ctx, measured, keys, rows=None) -> str:
 def context_lines(ra, dec, mjd, session, ctx) -> list[str]:
     """Catalogue and known-object context around a position (the short form used in packets)."""
     L = []
-    if ctx.get("grade"):
+    if ctx.get("grade") and not HIDE_KNOWN:
         L.append(f"Engine grade: {ctx['grade']}. Engine notes: {ctx.get('why', '')}")
     ref = ctx.get("refcat")
     if ref is not None:
@@ -623,7 +706,7 @@ def context_lines(ra, dec, mjd, session, ctx) -> list[str]:
         k = [i for i in np.argsort(sep)[:3] if sep[i] <= 30]
         rows = [f"{sep[i]:.1f}\" (S/N {fx.snr.iloc[i]:.0f}, seen in {int(fx.n_sessions.iloc[i])} sessions)" for i in k]
         L.append("Our own catalogue of fixed sources within 30\": " + (", ".join(rows) or "none"))
-    pred = ctx.get("pred")
+    pred = None if HIDE_KNOWN else ctx.get("pred")
     if pred is not None and session is not None:
         L.append("Known asteroids, comets, planets and moons predicted within 10' at this time: " +
                  ("; ".join(f"{r['name']} ({r['class']}, V={r['v']:.1f}, {r['rate']:.0f}\"/h PA {r['pa']:.0f}°) {r['sep']:.0f}\" away"
@@ -685,13 +768,44 @@ def gaia_offset_test(zone: str, ra: float, dec: float, mjd: float, pmra: float, 
         size, opa = float(math.hypot(e, n)), float(math.degrees(math.atan2(e, n)) % 360)
         pa = math.degrees(math.atan2(pmra, pmdec)) % 360
         has = "no proper motion in Gaia DR3 (position-only solution)" if pd.isna(q.pmra) else f"Gaia pm ({q.pmra:+.0f}, {q.pmdec:+.0f}) mas/yr"
-        out.append(f"  Gaia G={q.g_mag:.1f}, {has}: our position is {size:.1f}\" from its 2016.0 position toward PA {opa:.0f}°; "
+        ratio, dpa = size / yrs / pm, (opa - pa + 180) % 360 - 180
+        if 0.7 <= ratio <= 1.4 and abs(dpa) <= 25:
+            word = "MATCH: this is the star, 2016 position"
+        elif size < 1.0 and not pd.isna(q.pmra) and math.hypot(q.pmra, q.pmdec) < 0.3 * pm * 1000:
+            word = "REFUTES: a Gaia star with a small motion sits at our position"
+        else:
+            word = "unrelated star (wrong distance or direction): ignore"
+        out.append(f"  {word}. Gaia G={q.g_mag:.1f}, {has}: our position is {size:.1f}\" from its 2016.0 position toward PA {opa:.0f}°; "
                    f"that is {size / yrs:.2f}\"/yr over {yrs:.1f} yr. Claimed {pm:.2f}\"/yr toward PA {pa:.0f}°: "
-                   f"size ratio {size / yrs / pm:.2f}, direction difference {(opa - pa + 180) % 360 - 180:+.0f}°.")
+                   f"size ratio {ratio:.2f}, direction difference {dpa:+.0f}°.")
+    cpm = common_pm(ref, ra, dec, pmra, pmdec)
     if not out:
-        return f"Gaia offset test: no Gaia star within {max(30.0, 2.5 * pm * yrs):.0f}\" (a star moving {pm:.2f}\"/yr was {pm * yrs:.1f}\" away in 2016.0)."
+        return (f"Gaia offset test: no Gaia star within {max(30.0, 2.5 * pm * yrs):.0f}\" (a star moving {pm:.2f}\"/yr was {pm * yrs:.1f}\" away "
+                f"in 2016.0). Gaia cannot test this claim: very red or faint objects are missing from Gaia. Use catalog with pm for the "
+                f"AllWISE 2010 and 2MASS 1999 epochs." + ("\n" + cpm if cpm else ""))
+    if not any("MATCH" in o or "REFUTES" in o for o in out):
+        out.append("  No Gaia star matches or refutes the claim: Gaia cannot test it. Use catalog with pm for the AllWISE and 2MASS epochs.")
     return ("Gaia offset test (a real fast star sits motion x years from its Gaia 2016.0 position: ratio near 1 and direction "
-            "difference near 0 confirm the motion; a Gaia star AT our position with a small motion refutes it):\n" + "\n".join(out))
+            "difference near 0 confirm the motion; a Gaia star AT our position with a small motion refutes it):\n" + "\n".join(out)
+            + ("\n" + cpm if cpm else ""))
+
+
+def common_pm(ref: pd.DataFrame, ra: float, dec: float, pmra: float, pmdec: float, radius_arcsec: float = 900.0) -> str:
+    """A Gaia star within 15' that moves like the claim (a wide companion's primary): strong evidence that the motion is real."""
+    pm = math.hypot(pmra, pmdec)
+    if pm < 100:
+        return ""
+    g = ref[(ref["cat"] == "gaia") & (np.abs(ref.dec - dec) < radius_arcsec / 3600.0) & ref.pmra.notna()]
+    g = g[np.hypot(g.pmra - pmra, g.pmdec - pmdec) < max(30.0, 0.08 * pm)]
+    if not len(g):
+        return ""
+    sep = angsep(ra, dec, g.ra.to_numpy(float), g.dec.to_numpy(float)) * 3600
+    k = [i for i in np.argsort(sep) if 3 < sep[i] <= radius_arcsec][:2]
+    if not k:
+        return ""
+    return "COMMON PROPER MOTION: " + "; ".join(
+        f"Gaia G={g.g_mag.iloc[i]:.1f} star {sep[i]:.0f}\" away moves ({g.pmra.iloc[i]:+.0f}, {g.pmdec.iloc[i]:+.0f}) mas/yr, the claim is "
+        f"({pmra:+.0f}, {pmdec:+.0f})" for i in k) + ": a star with the same motion this close is almost never chance; the finding is its companion."
 
 
 def known_near(pred: pd.DataFrame, ra, dec, mjd, session, radius_arcsec: float = 600.0) -> list[dict]:
