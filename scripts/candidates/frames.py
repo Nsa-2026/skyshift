@@ -6,13 +6,16 @@ exporter (pipeline: `uv run skyshift-candidates`) has written web/public/data/ca
     cd server
     uv run python ../scripts/candidates/frames.py                  # mover=25,high_pm=20,spectral=15,shape=15
     uv run python ../scripts/candidates/frames.py --top mover=5,high_pm=0,spectral=0,shape=0 --dry-run
+    uv run python ../scripts/candidates/frames.py --ab-top 300     # movers: the 300 best open A/B only
     uv run python ../scripts/candidates/frames.py --known-only           # only known[] again (MPC)
     uv run python ../scripts/candidates/frames.py --measured-only [--clock hours|months]  # only measured again
 
 For each kind, the candidates with the highest `score` (any zone) get frames, and so does every mover
 of grade A or B, whatever `--top` says (they are few, and /api/frames has no time parameter: a live
 hours blink shows the visit with the most exposures, not always the mover's session). Movers of
-grade C never get frames. The rest keep frames_url null and the site asks /api/frames. Per candidate
+grade C never get frames. With `--ab-top N` (the PC rebuild: 300) movers get frames only as the N
+highest-scoring open A/B movers: hundreds of A/B movers at ~0.45 MB each would bloat git, and the Viewer
+now loads a mover's whole visit live. The rest keep frames_url null and the site asks /api/frames. Per candidate
 (shapes of contracts/api.md, data_url relative to the JSON):
 
     cand/<id>/frames.json       GET /api/frames for the candidate's clock and field
@@ -75,16 +78,25 @@ SPAN_RE = re.compile(r"in \d+ exposures (?:([\d.]+) minutes apart|over ([\d.]+) 
 log = logging.getLogger("cand-frames")
 
 
-def choose(cands: list[dict], top: dict[str, int]) -> list[dict]:
+def choose(cands: list[dict], top: dict[str, int], ab_top: int | None = None) -> list[dict]:
     """The `top[kind]` highest-scoring candidates of each kind (ties: id), then every mover of grade A
-    or B not chosen yet, whatever `top` says. Never a mover of grade C."""
+    or B not chosen yet, whatever `top` says. Never a mover of grade C.
+    ab_top (--ab-top): movers only as the ab_top highest-scoring open movers of grade A or B (status open
+    or none; ties: id), `top`'s mover count ignored. The Viewer loads the other movers' visits live."""
     usable = [c for c in cands if c.get("det") is not None and not (c["kind"] == "mover" and c.get("grade") == "C")]
     out = []
     for kind, n in top.items():
+        if ab_top is not None and kind == "mover":
+            continue
         cs = [c for c in usable if c["kind"] == kind]
         cs.sort(key=lambda c: (-(c.get("score") or 0.0), c["id"]))
         out += cs[:n]
     have = {c["id"] for c in out}
+    if ab_top is not None:
+        opened = [c for c in usable if c["kind"] == "mover" and c.get("grade") in ALWAYS_GRADES
+                  and c.get("status") in (None, "open")]
+        opened.sort(key=lambda c: (-(c.get("score") or 0.0), c["id"]))
+        return out + opened[:max(0, ab_top)]
     graded = [c for c in usable if c["kind"] == "mover" and c.get("grade") in ALWAYS_GRADES and c["id"] not in have]
     graded.sort(key=lambda c: (ALWAYS_GRADES.index(c["grade"]), -(c.get("score") or 0.0), c["id"]))
     return out + graded
@@ -315,6 +327,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--candidates", default=str(DATA / "candidates.json"))
     ap.add_argument("--top", default=DEFAULT_TOP, help=f"kind=n,... (default {DEFAULT_TOP})")
+    ap.add_argument("--ab-top", type=int, default=None,
+                    help="movers: only the N highest-scoring open grade A/B movers (default: every A/B mover and "
+                         "--top's movers); the Viewer loads the others' visits live")
     ap.add_argument("--rebuild", action="store_true", help="rebuild frames that already exist")
     ap.add_argument("--parallel", type=int, default=6, help="candidates built at once")
     ap.add_argument("--deadline", type=float, default=45.0, help="minutes; then finish with what was built")
@@ -341,7 +356,7 @@ def main() -> int:
         return 0
     doc = json.loads(path.read_text())
     top = {k: int(v) for k, v in (x.split("=") for x in a.top.split(",") if x)}
-    chosen = choose(doc["candidates"], top)
+    chosen = choose(doc["candidates"], top, a.ab_top)
     for c in chosen:
         log.info("chosen: %s %s score %s det %s", c["kind"], c["id"], c["score"], c["det"])
     if a.dry_run:

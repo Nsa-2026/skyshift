@@ -7,15 +7,20 @@ Run with the pipeline's environment, from the repo root:
 Commands
     plan       list the bucket (no reads): the files each step mirrors, their sizes, the cost; manifest.tsv
     fetch      copy one zone's (or the shared) manifest files into the local mirror, no-clobber, and check sizes
+    refcat-status  step a0's list: which mirrored refcats lack CatWISE/2MASS or stop short of REFCAT_GAIA_G_MAX
+    refcat     step a0 for one zone: complete the mirror's refcat (AllWISE on AWS S3 first, Gaia from ESA; both free)
+    upload-refcat  --upload-refcat: the completed refcats to the bucket (the old ones copied to a backup prefix first)
     estimate   after the suspects rerun: what the export will read from the bucket (GB, $) and the disk it needs
     export     run the exporter (skyshift-candidates) on an overlay: local mirror first, the bucket by column
                for the rest (small reads), never a write to the bucket
     combine    one file with the candidates of candidates.json and candidates-more/*.json (for the known check)
     report     step (f): counts, sizes, 306P, spot checks, before/after; exit 2 on a hard failure
+    frames-check  step e: how many of the top --frames-top open A/B movers have static frames
     fill-todo  candidate folders that still need fill.py (hours frames, no fill.json, not tried yet)
 
 The bucket is only listed (`gcloud storage ls`) and read (`gcloud storage cp` to the local disk, or by column through
-gcsfs in `export`). Nothing here writes to, moves or deletes anything in the bucket.
+gcsfs in `export`). Nothing here deletes anything in the bucket; only `upload-refcat` (asked for with a flag, after a
+prompt) writes to it.
 """
 from __future__ import annotations
 
@@ -61,6 +66,9 @@ PHOTOLIST_ROW_BYTES = 117    # photolists/zones/<zone>.parquet bytes per photo (
 CACHE_POSITIONS_MB = 0.45
 CACHE_FLAGS_MB = 0.012
 GB = 1e9
+FRAMES_TOP = 300             # static frames for the top 300 open A/B movers by score (the Viewer loads the rest live)
+MOVER_FRAMES_MB = 0.45       # a mover's cand/<id>/ on main, 16 Nov: median 0.44 MB (~0.14 MB zlib in git), max 0.7 MB
+CAND_WARN_MB = 250
 
 
 def log(msg: str) -> None:
@@ -205,8 +213,7 @@ def cmd_plan(a) -> int:
     with open(out / "manifest.tsv", "w") as f:
         f.write("category\tzone\turl\tlocal\tbytes\thave\n")
         for cat, z, url, rel, size in rows:
-            p = data / rel
-            ok = p.exists() and (p.stat().st_size == size or rel.rsplit("/", 1)[1] in WRITTEN_LOCALLY)
+            ok = _ok(data / rel, size)
             have += size if ok else 0
             f.write(f"{cat}\t{z}\t{url}\t{rel}\t{size}\t{int(ok)}\n")
     # zones, largest suspects input first (better packing of the parallel suspects step)
@@ -221,8 +228,7 @@ def cmd_plan(a) -> int:
     # ---- summary
     by = defaultdict(lambda: [0, 0, 0])  # files, bytes, bytes already local
     for cat, z, url, rel, size in rows:
-        p = data / rel
-        ok = p.exists() and (p.stat().st_size == size or rel.rsplit("/", 1)[1] in WRITTEN_LOCALLY)
+        ok = _ok(data / rel, size)
         by[cat][0] += 1
         by[cat][1] += size
         by[cat][2] += size if ok else 0
@@ -304,7 +310,16 @@ def downloads_log(data: Path, what: str, nbytes: int) -> None:
 
 
 def _ok(p: Path, size: int) -> bool:
-    return p.exists() and (p.stat().st_size == size or p.name in WRITTEN_LOCALLY)
+    return p.exists() and (p.stat().st_size == size or p.name in WRITTEN_LOCALLY or _completed_here(p))
+
+
+def _completed_here(p: Path) -> bool:
+    """refcat/<zone>.parquet or its marker after step a0 changed them (it keeps the bucket's as <zone>.bucket.parquet
+    first): a size other than the bucket's is expected, and step a must never copy the bucket's over them."""
+    if p.parent.name != "refcat":
+        return False
+    zone = p.name[:-len("_catalogs.json")] if p.name.endswith("_catalogs.json") else p.name[:-len(".parquet")]
+    return p.name in (f"{zone}.parquet", f"{zone}_catalogs.json") and (p.parent / f"{zone}.bucket.parquet").exists()
 
 
 def cmd_fetch(a) -> int:
@@ -354,6 +369,221 @@ def cmd_fetch(a) -> int:
         log(f"{a.zone}: {len(todo)} files, {nbytes / 1e6:.1f} MB in {dt:.0f} s ({nbytes / 1e6 / max(dt, 1e-3):.1f} MB/s)")
     else:
         log(f"{a.zone}: all {len(want)} files already here")
+    return 0
+
+
+# ------------------------------------------------------------------------------------------------ a0: refcat completion
+
+# 64 zones' refcats are Gaia-only (the sky run's SKYSHIFT_REFCAT_CATALOGS=gaia; fix-catalogue). Step a0 completes them
+# in the mirror before suspects runs, so its CatWISE / 2MASS vetoes and reasons exist: refcat.run with every catalogue
+# and SKYSHIFT_REFCAT_S3_FIRST=1 (AllWISE and its 2MASS associations from AWS S3, free; Gaia from ESA, free). The rows
+# a refcat already has are written back as its cached tiles first, so only what is missing is asked for. It follows
+# config REFCAT_GAIA_G_MAX: a refcat whose faintest Gaia row is more than REFCAT_DEPTH_TOL brighter gets Gaia again.
+REFCAT_DEPTH_TOL = 0.3
+REFCAT_BACKUP = "refcat/before-pc-rebuild"   # --upload-refcat: the bucket's own refcat files are first copied here
+NEARLINE_GB_MONTH = 0.010                    # $/GB/month (the bucket is Nearline since 15 Nov)
+NEARLINE_READ_GB = 0.01                      # $/GB retrieval: the server-side backup copies
+
+
+def refcat_need(made: list[str] | None, g_faintest: float | None, g_max: float, a0_g_max: float | None = None,
+                tol: float = REFCAT_DEPTH_TOL) -> tuple[bool, bool]:
+    """(Gaia must be fetched again, CatWISE + 2MASS must be added) for one zone's refcat. made: its marker's catalogues
+    (None: no marker, i.e. built with every catalogue before 14 Nov); g_faintest: its faintest Gaia G; a0_g_max: the
+    G limit step a0 already fetched Gaia with (marker `rebuild_a0`), which settles the depth whatever the rows say."""
+    wise = made is not None and not {"gaia", "catwise", "2mass"} <= set(made)
+    if a0_g_max is not None and a0_g_max >= g_max:
+        return False, wise
+    return g_faintest is None or g_faintest < g_max - tol, wise
+
+
+def refcat_state(data: Path, zone: str) -> dict:
+    """What the mirror's refcat/<zone>.parquet holds and what step a0 must do there (`todo`, `ok`, `missing`)."""
+    import pandas as pd
+
+    from skyshift_pipeline import config as C
+    p, m = data / "refcat" / f"{zone}.parquet", data / "refcat" / f"{zone}_catalogs.json"
+    if not p.exists():
+        return {"zone": zone, "state": "missing"}
+    marker = json.loads(m.read_text()) if m.exists() else None
+    made = None if marker is None else list(marker.get("catalogs", []))
+    a0 = (marker or {}).get("rebuild_a0") or {}
+    df = pd.read_parquet(p, columns=["cat", "g_mag"])
+    g = df.loc[df["cat"] == "gaia", "g_mag"].dropna()
+    gf = round(float(g.max()), 3) if len(g) else None
+    rows = {str(k): int(v) for k, v in df["cat"].value_counts().items()}
+    gaia, wise = refcat_need(made, gf, C.REFCAT_GAIA_G_MAX, a0.get("gaia_g_max"))
+    wise = wise or not (rows.get("catwise") or rows.get("2mass"))  # e.g. a Gaia-only refcat copied without its marker
+    return {"zone": zone, "state": "todo" if gaia or wise else "ok", "gaia": gaia, "wise": wise, "made": made,
+            "g_faintest": gf, "g_max": C.REFCAT_GAIA_G_MAX, "rows": rows,
+            "bytes": p.stat().st_size, "done_here": bool(a0), "gspc": bool((marker or {}).get("gspc"))}
+
+
+def _zone_list(a) -> list[str]:
+    if getattr(a, "zones_file", None):
+        return [z for z in Path(a.zones_file).read_text().split() if z]
+    return [z for z in (a.zones or "").split(",") if z]
+
+
+def cmd_refcat_status(a) -> int:
+    data = Path(a.data)
+    rows = [refcat_state(data, z) for z in _zone_list(a)]
+    todo = [r for r in rows if r["state"] == "todo"]
+    if a.json:
+        Path(a.json).write_text(json.dumps(rows, indent=1))
+    from skyshift_pipeline import config as C
+    print(f"refcat (a0), config REFCAT_GAIA_G_MAX {C.REFCAT_GAIA_G_MAX}: {len(rows)} zones; "
+          f"{sum(r['state'] == 'ok' for r in rows)} complete, {len(todo)} to complete "
+          f"({sum(r['wise'] for r in todo)} without CatWISE/2MASS, {sum(r['gaia'] for r in todo)} with Gaia too shallow), "
+          f"{sum(r['state'] == 'missing' for r in rows)} not mirrored yet")
+    for r in todo if a.verbose else []:
+        print(f"  {r['zone']:<12} {'+catwise,2mass ' if r['wise'] else ''}{'gaia again (faintest G ' + str(r['g_faintest']) + ')' if r['gaia'] else ''}")
+    return 0
+
+
+def seed_tiles(data: Path, zone, cat: str, rows) -> int:
+    """refcat rows of one catalogue written back as its cached tiles (cache/refcat/<zone>/<cat>_<tile>.parquet), each row
+    in the tile its position falls in (clipped to the box), so refcat.run keeps them and asks only for the rest."""
+    import numpy as np
+
+    from skyshift_pipeline import refcat
+    from skyshift_pipeline.store import Store
+    rows = rows.copy()
+    for c in refcat.REFCAT_COLUMNS:
+        if c not in rows:
+            rows[c] = refcat._default(c, len(rows))
+    rows = rows[list(refcat.REFCAT_COLUMNS)].astype(refcat.REFCAT_COLUMNS).reset_index(drop=True)
+    ts = refcat.tiles(*refcat.query_box(zone))
+    ra_e, de_e = sorted({t.ra0 for t in ts}), sorted({t.dec0 for t in ts})
+    i = np.clip(np.searchsorted(ra_e, rows["ra"].to_numpy(float), side="right") - 1, 0, len(ra_e) - 1)
+    j = np.clip(np.searchsorted(de_e, rows["dec"].to_numpy(float), side="right") - 1, 0, len(de_e) - 1)
+    key = i * len(de_e) + j
+    store, n = Store(str(data)), 0
+    for t in ts:
+        part = rows[key == ra_e.index(t.ra0) * len(de_e) + de_e.index(t.dec0)].reset_index(drop=True)
+        store.write_parquet(refcat.tile_rel(zone.name, cat, t), part)
+        n += len(part)
+    if n != len(rows):
+        fail(f"refcat {zone.name}: {len(rows)} {cat} rows but {n} written into tiles")
+    return n
+
+
+def cmd_refcat(a) -> int:
+    """Step a0 for one zone: complete the mirror's refcat (every catalogue, Gaia to config REFCAT_GAIA_G_MAX)."""
+    import shutil
+
+    os.environ["SKYSHIFT_REFCAT_S3_FIRST"] = "1"  # before the pipeline's config is imported
+    import pandas as pd
+
+    from skyshift_pipeline import config as C
+    from skyshift_pipeline import log as plog
+    from skyshift_pipeline import refcat
+    from skyshift_pipeline.store import Store
+    plog.setup()
+    C.REFCAT_S3_FIRST = True
+    data, z = Path(a.data), a.zone
+    if z not in C.ZONES:
+        fail(f"unknown zone {z!r} (pipeline config ZONES)")
+    zone = C.ZONES[z]
+    st = refcat_state(data, z)
+    if st["state"] == "missing":
+        fail(f"{data}/refcat/{z}.parquet is not in the mirror: run step a first")
+    if st["state"] == "ok":
+        print(json.dumps({"zone": z, "changed": False, "rows": st["rows"], "g_faintest": st["g_faintest"]}))
+        return 0
+    rdir = data / "refcat"
+    if not st["done_here"]:  # the bucket's own files, kept once (to compare, or to put back with a plain copy)
+        for src, dst in ((f"{z}.parquet", f"{z}.bucket.parquet"), (f"{z}_catalogs.json", f"{z}_catalogs.bucket.json")):
+            if (rdir / src).exists() and not (rdir / dst).exists():
+                shutil.copy2(rdir / src, rdir / dst)
+    old = pd.read_parquet(rdir / f"{z}.parquet")
+    tdir = data / "cache" / "refcat" / z
+    tdir.mkdir(parents=True, exist_ok=True)
+    rec, want = tdir / "a0_gaia.txt", f"G<{C.REFCAT_GAIA_G_MAX}"
+    if st["gaia"]:
+        if not rec.exists() or rec.read_text().strip() != want:  # tiles of another depth (the tile key ignores G)
+            for f in tdir.glob("gaia_*.parquet"):
+                f.unlink()
+            rec.write_text(want + "\n")
+    else:
+        seed_tiles(data, zone, "gaia", old[old["cat"] == "gaia"])
+        rec.write_text("seeded from the refcat\n")
+    if not st["wise"]:
+        for cat in ("catwise", "2mass"):
+            seed_tiles(data, zone, cat, old[old["cat"] == cat])
+    del old
+    log(f"refcat {z}: {'Gaia to ' + want + ' from ESA' if st['gaia'] else 'Gaia kept'}; "
+        f"{'CatWISE + 2MASS from AllWISE on S3' if st['wise'] else 'CatWISE + 2MASS kept'} (before: {st['rows']})")
+    t0 = time.time()
+    out = refcat.run(Store(str(data)), zone, workers=a.workers, catalogs=refcat.FULL, force=True)
+    marker = json.loads((rdir / f"{z}_catalogs.json").read_text())
+    if not st["gaia"]:
+        marker["gspc"] = st["gspc"]  # Gaia rows kept as they were: so is their GSPC state
+    marker["rebuild_a0"] = {
+        "made": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "by": "scripts/rebuild/rebuild.py refcat",
+        "gaia": "fetched" if st["gaia"] else "kept", "gaia_g_max": C.REFCAT_GAIA_G_MAX if st["gaia"] else None,
+        "catwise_2mass": "fetched, AllWISE on S3 first" if st["wise"] else "kept",
+        "before": {"catalogs": st["made"], "rows": st["rows"], "g_faintest": st["g_faintest"]}, "rows": out.get("rows")}
+    (rdir / f"{z}_catalogs.json").write_text(json.dumps(marker, indent=1))
+    after = refcat_state(data, z)
+    print(json.dumps({"zone": z, "changed": True, "rows": after["rows"], "g_faintest": after["g_faintest"],
+                      "state": after["state"], "seconds": round(time.time() - t0)}))
+    if after["state"] != "ok":
+        fail(f"refcat {z} is still incomplete after the run: {after}")
+    return 0
+
+
+def cmd_upload_refcat(a) -> int:
+    """--upload-refcat: the refcats step a0 completed, to the bucket. The bucket's own files of those zones are first
+    copied (server side, no-clobber) to REFCAT_BACKUP, then replaced. Nothing else is written; nothing is deleted."""
+    data, work = Path(a.data), Path(a.work)
+    done_f = work / "refcat_uploaded.tsv"
+    done = dict(ln.split("\t")[:2] for ln in done_f.read_text().splitlines() if ln) if done_f.exists() else {}
+    todo = []
+    for z in _zone_list(a):
+        m = data / "refcat" / f"{z}_catalogs.json"
+        if not m.exists() or not json.loads(m.read_text()).get("rebuild_a0"):
+            continue
+        files = [data / "refcat" / f"{z}.parquet", data / "refcat" / f"{z}_forced.parquet", m]
+        if not all(f.exists() for f in files):
+            fail(f"refcat {z}: {[str(f) for f in files if not f.exists()]} missing; rerun step a0 (--redo a0)")
+        sig = ",".join(str(f.stat().st_size) for f in files)
+        if done.get(z) != sig:
+            todo.append((z, files, sig))
+    if not todo:
+        log("--upload-refcat: nothing new to upload")
+        return 0
+    have = dict(gls(f"{BUCKET}/refcat/*"))
+    nb = sum(f.stat().st_size for _, fs, _ in todo for f in fs)
+    old = sum(have.get(f"{BUCKET}/refcat/{f.name}", 0) for _, fs, _ in todo for f in fs)
+    print(f"\n--upload-refcat: {len(todo)} zones' completed refcats, {nb / GB:.2f} GB to {BUCKET}/refcat/ "
+          f"(refcat/<zone>.parquet, _forced.parquet, _catalogs.json; upload traffic is free).\n"
+          f"  First the bucket's own {old / GB:.2f} GB of those files are copied, server side, no-clobber, to "
+          f"{BUCKET}/{REFCAT_BACKUP}/ (~${old / GB * NEARLINE_READ_GB:.2f} Nearline retrieval), then replaced.\n"
+          f"  Storage: +{nb / GB:.1f} GB (the backups keep the old {old / GB:.1f} GB) = ~${nb / GB * NEARLINE_GB_MONTH:.2f}"
+          f"/month on Nearline (30 days minimum); ~{len(todo) * 6} operations, under $0.01.")
+    if not a.yes:
+        try:
+            ans = input("Upload? [y/N] ")
+        except EOFError:
+            ans = ""
+        if ans.strip().lower() not in ("y", "yes"):
+            fail("nothing uploaded (your answer)")
+    for z, files, sig in todo:
+        src = [f"{BUCKET}/refcat/{f.name}" for f in files if f"{BUCKET}/refcat/{f.name}" in have]
+        if src:
+            r = subprocess.run(["gcloud", "storage", "cp", "--no-clobber", *src, f"{BUCKET}/{REFCAT_BACKUP}/"], check=False)
+            if r.returncode != 0:
+                fail(f"refcat {z}: the backup copy failed (exit {r.returncode}); nothing of {z} was replaced")
+        r = subprocess.run(["gcloud", "storage", "cp", *map(str, files), f"{BUCKET}/refcat/"], check=False)
+        if r.returncode != 0:
+            fail(f"refcat {z}: the upload failed (exit {r.returncode}); rerun to resume")
+        with open(done_f, "a") as f:
+            f.write(f"{z}\t{sig}\t{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n")
+        with open(data / "DOWNLOADS.log", "a") as f:
+            f.write(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} pc-rebuild UPLOAD refcat {z} "
+                    f"{sum(x.stat().st_size for x in files) / 1e6:.1f} MB (old files kept in {REFCAT_BACKUP}/)\n")
+        log(f"refcat {z}: uploaded")
+    log(f"--upload-refcat: {len(todo)} zones uploaded; the old files are in {BUCKET}/{REFCAT_BACKUP}/")
     return 0
 
 
@@ -627,9 +857,9 @@ def cmd_report(a) -> int:
         big = [f for f in cand_dir.rglob("*") if f.is_file() and f.stat().st_size > 95e6]
         if big:
             hard.append(f"files over 95 MB in cand/: {[str(f) for f in big[:3]]}")
-        if nb > 150e6:  # main had 295 folders, 15 MB on 16 Nov; every one is committed to git
+        if nb > CAND_WARN_MB * 1e6:  # every file is committed to git (zlib about a third of it)
             warn.append(f"cand/ holds {nb / 1e6:.0f} MB in {nd} folders, all committed to git: tell the orchestrator before "
-                        f"merging (frames.py builds frames for every grade A/B mover)")
+                        f"merging (expected ~{MOVER_FRAMES_MB} MB per mover with frames, --frames-top of them)")
     out.append("")
 
     # well-formed
@@ -706,11 +936,14 @@ def cmd_report(a) -> int:
 
     # frames
     ab = [c for c in cands if c["kind"] == "mover" and c.get("grade") in ("A", "B")]
-    nof = [c["id"] for c in ab if not c.get("frames_url")]
-    out.append(f"## Static frames\n\n{len(ab) - len(nof)} of {len(ab)} grade A/B movers have frames_url.\n")
+    top = frames_top(cands, a.frames_top)
+    nof = [c["id"] for c in top if not c.get("frames_url")]
+    out.append(f"## Static frames\n\n{len(top) - len(nof)} of the top {len(top)} open grade A/B movers by score have "
+               f"frames_url (--frames-top {a.frames_top}); {sum(1 for c in ab if c.get('frames_url'))} of all {len(ab)} "
+               f"A/B movers. The others open their visit live in the Viewer.\n")
     if nof and a.expect_frames:
-        (warn if len(nof) <= max(5, 0.05 * len(ab)) else hard).append(
-            f"{len(nof)} grade A/B movers without static frames (rerun the frames step): {nof[:5]}")
+        (warn if len(nof) <= max(5, 0.05 * len(top)) else hard).append(
+            f"{len(nof)} of the top {len(top)} open A/B movers without static frames (rerun the frames step): {nof[:5]}")
 
     # spot checks
     out.append("## Spot checks (open in the Viewer: https://skyshift.web.app, or locally)\n")
@@ -782,6 +1015,23 @@ def cmd_report(a) -> int:
 
 # ------------------------------------------------------------------------------------------------ fill-todo
 
+def frames_top(cands: list[dict], n: int) -> list[dict]:
+    """The movers that get static frames (frames.py --ab-top n): the n highest-scoring open movers of grade A or B
+    (status open or none; ties: id). The same rule as frames.py's choose()."""
+    ab = [c for c in cands if c["kind"] == "mover" and c.get("grade") in ("A", "B") and c.get("det") is not None
+          and c.get("status") in (None, "open")]
+    ab.sort(key=lambda c: (-(c.get("score") or 0.0), c["id"]))
+    return ab[:n]
+
+
+def cmd_frames_check(a) -> int:
+    """Step e: '<missing> <top>' for the top --top open A/B movers of candidates.json (frames_url null = missing)."""
+    cands = _load(Path(a.data_dir) / "candidates.json")["candidates"]
+    top = frames_top(cands, a.top)
+    print(f"{sum(1 for c in top if not c.get('frames_url'))} {len(top)}")
+    return 0
+
+
 def cmd_fill_todo(a) -> int:
     d = Path(a.data_dir) / "cand"
     done = set(Path(a.done).read_text().split()) if a.done and Path(a.done).exists() else set()
@@ -838,8 +1088,28 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--data-dir", required=True, help="folder with candidates.json (+ candidates-more/, cand/)")
     p.add_argument("--checks-dir", default=None)
     p.add_argument("--previous", default="origin/main", help="a git ref or a candidates.json path")
-    p.add_argument("--expect-frames", action="store_true")
+    p.add_argument("--expect-frames", action="store_true", help="stop when many of the top movers have no frames")
+    p.add_argument("--frames-top", type=int, default=FRAMES_TOP, help=f"movers with static frames (default {FRAMES_TOP})")
     p.add_argument("--out", default=None)
+    p = sub.add_parser("frames-check")
+    p.add_argument("--data-dir", required=True)
+    p.add_argument("--top", type=int, default=FRAMES_TOP)
+    p = sub.add_parser("refcat-status")
+    p.add_argument("--data", required=True)
+    p.add_argument("--zones", default="")
+    p.add_argument("--zones-file", default=None)
+    p.add_argument("--json", default=None)
+    p.add_argument("--verbose", action="store_true")
+    p = sub.add_parser("refcat")
+    p.add_argument("--data", required=True)
+    p.add_argument("--zone", required=True)
+    p.add_argument("--workers", type=int, default=8, help="tiles asked for at once (refcat REFCAT_WORKERS)")
+    p = sub.add_parser("upload-refcat")
+    p.add_argument("--data", required=True)
+    p.add_argument("--work", required=True)
+    p.add_argument("--zones", default="")
+    p.add_argument("--zones-file", default=None)
+    p.add_argument("--yes", action="store_true")
     p = sub.add_parser("fill-todo")
     p.add_argument("--data-dir", required=True)
     p.add_argument("--done", default=None)
@@ -847,7 +1117,8 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "export":
         return cmd_export(a, extra)
     return {"plan": cmd_plan, "fetch": cmd_fetch, "estimate": cmd_estimate, "combine": cmd_combine,
-            "report": cmd_report, "fill-todo": cmd_fill_todo}[a.cmd](a)
+            "report": cmd_report, "fill-todo": cmd_fill_todo, "frames-check": cmd_frames_check,
+            "refcat-status": cmd_refcat_status, "refcat": cmd_refcat, "upload-refcat": cmd_upload_refcat}[a.cmd](a)
 
 
 if __name__ == "__main__":

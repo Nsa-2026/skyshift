@@ -12,6 +12,7 @@ import pytest
 pytest.importorskip("skyshift_pipeline")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import rebuild as R  # noqa: E402
+
 from skyshift_pipeline import candidates as X  # noqa: E402
 
 BUCKET = "gs://nasa-glazing-data"
@@ -63,7 +64,7 @@ def test_overlay_column_reads_use_the_bucket_cache_key(tmp_path, monkeypatch):
 
 
 def _cand(i, kind="mover", grade="B", status="open", zone="ecl04", **kw):
-    return {"id": i, "kind": kind, "ra": 1.0, "dec": 2.0, "zone": zone, "score": 1.0, "status": status,
+    return {"id": i, "kind": kind, "ra": 1.0, "dec": 2.0, "zone": zone, "score": 1.0, "status": status, "det": 2,
             "checks": [{"code": "x", "level": "ok"}], "grade": grade if kind == "mover" else None, **kw}
 
 
@@ -78,7 +79,8 @@ def _write(d: Path, main: list[dict], more: dict[str, list[dict]], zones=("ecl04
 
 def _report(d: Path, **kw):
     return R.cmd_report(Namespace(data_dir=str(d), checks_dir=kw.get("checks_dir"), previous=None,
-                                  expect_frames=kw.get("expect_frames", False), out=str(d / "check.md")))
+                                  expect_frames=kw.get("expect_frames", False), frames_top=kw.get("frames_top", 300),
+                                  out=str(d / "check.md")))
 
 
 def test_report_passes_and_counts_the_more_files(tmp_path):
@@ -129,3 +131,89 @@ def test_fill_todo_lists_hours_frames_without_fill(tmp_path, capsys):
     (tmp_path / "done.txt").write_text("w\n")
     R.cmd_fill_todo(Namespace(data_dir=str(tmp_path), done=str(tmp_path / "done.txt")))
     assert capsys.readouterr().out.split() == ["x"]
+
+
+def test_frames_top_is_the_best_open_a_b_movers_and_the_report_counts_only_them(tmp_path, capsys):
+    main = [_cand("a1", grade="A", score=0.9, frames_url="cand/a1/frames.json"), _cand("b1", score=0.8),
+            _cand("b2", score=0.7), _cand("k", grade="A", score=0.99, status="known", known_name="306P/LINEAR"),
+            _cand("f", score=0.95, status="flaw"), _cand("c", grade="C", score=0.98), _cand("n", score=0.97, det=None)]
+    assert [c["id"] for c in R.frames_top(main, 2)] == ["a1", "b1"]
+    _write(tmp_path, main, {})
+    R.cmd_frames_check(Namespace(data_dir=str(tmp_path), top=2))
+    assert capsys.readouterr().out.split() == ["1", "2"]
+    assert _report(tmp_path, expect_frames=True, frames_top=1) == 0      # a1 has frames; the others open live
+    assert "1 of the top 1 open grade A/B movers" in (tmp_path / "check.md").read_text()
+    assert _report(tmp_path, expect_frames=True, frames_top=300) == 0    # 2 missing: a warning (at most 5 or 5%)
+    assert "2 of the top 3 open A/B movers without static frames" in (tmp_path / "check.md").read_text()
+
+
+# ---- step a0: refcat completion (no network: refcat.fetch_tile replaced)
+
+def test_refcat_need_follows_the_config_limit():
+    assert R.refcat_need(["gaia"], 19.99, 20.0) == (False, True)            # Gaia-only: add CatWISE + 2MASS
+    assert R.refcat_need(None, 19.99, 20.0) == (False, False)               # no marker: built with every catalogue
+    assert R.refcat_need(["gaia", "catwise", "2mass"], 19.99, 21.0) == (True, False)   # G max raised: Gaia again
+    assert R.refcat_need(["gaia", "catwise", "2mass"], 20.6, 21.0, a0_g_max=21.0) == (False, False)
+
+
+def _rows(cat, n, ra0, dec0, g=None):
+    import numpy as np
+
+    from skyshift_pipeline import refcat
+    rng = np.random.default_rng(len(cat) + n)
+    out = {"ref_id": [f"{cat}:{ra0:.2f}:{dec0:.2f}:{i}" for i in range(n)], "cat": [cat] * n,
+           "ra": ra0 + rng.uniform(0, 0.99, n), "dec": dec0 + rng.uniform(0, 0.99, n), "epoch_mjd": np.full(n, 57388.5)}
+    if g is not None:
+        out["g_mag"] = np.linspace(12.0, g, n)
+    if cat == "catwise":
+        out["w1_mag"], out["w2_mag"] = np.full(n, 15.0), np.full(n, 14.0)
+    return refcat._finish(out, n)
+
+
+def _fake_fetch(g_max, calls):
+    def fetch(cat, tile, tap=None, s3=None):
+        calls.append((cat, tile.key))
+        return _rows(cat, 5, tile.ra0, tile.dec0, g=g_max - 0.05 if cat == "gaia" else None), f"fake {cat}"
+    return fetch
+
+
+def test_refcat_completes_a_gaia_only_refcat_and_step_a_keeps_it(tmp_path, monkeypatch):
+    from skyshift_pipeline import config as C
+    from skyshift_pipeline import refcat
+    monkeypatch.setattr(C, "REFCAT_S3_FIRST", C.REFCAT_S3_FIRST)          # cmd_refcat sets both: put them back after
+    monkeypatch.setenv("SKYSHIFT_REFCAT_S3_FIRST", "0")
+    zone = C.ZONES["pilot"]
+    ts = refcat.tiles(*refcat.query_box(zone))
+    gaia = pd.concat([_rows("gaia", 4, t.ra0, t.dec0, g=19.98) for t in ts], ignore_index=True)
+    (tmp_path / "refcat").mkdir()
+    gaia.to_parquet(tmp_path / "refcat" / "pilot.parquet")
+    (tmp_path / "refcat" / "pilot_catalogs.json").write_text(json.dumps({"catalogs": ["gaia"], "gspc": True}))
+    bucket_size = (tmp_path / "refcat" / "pilot.parquet").stat().st_size
+    assert R.refcat_state(tmp_path, "pilot")["state"] == "todo"
+    calls = []
+    monkeypatch.setattr(refcat, "fetch_tile", _fake_fetch(20.0, calls))
+    monkeypatch.setattr(C, "REFCAT_GAIA_G_MAX", 20.0)
+    R.cmd_refcat(Namespace(data=str(tmp_path), zone="pilot", workers=2))
+    assert {c for c, _ in calls} == {"catwise", "2mass"} and len(calls) == 2 * len(ts)   # Gaia kept, not asked again
+    st = R.refcat_state(tmp_path, "pilot")
+    assert st["state"] == "ok" and st["rows"]["gaia"] == len(gaia) and st["rows"]["catwise"] == 5 * len(ts)
+    marker = json.loads((tmp_path / "refcat" / "pilot_catalogs.json").read_text())
+    assert marker["catalogs"] == ["gaia", "catwise", "2mass"] and marker["rebuild_a0"]["gaia"] == "kept"
+    assert (tmp_path / "refcat" / "pilot_forced.parquet").exists()
+    assert (tmp_path / "refcat" / "pilot.bucket.parquet").stat().st_size == bucket_size
+    assert R._ok(tmp_path / "refcat" / "pilot.parquet", bucket_size)            # step a won't copy the bucket's over it
+    assert not R._ok(tmp_path / "refcat" / "pilot_forced.parquet", 1)
+    # nothing to do the second time
+    calls.clear()
+    R.cmd_refcat(Namespace(data=str(tmp_path), zone="pilot", workers=2))
+    assert calls == []
+    # REFCAT_GAIA_G_MAX raised to 21: Gaia again (the old tiles dropped), CatWISE and 2MASS kept
+    monkeypatch.setattr(C, "REFCAT_GAIA_G_MAX", 21.0)
+    monkeypatch.setattr(refcat, "fetch_tile", _fake_fetch(21.0, calls))
+    assert R.refcat_state(tmp_path, "pilot")["gaia"] is True
+    R.cmd_refcat(Namespace(data=str(tmp_path), zone="pilot", workers=2))
+    assert {c for c, _ in calls} == {"gaia"} and len(calls) == len(ts)
+    st = R.refcat_state(tmp_path, "pilot")
+    assert st["state"] == "ok" and st["g_faintest"] > 20.9 and st["rows"]["catwise"] == 5 * len(ts)
+    marker = json.loads((tmp_path / "refcat" / "pilot_catalogs.json").read_text())
+    assert marker["rebuild_a0"]["gaia_g_max"] == 21.0 and marker["rebuild_a0"]["catwise_2mass"] == "kept"

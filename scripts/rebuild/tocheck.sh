@@ -9,17 +9,20 @@
 # of the steps after it.
 #   setup  tools and logins checked, disk, NASA S3 speed, branch data/tocheck-rebuild-<date> from origin/main, uv sync
 #   a      mirror exactly the bucket files `suspects` needs (gcloud storage cp --no-clobber) into $SKYSHIFT_DATA
+#   a0     complete the mirror's Gaia-only refcats (64 zones) before suspects: CatWISE/2MASS roles from AllWISE on AWS S3,
+#          Gaia from ESA to config REFCAT_GAIA_G_MAX (both free); --upload-refcat also puts them in the bucket (the old
+#          ones copied to refcat/before-pc-rebuild/ first)
 #   h      only with --known-index: MPC orbits + every comet, the server's known index built locally (d and e use it);
 #          --upload-known-index also copies it to the bucket (the ONLY bucket write, ~115 MB, never overwrites;
 #          after a finished run it uploads and changes nothing else)
 #   b      `skyshift-pipeline suspects` for every zone (16 Nov rule: remove only the certain), --workers zones at once
 #   c      one export (skyshift-candidates): the mirror first, the rest of the bucket by column (small reads)
 #   d      check producers known (all movers), catalogue, pixel (To check movers only), then the merge
-#   e      web/public/data: candidates.json (+ candidates-more/), static frames and fill for the A/B movers
+#   e      web/public/data: candidates.json (+ candidates-more/), static frames and fill for the top 300 open A/B movers
 #   f      checks before publishing (counts, sizes, 306P, spot checks, before/after), web tests and build
 #   g      commit web/public/data on the branch, push, open a PR with gh (the orchestrator merges and deploys main)
 #
-# Never deletes anything in the bucket; never writes to it except step h with --upload-known-index.
+# Never deletes anything in the bucket; writes to it only with --upload-known-index (h) or --upload-refcat (a0), after a prompt.
 # shellcheck disable=SC2329  # the step functions are called through run() and the ERR trap
 set -Eeuo pipefail
 shopt -s nullglob
@@ -38,10 +41,12 @@ Options
   --allow-partial         let a partial run write web/public/data, build frames and open the PR anyway
   --workers N             zones at once in step b, frames at once in e (default: half the cores, at most RAM/4 GB)
   --data DIR              local mirror and work folder (default $SKYSHIFT_DATA or ~/skyshift-data)
-  --redo STEP             run STEP again (a, h, b, c, d, e, f, g) and every step after it; --redo a lists the bucket again
+  --redo STEP             run STEP again (a, a0, h, b, c, d, e, f, g) and every step after it; --redo a lists the bucket again
   --only STEP             run only STEP (the steps before it must be done)
   --known-index           step h: rebuild the server's MPC known index with every comet (local; frames use it)
   --upload-known-index    also copy the index and orbit snapshots to the bucket (implies --known-index)
+  --upload-refcat         after a0: the completed refcats to the bucket (~9-13 GB, ~$0.10-0.13/month; asks first)
+  --frames-top N          static frames for the N best open A/B movers by score (default 300; ~0.45 MB each in git)
   --pixel-args "..."      extra arguments for pixel_check.py (e.g. "--limit 20" for a test)
   --export-args "..."     extra arguments for skyshift-candidates (e.g. a flag the split needs)
   --no-pr                 step g commits and pushes but opens no PR
@@ -54,7 +59,7 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DATA="${SKYSHIFT_DATA:-$HOME/skyshift-data}"
 BUCKET="${SKYSHIFT_BUCKET:-gs://nasa-glazing-data}"
 DRY=0; ZONES=""; WORKERS=""; REDO=""; ONLY=""; KNOWN_INDEX=0; UPLOAD_INDEX=0; ALLOW_PARTIAL=0; NO_PR=0; YES=0
-PIXEL_ARGS=""; EXPORT_ARGS=""; OFFLINE_EXPORT=0
+PIXEL_ARGS=""; EXPORT_ARGS=""; OFFLINE_EXPORT=0; UPLOAD_REFCAT=0; FRAMES_TOP=300
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY=1 ;;
@@ -68,6 +73,9 @@ while [ $# -gt 0 ]; do
     --only) ONLY="$2"; shift ;;
     --known-index) KNOWN_INDEX=1 ;;
     --upload-known-index) UPLOAD_INDEX=1; KNOWN_INDEX=1 ;;
+    --upload-refcat) UPLOAD_REFCAT=1 ;;
+    --frames-top) FRAMES_TOP="$2"; shift ;;
+    --frames-top=*) FRAMES_TOP="${1#*=}" ;;
     --allow-partial) ALLOW_PARTIAL=1 ;;
     --pixel-args) PIXEL_ARGS="$2"; shift ;;
     --export-args) EXPORT_ARGS="$2"; shift ;;
@@ -80,14 +88,15 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-STEPS=(a h b c d e f g)
+STEPS=(a a0 h b c d e f g)
+case "$FRAMES_TOP" in ''|*[!0-9]*) echo "--frames-top: a number" >&2; exit 64 ;; esac
 case " ${STEPS[*]} " in *" ${REDO:-a} "*) ;; *) echo "--redo: one of ${STEPS[*]}" >&2; exit 64 ;; esac
 case " ${STEPS[*]} " in *" ${ONLY:-a} "*) ;; *) echo "--only: one of ${STEPS[*]}" >&2; exit 64 ;; esac
 
 mkdir -p "$DATA"
 DATA="$(cd "$DATA" && pwd)"
 WORK="$DATA/rebuild"
-ZSTAMPS="$WORK/zones"            # a.<zone>, b.<zone>: per zone, shared by every run
+ZSTAMPS="$WORK/zones"            # a.<zone>, a0.<zone> (the G limit), b.<zone>: per zone, shared by every run
 PIPE_PY="$REPO/pipeline/.venv/bin/python"
 SERVER_PY="$REPO/server/.venv/bin/python"
 export FSSPEC_GS='{"block_size": 16384}'  # gcsfs reads by column with small blocks (catalogue_check's own magnitudes)
@@ -155,6 +164,9 @@ code_ready() {  # the merged code the rebuild needs (main must have these PRs)
   grep -q 'allcometels' "$REPO/scripts/candidates/known_check.py" \
     || die "scripts/candidates/known_check.py is older than PR #371 (every comet): update main"
   [ -f "$REPO/scripts/candidates/pixel_check.py" ] || die "scripts/candidates/pixel_check.py missing: update main (PR #372)"
+  grep -q 'REFCAT_S3_FIRST' "$REPO/pipeline/src/skyshift_pipeline/config.py" \
+    || die "this checkout's refcat has no AllWISE-on-S3 path (the catalogue fix, refcat.FULL): update main"
+  grep -q -- '--ab-top' "$REPO/scripts/candidates/frames.py" || die "scripts/candidates/frames.py has no --ab-top: update main"
 }
 
 # ------------------------------------------------------------------------------------------------ plan (also the dry run)
@@ -179,7 +191,18 @@ print_dry_run() {
 Would run (with --workers $WORKERS, data in $DATA, work in $RUN):
   setup  uv sync --frozen in pipeline/ and server/; branch data/tocheck-rebuild-<date> from origin/main$([ "$PUBLISH" = 0 ] && echo " (not on a partial run)")
   a      gcloud storage cp --no-clobber of the manifest above ($WORK/plan/manifest.tsv), one zone at a time, sizes checked
+  a0     rebuild.py refcat --zone <zone> (2 zones at once, SKYSHIFT_REFCAT_S3_FIRST=1): the zones whose refcat lacks
+         CatWISE/2MASS or stops short of config REFCAT_GAIA_G_MAX; AllWISE from AWS S3, Gaia from ESA (free), ~0.4 GB disk each
 EOF
+  if [ -x "$PIPE_PY" ]; then
+    { rb refcat-status --data "$DATA" --zones-file "$RUN/zones.txt" || echo "(refcat-status failed: see above)"; } | sed 's/^/         /'
+  else
+    echo "         (which zones: known after setup and a; 16 Nov: 64 Gaia-only zones, hunt and pilot complete)"
+  fi
+  if [ "$UPLOAD_REFCAT" = 1 ]; then
+    echo "         --upload-refcat: then refcat/<zone>.parquet, _forced, _catalogs.json of those zones to $BUCKET/refcat/"
+    echo "         (~9-13 GB, ~\$0.10-0.13/month Nearline; the old files copied first to $BUCKET/refcat/before-pc-rebuild/; asks)"
+  fi
   if [ "$KNOWN_INDEX" = 1 ]; then
     echo "  h      skyshift-pipeline mpc-orbits --root $DATA --force; python -m skyshift_core.known_index <mpcorb> <cometels> <npz>$([ "$UPLOAD_INDEX" = 1 ] && echo "; upload ~115 MB to $BUCKET/cache/mpc/")"
   fi
@@ -191,7 +214,8 @@ EOF
 EOF
   if [ "$PUBLISH" = 1 ]; then
     cat <<EOF
-  e      copy into web/public/data; frames.py --parallel $fp --deadline 900; fill.py for new hours frames
+  e      copy into web/public/data; frames.py --ab-top $FRAMES_TOP --parallel $fp --deadline 900; fill.py for new hours frames
+         (static frames for the top $FRAMES_TOP open A/B movers by score: ~$(( FRAMES_TOP * 45 / 100 )) MB in cand/, ~$(( FRAMES_TOP * 14 / 100 )) MB in git)
   f      rebuild.py report (counts, sizes, 306P, spot checks, before/after origin/main); cd web && npm ci && npm test && npm run build
   g      git commit web/public/data; git push; gh pr create$([ "$NO_PR" = 1 ] && echo " (skipped: --no-pr)")
 EOF
@@ -202,8 +226,9 @@ EOF
   cat <<EOF
 
 Time on a 16-core PC with ~100-1000 Mbit/s (estimates; docs/rebuild-on-pc.md, section 3):
-  a 10-40 min | h 10-30 min | b 20-60 min | c 0.5-2 h (download-bound) | d 1-4 h | e 2-8 h (IRSA-bound) | f 10-20 min | g 5-15 min
-Free disk now: $(free_gb) GB under $DATA (a full run needs ~100 GB: mirror ~11 GB, export cache, frames, the repo).
+  a 10-40 min | a0 1-3 h (3-8 h if Gaia must go deeper) | h 10-30 min | b 20-60 min | c 0.5-2 h (download-bound)
+  d 1-4 h | e 1-4 h (IRSA-bound) | f 10-20 min | g 5-15 min
+Free disk now: $(free_gb) GB under $DATA (a full run needs ~130 GB: mirror ~11 GB, refcats ~25 GB, export cache, frames, the repo).
 Nothing was downloaded or run.
 EOF
 }
@@ -222,8 +247,8 @@ clear_after() {  # a step ran again: the steps after it must too
 apply_redo() {
   [ -n "$REDO" ] || return 0
   rm -f "$RUN_STAMPS/$REDO" "$RUN_STAMPS/$REDO".*
-  case "$REDO" in a|b) rm -f "$ZSTAMPS/$REDO".* ;; esac
-  if [ "$REDO" = h ]; then clear_after c; else clear_after "$REDO"; fi
+  case "$REDO" in a|a0|b) rm -f "$ZSTAMPS/$REDO".* ;; esac
+  case "$REDO" in h) clear_after c ;; a0) clear_after h ;; *) clear_after "$REDO" ;; esac
   say "--redo $REDO: its stamps and those of the later steps removed"
 }
 want_step() {  # $1: step letter
@@ -297,6 +322,44 @@ step_a() {
   fi
   cat "$RUN_LOGS"/a.*.log >> "$LOGF" 2>/dev/null || true
   say "a: every file of ${#ZLIST[@]} zones is here" | tee -a "$LOGF"
+}
+
+# ------------------------------------------------------------------------------------------------ a0: refcat completion
+refcat_gmax() { (cd "$REPO/pipeline" && "$PIPE_PY" -c 'from skyshift_pipeline import config as C; print(C.REFCAT_GAIA_G_MAX)'); }
+step_a0() {
+  local gmax z n=0 failed=0 par
+  gmax=$(refcat_gmax)
+  step_log a0 "complete the refcats: CatWISE/2MASS from AllWISE on AWS S3, Gaia to G < $gmax (config REFCAT_GAIA_G_MAX)"
+  rb refcat-status --data "$DATA" --zones-file "$RUN/zones.txt" --verbose 2>&1 | tee -a "$LOGF"
+  [ "$(free_gb)" -gt $(( ${#ZLIST[@]} / 2 + 10 )) ] || die "not enough disk for the refcats: ~0.4 GB per zone + 10 GB, $(free_gb) GB free"
+  par=$(( WORKERS < 2 ? WORKERS : 2 ))   # 8 tiles in flight each; an AllWISE partition can take ~1 GB of RAM
+  for z in "${ZLIST[@]}"; do
+    [ "$(cat "$ZSTAMPS/a0.$z" 2>/dev/null)" = "$gmax" ] && continue
+    say "refcat $z" | tee -a "$LOGF"
+    ( trap - ERR
+      SKYSHIFT_REFCAT_S3_FIRST=1 rb refcat --data "$DATA" --zone "$z" > "$RUN_LOGS/a0.$z.log" 2>&1 || exit 1
+      if grep -q '"changed": true' "$RUN_LOGS/a0.$z.log"; then rm -f "$ZSTAMPS/b.$z"; fi   # suspects must run again there
+      echo "$gmax" > "$ZSTAMPS/a0.$z" ) &
+    n=$((n + 1))
+    if [ "$n" -ge "$par" ]; then wait -n || failed=1; n=$((n - 1)); [ "$failed" = 0 ] || break; fi
+  done
+  while [ "$n" -gt 0 ]; do wait -n || failed=1; n=$((n - 1)); done
+  local miss=()
+  for z in "${ZLIST[@]}"; do [ "$(cat "$ZSTAMPS/a0.$z" 2>/dev/null)" = "$gmax" ] || miss+=("$z"); done
+  if [ ${#miss[@]} -gt 0 ]; then
+    for z in "${miss[@]}"; do [ -f "$RUN_LOGS/a0.$z.log" ] && { echo "--- $z"; tail -n 8 "$RUN_LOGS/a0.$z.log"; }; done >&2
+    die "refcat completion failed for ${#miss[@]} zone(s): ${miss[*]} (logs $RUN_LOGS/a0.<zone>.log; AWS S3 or ESA busy?): rerun to resume"
+  fi
+  grep -h '"changed"' "$RUN_LOGS"/a0.*.log >> "$LOGF" 2>/dev/null || true
+  echo "$gmax" > "$RUN_STAMPS/a0.gmax"
+  say "a0: every refcat of ${#ZLIST[@]} zones has Gaia (G < $gmax), CatWISE and 2MASS" | tee -a "$LOGF"
+}
+upload_refcat() {  # --upload-refcat: the completed refcats to the bucket; the old files are copied to a backup first
+  CUR="a0.upload"; LOGF="$RUN_LOGS/a0.log"
+  stamp_done a0 || die "--upload-refcat: step a0 has not finished"
+  local y=(); [ "$YES" = 1 ] && y=(--yes)
+  rb upload-refcat --data "$DATA" --work "$WORK" --zones-file "$RUN/zones.txt" "${y[@]}" 2>&1 | tee -a "$LOGF"
+  return 0
 }
 
 # ------------------------------------------------------------------------------------------------ h: known index (optional)
@@ -443,22 +506,13 @@ step_e() {
   key=$(known_index_key)
   fp=$(( WORKERS < 8 ? WORKERS : 8 ))
   if ! stamp_done e.frames; then
-    say "frames.py (top of each kind + every grade A/B mover; MPC index $key)" | tee -a "$LOGF"
+    say "frames.py (top of each other kind + the $FRAMES_TOP best open A/B movers; MPC index $key)" | tee -a "$LOGF"
     (cd "$REPO/server" && SKYSHIFT_CACHE="$DATA/cache" SKYSHIFT_KNOWN_INDEX="$key" "$SERVER_PY" ../scripts/candidates/frames.py \
-        --candidates "$dst/candidates.json" --parallel "$fp" --deadline 900) 2>&1 | tee -a "$LOGF"
-    local miss
-    miss=$(python3 - "$dst/candidates.json" <<'EOF'
-import json, sys
-c = json.load(open(sys.argv[1]))["candidates"]
-ab = [x for x in c if x["kind"] == "mover" and x.get("grade") in ("A", "B")]
-miss = [x["id"] for x in ab if not x.get("frames_url")]
-print(f"{len(miss)} {len(ab)}")
-EOF
-)
-    local nmiss nab
-    read -r nmiss nab <<< "$miss"
-    say "frames: $(( nab - nmiss )) of $nab grade A/B movers have static frames" | tee -a "$LOGF"
-    [ "$nmiss" -le $(( nab / 20 + 5 )) ] || die "$nmiss of $nab A/B movers got no frames (IRSA slow or down?): rerun the same command (built frames are kept)"
+        --candidates "$dst/candidates.json" --ab-top "$FRAMES_TOP" --parallel "$fp" --deadline 900) 2>&1 | tee -a "$LOGF"
+    local nmiss ntop
+    read -r nmiss ntop <<< "$(rb frames-check --data-dir "$dst" --top "$FRAMES_TOP")"
+    say "frames: $(( ntop - nmiss )) of the top $ntop open A/B movers have static frames; cand/ $(du -sh "$dst/cand" | cut -f1)" | tee -a "$LOGF"
+    [ "$nmiss" -le $(( ntop / 20 + 5 )) ] || die "$nmiss of the top $ntop A/B movers got no frames (IRSA slow or down?): rerun the same command (built frames are kept)"
     stamp e.frames
   fi
   if ! stamp_done e.fill; then
@@ -491,6 +545,7 @@ step_f() {
   step_log f "checks before publishing"
   local dir="$RUN/final" frames=()
   if [ "$PUBLISH" = 1 ]; then dir="$REPO/web/public/data"; frames=(--expect-frames); fi
+  frames+=(--frames-top "$FRAMES_TOP")
   git -C "$REPO" fetch origin main --quiet || true
   rb report --data-dir "$dir" --checks-dir "$RUN/checks" --previous origin/main "${frames[@]}" --out "$RUN/reports/check.md" 2>&1 | tee -a "$LOGF"
   if [ "$PUBLISH" = 1 ]; then
@@ -542,7 +597,7 @@ EOF
     echo "The To check list rebuilt on the lead's PC with \`scripts/rebuild/tocheck.sh\` (docs/rebuild-on-pc.md)."
     echo
     echo "- Zones: ${#ZLIST[@]} ($(IFS=' '; echo "${ZLIST[*]}"))"
-    echo "- Steps: suspects rerun per zone (remove only the certain), one export, check producers known / catalogue / pixel merged, static frames and fill for the A/B movers."
+    echo "- Steps: refcats completed where Gaia-only (AllWISE/2MASS from AWS S3, Gaia to G < $(refcat_gmax)), suspects rerun per zone (remove only the certain), one export, check producers known / catalogue / pixel merged, static frames and fill for the top $FRAMES_TOP open A/B movers (the Viewer loads the rest live)."
     echo "- Built on origin/main $(git -C "$REPO" merge-base HEAD origin/main | cut -c1-7). Downloads logged in ~/skyshift-data/DOWNLOADS.log."
     echo "- For the orchestrator: merge, then deploy main (CLAUDE.md: pull, build, infra/firebase/deploy.sh hosting) and name the deployed commit here."
     echo
@@ -564,6 +619,7 @@ run() {  # step letter, function
   case "$s" in
     b) ;;                  # step_b clears the later steps itself when a zone ran again
     h) clear_after c ;;    # the index feeds d (known_check's base index) and e (frames), not b or c
+    a0) clear_after h ;;   # the refcats feed b (and so everything after it), not h
     *) clear_after "$s" ;;
   esac
   return 0
@@ -577,6 +633,11 @@ main_flow() {
   apply_redo
   step_setup
   run a step_a
+  if stamp_done a0 && want_step a0 && [ "$(cat "$RUN_STAMPS/a0.gmax" 2>/dev/null)" != "$(refcat_gmax)" ]; then
+    rm -f "$RUN_STAMPS/a0"; say "config REFCAT_GAIA_G_MAX changed since step a0: a0 runs again"
+  fi
+  run a0 step_a0
+  if [ "$UPLOAD_REFCAT" = 1 ] && want_step a0; then upload_refcat; fi
   if [ "$KNOWN_INDEX" = 1 ]; then run h step_h; fi
   if [ "$UPLOAD_INDEX" = 1 ] && want_step h; then upload_index; fi
   run b step_b

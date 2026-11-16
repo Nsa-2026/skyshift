@@ -1,10 +1,14 @@
 # The To check rebuild on your PC
 
-What it does: reruns `suspects` for every zone with the 16 Nov rule (remove only the certain), exports a new
-`candidates.json` (with `candidates-more/` for grade C), runs the check producers (known, catalogue, pixel), merges
-them, builds static frames for the new grade A/B movers, checks the result and opens a PR with the data. The
-orchestrator merges and deploys from main. Nothing runs on cloud machines; nothing in the bucket is changed or deleted
-(the optional upload in (h) only adds three files).
+> **Wait until the orchestrator says go: the exporter's slim reads (branch p1/exporter-slim-reads) cut the export from
+> ~50 GB to a few GB.**
+
+What it does: completes the Gaia-only reference catalogues (CatWISE and 2MASS added, free), reruns `suspects` for every
+zone with the 16 Nov rule (remove only the certain), exports a new `candidates.json` (with `candidates-more/` for
+grade C), runs the check producers (known, catalogue, pixel), merges them, builds static frames for the 300 best open
+grade A/B movers, checks the result and opens a PR with the data. The orchestrator merges and deploys from main.
+Nothing runs on cloud machines; nothing in the bucket is deleted, and nothing is written there unless you ask (the
+optional uploads in (a0) and (h)).
 
 One script does it: `scripts/rebuild/tocheck.sh`. It is resumable: after any stop, run the same command again.
 
@@ -12,9 +16,9 @@ One script does it: `scripts/rebuild/tocheck.sh`. It is resumable: after any sto
 |---|---|
 | Download from the bucket | ~61 GB: ~10.5 GB mirrored (a) + ~50 GB read by column in the export (c) |
 | Bucket cost | ~$9 (~$0.13 per GB for Nearline + internet egress, plus ~$1 for ~1 M read requests); range $6–13 |
-| Free downloads | NASA S3 (photos for pixel checks, AllWISE), IRSA (catalogues, cutouts), MPC, JPL Horizons |
+| Free downloads | AWS S3 (AllWISE for the refcats and suspects, NASA's photos for pixel checks), ESA Gaia, IRSA (catalogues, cutouts), MPC, JPL Horizons |
 | Time on a 16-core PC | ~6–16 h, mostly unattended (IRSA's speed decides most of it) |
-| Disk | ≥ 100 GB free |
+| Disk | ≥ 130 GB free |
 
 ## 1. Quick start
 
@@ -26,6 +30,8 @@ tmux new -s rebuild                                  # keeps it running if the t
 scripts/rebuild/tocheck.sh --known-index             # the whole rebuild; it asks before each paid download
 ```
 
+Add `--upload-refcat` only when the orchestrator asks for the completed refcats in the bucket (section 5, a0).
+
 At the end it prints the PR link. Send the link to the orchestrator.
 
 ## 2. The machine
@@ -33,8 +39,8 @@ At the end it prints the PR link. Send the link to the orchestrator.
 - Ubuntu 22.04 or 24.04, or Windows 10/11 with Ubuntu 24.04 in WSL2. Ubuntu 20.04 does not work: kete's wheels need
   glibc 2.35.
 - 16 cores and 32 GB RAM are what the times below assume. 16 GB works with `--workers 2` (slower).
-- ≥ 100 GB free on an SSD: mirror ~11 GB, export cache ~29 GB, AllWISE, known and pixel caches a few GB each, the repo
-  with node_modules ~2 GB, the new frames.
+- ≥ 130 GB free on an SSD: mirror ~11 GB, completed refcats and their tiles ~15–25 GB, export cache ~29 GB, AllWISE,
+  known and pixel caches a few GB each, the repo with node_modules ~2 GB, the new frames (~130 MB).
 - A line of ≥ 100 Mbit/s. The setup step measures NASA S3 and prints it.
 
 ## 3. Setup (once)
@@ -142,7 +148,8 @@ several hours; it still works.
 - After a stop it prints `STOPPED in step X`, the log and the cause. Fix the cause, run the same command again: finished
   steps are skipped (a stamp file per step under `~/skyshift-data/rebuild/run-<n>/stamps/`).
 - `--redo STEP` runs a step again and every step after it (`--redo a` also lists the bucket again; the listing is kept
-  12 h). `--only STEP` runs one step. After `git pull` brought new pipeline code, use `--redo b`.
+  12 h). `--only STEP` runs one step. After `git pull` brought new pipeline code, use `--redo b`; a new
+  `REFCAT_GAIA_G_MAX` is noticed on its own (a0 runs again where needed).
 - `--workers N`: zones at once in (b), frame jobs at once in (e). Default: half the cores, at most RAM / 4 GB.
 
 Options: `scripts/rebuild/tocheck.sh --help`.
@@ -153,11 +160,12 @@ Options: `scripts/rebuild/tocheck.sh --help`.
 |---|---|---|---|---|
 | setup | tools, logins, disk, NASA S3 speed, branch `data/tocheck-rebuild-<date>` from origin/main, `uv sync` | PyPI | free | 5–10 min |
 | a | mirror the files `suspects` needs | 10.5 GB, 38,551 files from the bucket | $1.36 | 10–40 min |
+| a0 | complete the Gaia-only refcats (~60 zones) | ~25 GB AllWISE from AWS S3; Gaia from ESA only if G must go deeper | free | 1–3 h (3–8 h deeper Gaia) |
 | h | optional: the server's MPC index with every comet | MPC | free | 10–30 min |
 | b | `suspects` for 62 zones | local; AllWISE from NASA S3 | free | 20–60 min |
 | c | one export | ~50 GB from the bucket by column (range 30–80) | ~$6.6 + ~$1 requests | 0.5–2 h |
 | d | known, catalogue, pixel checks; merge | MPC, IRSA, NASA S3 | free | 1–4 h |
-| e | site files, frames, fill | IRSA cutouts | free | 2–8 h |
+| e | site files, frames for the top 300 open A/B movers, fill | IRSA cutouts | free | 1–4 h |
 | f | checks; web tests and build | local | free | 10–20 min |
 | g | commit, push, PR | GitHub | free | 5–15 min |
 
@@ -178,6 +186,46 @@ on 16 Nov:
 | **total** | **38,551** | **10.48** | **$1.36** | |
 
 Every download is logged in `~/skyshift-data/DOWNLOADS.log`.
+
+### (a0) Complete the refcats
+
+60 of the 62 zones (all but hunt and pilot) have a Gaia-only refcat: the sky run built them with
+`SKYSHIFT_REFCAT_CATALOGS=gaia` (catalogue agent's report; pipeline/CLAUDE.md). `suspects` vetoes and grades movers with
+CatWISE and 2MASS, so (a0) completes them in the mirror before (b). `rebuild.py refcat --zone <zone>` runs the
+pipeline's own `refcat` step with every catalogue (what `all --from` does through `ensure_full_refcat`) and
+`SKYSHIFT_REFCAT_S3_FIRST=1`:
+
+- CatWISE's role from AllWISE on AWS S3 (IRSA's HEALPix Parquet, anonymous, free), 2MASS from AllWISE's 2MASS
+  associations; IRSA's TAP only if S3 fails.
+- Gaia: the rows the refcat already has are kept (written back as its cached tiles, so they are not asked for again),
+  unless config `REFCAT_GAIA_G_MAX` asks for fainter stars than they reach (by more than 0.3 mag). Then Gaia is fetched
+  again from ESA (free) down to that limit. The value is read from the checked-out `pipeline/src/skyshift_pipeline/config.py`,
+  so it follows whatever main says when you run it (agent "v2finish" may raise it from 20 to 21). If it changes after
+  (a0) has run, the next run does (a0) again where needed, and (b) onward after it.
+- Complete refcats (hunt, pilot) are left as they are.
+
+Where the outputs go (local only, under `~/skyshift-data`):
+
+- `refcat/<zone>.parquet`, `refcat/<zone>_forced.parquet` and `refcat/<zone>_catalogs.json`. The marker gains
+  `rebuild_a0`: what was kept, what was fetched and the G limit.
+- The bucket's own copies are kept beside them as `<zone>.bucket.parquet` and `<zone>_catalogs.bucket.json`.
+- The tiles in `cache/refcat/<zone>/`.
+
+Step (a) never copies the bucket's refcat over a completed one. A zone whose refcat changed runs (b) again.
+
+Two zones at once, 8 tiles each: ~3–5 min per zone (the catalogue agent measured ~33 s per AllWISE partition from a
+laptop), ~1–3 h for ~60 zones, ~25 GB from AWS S3 (free), ~15–25 GB more disk. A deeper Gaia adds ~120 ESA queries
+per zone: ~3–8 h in all.
+
+**`--upload-refcat`** (optional; only when the orchestrator asks): after (a0), the completed refcats go to
+`gs://nasa-glazing-data/refcat/`, so the cloud and the photo rerun use them too.
+
+- First the bucket's own three files of each zone are copied, server side and without overwriting, to
+  `refcat/before-pc-rebuild/`. Then they are replaced.
+- It prints the size and cost and asks first: ~9–13 GB (the old 3.2 GB stay as the backup), ~$0.10–0.13 a month on
+  Nearline, upload traffic free, a few hundred operations (under a cent), ~$0.03 of Nearline retrieval for the backup
+  copies.
+- The tiles are not uploaded. Every upload is logged in `DOWNLOADS.log`. A rerun uploads only the zones that changed.
 
 ### (b) Suspects for every zone
 
@@ -224,22 +272,27 @@ In this order, each with its own stamp:
 
 ### (e) Site files, frames, fill
 
-Copies `final/` into `web/public/data/` (candidates.json, candidates-more/), then `frames.py` (top of each kind and
-every grade A/B mover, IRSA cutouts, the MPC known index from the mirror) and `fill.py` for the hours frames' edge
-exposures, in chunks of 25. If more than 5% (+5) of the A/B movers got no frames, it stops: IRSA was slow; run the same
-command again (built frames are kept).
+Copies `final/` into `web/public/data/` (candidates.json, candidates-more/). Then it runs `frames.py --ab-top 300`:
+static frames for the 300 open grade A/B movers with the highest score, and the usual top of high_pm, spectral and
+shape (IRSA cutouts, the MPC known index from the mirror). Every other mover keeps `frames_url` null: the Viewer loads
+its whole visit live. Then `fill.py` for the hours frames' edge exposures, in chunks of 25. If more than 5% (+5) of the
+300 got no frames, it stops: IRSA was slow; run the same command again (built frames are kept).
+
+Size in git: a mover's frame folder on main is ~0.44 MB (median of 19; at most 0.7 MB; ~0.14 MB once git compresses it).
+300 movers: ~130 MB in `cand/`, ~40–45 MB added to the repository, plus ~5 MB for the other kinds. Every A/B mover
+(697 on main today) would be ~300 MB. `--frames-top N` sets another number.
 
 ### (f) Checks before publishing
 
 `rebuild.py report` writes `run-<n>/reports/check.md` and stops on a hard failure:
 
 - every file is valid JSON, ids are unique across candidates.json and the more files;
-- file sizes: hard stop over 95 MB (GitHub refuses 100 MB), warning over 50 MB; cand/ over 150 MB is a warning to
+- file sizes: hard stop over 95 MB (GitHub refuses 100 MB), warning over 50 MB; cand/ over 250 MB is a warning to
   tell the orchestrator (every frame folder is committed);
 - counts per kind, status and grade, the To check count, checks per code, before/after against origin/main;
 - every producer's side file names only ids that exist;
 - 306P/LINEAR is listed as known when ecl01–ecl04 are in the export (hard stop if not);
-- every grade A/B mover has frames;
+- the top 300 open A/B movers have frames (all but 5% + 5);
 - spot checks: all grade A, the top 10 of To check, known, flaw, 5 random grade C, 5 random fixed.
 
 Then `npm ci && npm test && npm run build` in web/.
@@ -267,12 +320,12 @@ again). Do it only when the orchestrator asks: Cloud Run then needs
 
 ## 6. Known limits
 
-- 64 zones' refcats are Gaia-only (the sky run's `=gaia`, pipeline/CLAUDE.md): there `suspects` gets no CatWISE or 2MASS
-  reasons (AllWISE from S3 still counts). Completing them is a separate decision (fix-catalogue report). If the bucket's
-  refcats change, run `tocheck.sh --redo a`.
+- (a0) uses AllWISE in CatWISE's place: no CatWISE motions, and 2MASS only where AllWISE matched a source within 3″.
+  The bucket's cached Gaia tiles (`cache/refcat/<zone>/gaia_*`) keep their old depth even after `--upload-refcat`: the
+  pipeline's tile key ignores G, so a cloud `refcat` run with a deeper limit must delete them first.
 - The bucket listing behind the plan is kept 12 h. A zone finished after it shows up with `--redo a`.
 - Frames depend on IRSA. A slow IRSA stops (e); rerunning continues where it stopped.
-- cand/ grows with every grade A/B mover and goes into git (main: 295 folders, 15 MB on 16 Nov).
+- cand/ holds frames for `--frames-top` movers (~0.44 MB each) and goes into git (main: 295 folders, 14 MB on 16 Nov).
 
 ## 7. Later: the photo rerun on the PC (NOT READY)
 
