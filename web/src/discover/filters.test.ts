@@ -1,3 +1,4 @@
+import { statusOf } from "../api/checks";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -278,8 +279,9 @@ describe("what's worth checking (the set-aside rule)", () => {
   });
 
   it("holds on the published list: the groups split it, and what's left is what's worth checking", () => {
-    const cands = published.candidates;
-    const f = filterRows(toRows(cands, new Map()), defaultState());
+    // Certain matches (status known or flaw, v3.23) are listed apart, under their own switch: the rest is split here.
+    const cands = published.candidates.filter((x) => statusOf(x) === "open");
+    const f = filterRows(toRows(published.candidates, new Map()), defaultState());
     const n = countBy(f.without("scope"), setAsideValues);
     const aside = SET_ASIDE.reduce((a, g) => a + (n.get(g) ?? 0), 0);
     expect(f.rows.length + aside).toBe(cands.length);

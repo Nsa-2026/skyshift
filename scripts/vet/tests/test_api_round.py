@@ -103,3 +103,20 @@ def test_route_tiers():
     assert route.tier(0.99, [], 1, [3, 6], "two_detectors", float("nan")) == "hard"
     assert route.tier(None, [], 4, [1, 4], "two_exposures", 30.0) == "hard" and route.tier(float("nan"), hot, 4, [1], "x", 30.0) == "hard"
     assert route.tier(0.5, hot, 4, [1, 4], "two_exposures", 30.0) == "hard"              # score and warnings disagree
+
+
+def test_publish_checks_rules():
+    import publish_checks as P
+    real = {"verdict": "real_other", "confidence": 0.85, "interest": "medium", "what_it_is": "A star.", "decisive": "Gaia."}
+    fake = {"verdict": "artifact", "confidence": 0.9, "junk_proof": "hot_pixel_seen_at_other_sky_positions", "what_it_is": "Hot.", "decisive": "Pixel."}
+    noproof = dict(fake, junk_proof="none")
+    assert P.review("high_pm", [("a", real), ("b", real)])["level"] == "ok"
+    c = P.review("mover", [("a", fake), ("b", dict(fake, junk_proof=None))])
+    assert c["code"] == "ai_fake_proven" and "hot pixel" in c["text"] and c["look"]          # two sure drops, a named proof
+    assert P.review("mover", [("a", noproof), ("b", fake)])["code"] == "ai_review"         # the latest names no proof: not proven
+    assert P.review("mover", [("a", fake), ("b", dict(fake, confidence=0.6))])["level"] == "strong"  # one sure drop only
+    assert P.review("mover", [("a", fake), ("b", fake), ("c", {"verdict": "real_mover_unknown"})])["level"] == "warn"  # a checker keeps it
+    wrong = {"verdict": "engine_claim_wrong", "confidence": 0.9}
+    assert P.review("high_pm", [("a", wrong), ("b", wrong)])["level"] == "warn"            # a moving star with a wrong value is no fake
+    assert P.review("spectral", [("a", wrong), ("b", wrong)])["code"] == "ai_fake_proven"
+    assert P.catalogued({"x": {"checks": [{"code": "catalogues_checked", "level": "strong", "text": "CatWISE lists it."}]}}, "x")
