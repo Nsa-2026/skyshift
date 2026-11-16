@@ -1,14 +1,15 @@
-// Top-level screens: Sky · Viewer · To check · Community · Results · Learn, plus Advanced.
+// Top-level screens: Sky · Viewer · To check · Changes · Community · Results · Learn, plus Advanced.
 // About is in the footer only. Old links are rewritten first by ./legacy-routes.ts; this file
 // resolves the site's own hashes to a page and its screen.
 import {MODES, analysisPanels, workspaceState, type WorkspaceState} from '../product/workspace-state';
 
-export type Screen = 'sky' | 'viewer' | 'check' | 'community' | 'results' | 'learn';
+export type Screen = 'sky' | 'viewer' | 'check' | 'changes' | 'community' | 'results' | 'learn';
 export interface ScreenLink {id:Screen; label:string; href:string}
 export const SCREENS: readonly ScreenLink[] = [
   {id:'sky', label:'Sky', href:'#/sky'},
   {id:'viewer', label:'Viewer', href:'#/explore'},
   {id:'check', label:'To check', href:'#/candidates'},
+  {id:'changes', label:'Changes', href:'#/changes'},
   {id:'community', label:'Community', href:'#/community'},
   {id:'results', label:'Results', href:'#/results'},
   {id:'learn', label:'Learn', href:'#/learn'},
@@ -17,7 +18,7 @@ export const SCREENS: readonly ScreenLink[] = [
 /** Which screen each page belongs to (its nav entry); About belongs to none. */
 const PAGE_SCREEN: Record<string, Screen | null> = {
   atlas:'sky', explore:'viewer',
-  discover:'check', review:'check', community:'community',
+  discover:'check', review:'check', changes:'changes', community:'community',
   results:'results', live:'results', tools:'results',
   learn:'learn', about:null,
 };
@@ -79,6 +80,6 @@ export function siteRoute(hash: string, embed = false, search = '', advanced = f
   if (head === 'score' || head === 'results') return page('results', param);
   if (head === 'candidates' || head === 'discover') return page('discover', param);
   if (head === 'sky') return page('atlas', param);
-  if (['review', 'community', 'about', 'learn', 'tools', 'live'].includes(head)) return page(head, param);
+  if (['review', 'changes', 'community', 'about', 'learn', 'tools', 'live'].includes(head)) return page(head, param);
   return page('atlas', null);
 }
