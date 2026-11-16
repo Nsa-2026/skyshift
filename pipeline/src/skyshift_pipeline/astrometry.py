@@ -99,6 +99,8 @@ AU_KM = M.AU_KM
 COLUMNS = ["source_id", "ra", "dec", "epoch_mjd", "ra_err_arcsec", "dec_err_arcsec", "pmra", "pmdec", "pmra_err",
            "pmdec_err", "pm", "pm_snr", "parallax", "parallax_err", "fit", "n_dots", "n_used", "n_visits", "span_yr",
            "chi2_nu", "snr_median", "frame_corrected", "plx_leak_ra", "plx_leak_dec", "visit_chi2_nu", "wobble_arcsec", "unsteady"]
+# per source × visit (astrometry_visits.parquet, 16 Nov): the fitted sources fast enough for highpm's fit route
+VISIT_COLUMNS = ["source_id", "visit", "mjd", "ra", "dec", "ra_err_arcsec", "dec_err_arcsec", "n_dots"]
 JAC_COLUMNS = ["jac_ex", "jac_ey", "jac_nx", "jac_ny"]  # ″ per pixel: east per x, east per y, north per x, north per y
 SAT_COLUMNS = ["detector", "depth_bin", "depth_min", "depth_max", "dx_px", "dy_px", "dx_err_px", "dy_err_px", "n",
                "applied"]
@@ -910,6 +912,7 @@ def fit(d: pd.DataFrame, crossids: pd.DataFrame | None = None, frame: bool = Tru
         s, N, vis_d, wk, re, rn, 2 + free_plx.astype(np.int64), floor=C.ASTRO_VISIT_FLOOR_ARCSEC,
         scale=C.ASTRO_VISIT_ERR_SCALE_RAW if raw_err else C.ASTRO_VISIT_ERR_SCALE)
     unsteady = M.unsteady(visit_chi2_nu) if C.ASTRO_UNSTEADY else np.zeros(N, bool)
+    visit_scale = C.ASTRO_VISIT_ERR_SCALE_RAW if raw_err else C.ASTRO_VISIT_ERR_SCALE
     extra = np.bincount(s, const2, N) / np.maximum(n_dots, 1)  # 0 without calib's floor_rel
     for j in (0, 1):
         sig[:, j] = np.where(extra > 0, np.sqrt(sig[:, j] ** 2 + extra), sig[:, j])
@@ -946,12 +949,50 @@ def fit(d: pd.DataFrame, crossids: pd.DataFrame | None = None, frame: bool = Tru
     good = (n_used >= C.ASTRO_MIN_DOTS) & np.isfinite(pmra) & (span > 0)  # used dots: clean_mask can leave 1 per visit
     few_dof = good & (mdof < C.ASTRO_MIN_MOTION_DOF)  # the zero points leave the motion (almost) no freedom
     good &= ~few_dof
+    with np.errstate(invalid="ignore"):
+        fast = good & (pm >= C.HIGHPM_FIT_MIN_MAS_YR) & (pm_snr >= min(C.HIGHPM_FIT_MIN_SNR, C.HIGHPM_FIT_MIN_SNR_GAIA))
+    # the plain fit's line (its intercept at tref; the pm and parallax as written) at each visit's own time and parallax
+    # factors, + the visit's mean residual (within detectors when the zero points are on)
+    st["visit_positions"] = visit_positions(fast, s, vis_d, wk, t, Pe, Pn, re, rn, par, tref, ra0, dec0, sid_u,
+                                            visit_scale, C.ASTRO_VISIT_FLOOR_ARCSEC)
     st.update({"sources_in": int(N), "fitted": int(good.sum()), "with_parallax": int((good & use_plx).sum()),
                "dropped_motion_dof": int(few_dof.sum()),
                "modes": {m: int((good & (mode == m)).sum()) for m in M.MODES}, "unsteady": int((good & unsteady).sum())})
     if diagnostics:
         return out[good].reset_index(drop=True), st
     return out[good].reset_index(drop=True)[COLUMNS], st
+
+
+def visit_positions(sel: np.ndarray, s: np.ndarray, visit: np.ndarray, wk: np.ndarray, T: np.ndarray, PE: np.ndarray,
+                    PN: np.ndarray, re: np.ndarray, rn: np.ndarray, par: np.ndarray, tref: np.ndarray, ra0: np.ndarray,
+                    dec0: np.ndarray, sid_u: np.ndarray, scale: float, floor: float) -> pd.DataFrame:
+    """Per selected source × visit (VISIT_COLUMNS): where the fit puts it at the visit's mean time (its line + parallax at
+    the visit's weighted mean t and parallax factors) plus the visit's weighted mean residual: the visit's own position,
+    in the fit's frame (frame, saturated-dot and pixel offsets taken out; detector zero points as the fit's). Errors per
+    axis √(scale² / Σw + floor²), as the steadiness test (skyshift_core.motion.visit_steadiness): relative positions,
+    the frame's own uncertainty not included. mjd: the visit's weighted mean dot time."""
+    from skyshift_core import tangent_deproject
+    use = sel[s] & (wk > 0)
+    if not use.any():
+        return pd.DataFrame({c: pd.Series(dtype=t) for c, t in zip(VISIT_COLUMNS, ("int64", "int16", "float64", "float64",
+                                                                                   "float64", "float32", "float32", "int32"))})
+    ss, vv, w = s[use], visit[use], wk[use]
+    key = pd.MultiIndex.from_arrays([ss, vv])
+    g = pd.DataFrame({"s": ss, "v": vv, "w": w, "wt": w * T[use], "wpe": w * PE[use], "wpn": w * PN[use],
+                      "wre": w * re[use], "wrn": w * rn[use], "n": 1}, index=key).groupby(level=[0, 1]).sum()
+    si = g.index.get_level_values(0).to_numpy(np.int64)
+    sw = g["w"].to_numpy(np.float64)
+    tv, pev, pnv = (g[c].to_numpy(np.float64) / sw for c in ("wt", "wpe", "wpn"))
+    p = par[si]
+    plx = np.nan_to_num(p[:, 4])
+    e = p[:, 0] + p[:, 2] * tv + plx * pev + g["wre"].to_numpy(np.float64) / sw
+    n = p[:, 1] + p[:, 3] * tv + plx * pnv + g["wrn"].to_numpy(np.float64) / sw
+    ra, dec = tangent_deproject(ra0[si], dec0[si], e, n)
+    err = np.sqrt(scale * scale / sw + floor * floor)
+    return pd.DataFrame({"source_id": sid_u[si].astype(np.int64), "visit": g.index.get_level_values(1).to_numpy(np.int16),
+                         "mjd": tref[si] + tv * DAYS_PER_JYEAR, "ra": np.asarray(ra, np.float64), "dec": np.asarray(dec, np.float64),
+                         "ra_err_arcsec": err.astype(np.float32), "dec_err_arcsec": err.astype(np.float32),
+                         "n_dots": g["n"].to_numpy(np.int32)})
 
 
 def _stats(dx: np.ndarray, sx: np.ndarray) -> dict:
@@ -1054,7 +1095,11 @@ def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
         raw, st_raw = fit(d, crossids, frame=False, jac=jac)
         sat, pix = st_raw.pop("sat_table", None), st_raw.pop("pix_tables", None)
         cor, st_cor = raw, st_raw
+    visits = st_cor.pop("visit_positions", None)
+    st_raw.pop("visit_positions", None)
     store.write_parquet(results_rel(zone.name, "astrometry.parquet"), cor)
+    if visits is not None:
+        store.write_parquet(results_rel(zone.name, "astrometry_visits.parquet"), visits)
     rep = {"zone": zone.name, "frame_correction": {k: v for k, v in st_cor.items() if k.startswith(("photos", "frame"))},
            "fitted": st_cor.get("fitted", 0), "with_parallax": st_cor.get("with_parallax", 0),
            **model_counts(cor),

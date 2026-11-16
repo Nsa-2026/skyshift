@@ -24,8 +24,14 @@ also lower χ² (a few per photo): the decision rests on the companion's S/N per
 (the photos' weighted mean) with an error that is the larger of the formal one and the photos' scatter, and a real
 object gives no negative light in any detector. Per visit: Δ fitted on that visit's photos alone; a companion that moves between visits (an
 asteroid passing a star) lands at different offsets, a background star or a bound companion at the same one.
-The companion's sky position = the primary's (median of x1 through each photo's WCS) + Δ; any Gaia, CatWISE or 2MASS
-entry within FIT_CATALOG_ARCSEC of it (moved to the photos' epoch) is named in `companion_catalog`.
+The companion's sky position = the primary's (median of x1 through each photo's WCS) + Δ; any Gaia, CatWISE, AllWISE
+or 2MASS entry within FIT_CATALOG_ARCSEC of it (moved to the photos' epoch) is named in `companion_catalog`.
+Each visit's offset error adds FIT_VISIT_FLOOR_ARCSEC per axis to the curvature's (16 Nov: the hunt's fixed,
+catalogued companions moved 0.30–0.67″ between visits against curvature errors of 0.03–0.06″, so `companion_move_sigma`
+read 6–10 while `companion_moves` stayed false: 1–2σ now). Two catalogued objects at the source closer together than
+the search starts (close_second: one catalogue's two entries 1–4.5″ apart, within 2.5 mag) make the fit mirror the
+light: no split then, `companion_blocked` names the pair (16 Nov: hunt-sh-64104007282900's "companion" 6.7″ NW was the
+mirror of Gaia G 18.9 2.6″ and AllWISE W1 14.7 5.4″ SE).
 """
 
 from __future__ import annotations
@@ -70,6 +76,14 @@ FIT_COMPANION_NEG_SNR = -3.0   # ... and in no detector below this (a real objec
 FIT_CATALOG_ARCSEC = 3.0      # a catalogue entry this close to the companion is the companion
 FIT_MOVE_SIGMA = 3.0           # moves: the per-visit offsets differ by more than this many σ ...
 FIT_MOVE_MIN_ARCSEC = 2.0      # ... and by more than this
+FIT_VISIT_FLOOR_ARCSEC = 0.25  # per axis, added to a visit's offset error (curvature alone: 0.03–0.06″): hunt's fixed,
+                               # catalogued companions moved 0.30–0.67″ between visits (RMS 0.50″ = 2 × 0.25″ per axis),
+                               # which the curvature errors called 6–10σ
+FIT_CLOSE_ARCSEC = FIT_MIN_SEP_ARCSEC + FIT_EDGE_ARCSEC  # two catalogued objects at the source closer together than
+FIT_CLOSE_DISTINCT_ARCSEC = 1.0  # this (and at least this apart: one catalogue's two entries) the fit can't place,
+FIT_CLOSE_DMAG = 2.5           # nor this many magnitudes apart (fainter: < 10% of the light, no mirror): no split
+                               # (close_second). 16 Nov, hunt-sh-64104007282900: Gaia G 18.9 2.6″ from a G 20.3 star,
+                               # the fit put a "companion" 6.7″ NW, the mirror of the real neighbours 2.3–5.4″ SE
 FIT_VISIT_MIN_PHOTOS = 8       # a visit's own fit needs this many photos
 FIT_MAX_PHOTOS = 400           # photos per source (spread over detectors and visits)
 FIT_WORKERS = 32
@@ -591,6 +605,7 @@ class SourceFit:
     groups: list = field(default_factory=list, repr=False)
     stamps: list = field(default_factory=list, repr=False)
     catalog: str = ""                # Gaia / CatWISE / 2MASS entry at the companion ("" = none)
+    blocked: str = ""                # two catalogued objects closer together than FIT_CLOSE_ARCSEC (close_second): no split
     error: str | None = None
 
     @property
@@ -613,7 +628,7 @@ class SourceFit:
         """The fit separates a second object: Δχ² (FIT_DCHI2_MIN, FIT_DCHI2_PER_PHOTO_MIN), its S/N in some detector
         (FIT_COMPANION_SNR_MIN) and in none negative (FIT_COMPANION_NEG_SNR), inside the search (not on its inner edge
         or beyond its radius) with a finite position error."""
-        if not (np.isfinite(self.dchi2) and self.n_photos and np.isfinite(self.east)):
+        if not (np.isfinite(self.dchi2) and self.n_photos and np.isfinite(self.east)) or self.blocked:
             return False
         return _passes(self.dchi2, self.n_photos, self.snr, self.sep, self.cov)
 
@@ -829,7 +844,8 @@ def _visit_fits(out: SourceFit, groups: list[Group], stamps: list[Stamp]) -> Non
         good = [c for c in cands if c["valid"]]
         m = min(good, key=lambda c: c["chi2"]) if good else cands[-1]
         cov = m["cov"]
-        err = float(math.sqrt(max(np.trace(cov) / 2, 0))) if np.all(np.isfinite(cov)) else float("nan")
+        err = (float(math.sqrt(max(np.trace(cov) / 2, 0) + FIT_VISIT_FLOOR_ARCSEC ** 2)) if np.all(np.isfinite(cov))
+               else float("nan"))
         rows.append({"visit": int(v), "n": n, "mjd": mjd, "east": float(m["delta"][0]),
                      "north": float(m["delta"][1]), "err": err, "dchi2": one - m["chi2"], "cov": cov,
                      "valid": m["valid"], "ratio": {det: (r, e) for det, (r, e, _) in m["ratio"].items()}})
@@ -916,10 +932,53 @@ def catalogued_at(refcat: pd.DataFrame | None, ra: float, dec: float, mjd: float
     i = int(np.argmin(sep))
     x = r.iloc[i]
     cat = str(x["cat"])
-    name, band, col = {"gaia": ("Gaia", "G", "g_mag"), "catwise": ("CatWISE", "W1", "w1_mag")}.get(
-        cat, ("2MASS", "K", "k_mag"))
+    name, band, col = CAT_WORDS.get(cat, ("2MASS", "K", "k_mag"))
     m = pd.to_numeric(pd.Series([x.get(col)]), errors="coerce").iloc[0]
     return f"{name} {band} {m:.1f}" if np.isfinite(m) else name
+
+
+CAT_WORDS = {"gaia": ("Gaia", "G", "g_mag"), "catwise": ("CatWISE", "W1", "w1_mag"), "allwise": ("AllWISE", "W1", "w1_mag"),
+             "2mass": ("2MASS", "K", "k_mag"), "tmass": ("2MASS", "K", "k_mag")}
+
+
+def close_second(refcat: pd.DataFrame | None, ra: float, dec: float, mjd: float, radius: float = FIT_CLOSE_ARCSEC) -> str:
+    """Two catalogued objects closer together than the fit can separate (it searches from FIT_MIN_SEP_ARCSEC out, so
+    it cannot place the second one and mirrors the light instead): two entries of one catalogue (moved to mjd), both
+    within radius ″ of the source, FIT_CLOSE_DISTINCT_ARCSEC to radius ″ apart and at most FIT_CLOSE_DMAG apart in
+    that catalogue's band; in words ("Gaia G 18.9 and G 20.3 2.6″ apart"), the pair with the smallest magnitude
+    difference; "" if none. Catalogues apart can't tell one object from two (their positions differ by epochs and
+    blending), so only pairs within one catalogue count."""
+    if refcat is None or not len(refcat):
+        return ""
+    from skyshift_core import tangent_offset_arcsec
+
+    d = (radius + 30) / 3600.0
+    cosd = max(math.cos(math.radians(dec)), 1e-6)
+    r = refcat[(np.abs(refcat["dec"] - dec) < d) & (np.abs((refcat["ra"] - ra + 180) % 360 - 180) * cosd < d)]
+    best = None
+    cats = np.where(r["cat"].astype(str).to_numpy() == "tmass", "2mass", r["cat"].astype(str).to_numpy())
+    for cat in sorted(set(cats)):
+        name, band, col = CAT_WORDS.get(cat, (cat, "", ""))
+        g = r[cats == cat]
+        if col not in g:
+            continue
+        ep = pd.to_numeric(g["epoch_mjd"], errors="coerce").fillna(57388.5).to_numpy(np.float64)
+        dt = (mjd - ep) / 365.25
+        pmra = np.nan_to_num(pd.to_numeric(g["pmra"], errors="coerce").to_numpy(np.float64)) if "pmra" in g else 0.0
+        pmdec = np.nan_to_num(pd.to_numeric(g["pmdec"], errors="coerce").to_numpy(np.float64)) if "pmdec" in g else 0.0
+        gd = g["dec"].to_numpy(np.float64)
+        e, n = tangent_offset_arcsec(ra, dec, g["ra"].to_numpy(np.float64) + pmra * dt / 3.6e6 / np.cos(np.radians(gd)),
+                                     gd + pmdec * dt / 3.6e6)
+        m = pd.to_numeric(g[col], errors="coerce").to_numpy(np.float64)
+        k = np.flatnonzero((np.hypot(e, n) <= radius) & np.isfinite(m))
+        for a in range(len(k)):
+            for b in range(a + 1, len(k)):
+                i, j = k[a], k[b]
+                sep, dm = math.hypot(e[i] - e[j], n[i] - n[j]), abs(m[i] - m[j])
+                if FIT_CLOSE_DISTINCT_ARCSEC <= sep < radius and dm <= FIT_CLOSE_DMAG and (best is None or dm < best[0]):
+                    lo, hi = sorted((m[i], m[j]))
+                    best = (dm, f"{name} {band} {lo:.1f} and {band} {hi:.1f} {sep:.1f}″ apart")
+    return best[1] if best else ""
 
 
 def mag_diff(ratio: float) -> float:
@@ -936,7 +995,7 @@ RESULT_COLUMNS = ["companion_split", "companion_sep_arcsec", "companion_sep_err_
                   *[f"companion_flux_ratio_d{d}" for d in range(1, 7)], *[f"companion_snr_d{d}" for d in range(1, 7)],
                   "two_vs_one_dchi2", "fit_n_photos", "companion_moves", "companion_move_arcsec",
                   "companion_move_sigma", "companion_visit_mjd", "companion_visit_ra", "companion_visit_dec",
-                  "companion_catalog"]
+                  "companion_catalog", "companion_blocked"]
 
 
 def result_row(f: SourceFit) -> dict:
@@ -946,6 +1005,7 @@ def result_row(f: SourceFit) -> dict:
     row = {c: np.nan for c in RESULT_COLUMNS}
     row.update({"companion_split": bool(f.split), "two_vs_one_dchi2": f.dchi2, "fit_n_photos": int(f.n_photos),
                 "companion_moves": f.moves if f.moves is not None else None, "companion_catalog": f.catalog,
+                "companion_blocked": f.blocked,
                 "companion_visit_mjd": [], "companion_visit_ra": [], "companion_visit_dec": []})
     if not np.isfinite(f.east):
         return row
@@ -1019,6 +1079,7 @@ def fit_rows(rows: pd.DataFrame, members: pd.DataFrame, photolist: pd.DataFrame,
             nb = _neighbours(refcat, float(r["ra"]), float(r["dec"]), mjd, (float(r["ra"]), float(r["dec"])),
                              FIT_NEIGHBOUR_PX * 6.2)
             f = fit_source(stamps, epsfs, nb, sid)
+            f.blocked = close_second(refcat, float(r["ra"]), float(r["dec"]), mjd)
             if np.isfinite(f.east):
                 f.catalog = catalogued_at(refcat, f.ra, f.dec, mjd)
         except Exception as e:  # noqa: BLE001  a failed fit leaves the row as it was
@@ -1046,6 +1107,9 @@ def _why_with(why: str, row: dict) -> str:
     base = str(why).split(" Fit: ")[0]
     words = companion_words(row)
     if words is None:
+        if row.get("companion_blocked"):
+            return (base + f" Fit: the catalogues list two objects here ({row['companion_blocked']}), closer together "
+                    f"than the fit can separate ({FIT_CLOSE_ARCSEC:g}″), so it claims no companion.")
         if np.isfinite(row.get("two_vs_one_dchi2", np.nan)):
             return base + " Fit: two objects don't fit clearly better than one here."
         return base
@@ -1057,7 +1121,8 @@ def empty_columns(rows: pd.DataFrame) -> pd.DataFrame:
     out = rows.copy()
     for c in RESULT_COLUMNS:
         if c not in out:
-            obj = c.startswith("companion_visit") or c in ("companion_split", "companion_moves", "companion_catalog")
+            obj = c.startswith("companion_visit") or c in ("companion_split", "companion_moves", "companion_catalog",
+                                                           "companion_blocked")
             out[c] = pd.Series(dtype=object if obj else float, index=out.index)
     return out
 
@@ -1080,7 +1145,7 @@ def load_inputs(store, zone: str, source_ids, tables: str | None = None, refcat:
     if refcat is None:
         refcat = (pd.read_parquet(Path(tables) / f"refcat_{zone}.parquet") if tables
                   else store.read_parquet(f"refcat/{zone}.parquet"))
-    refcat = refcat[refcat["cat"].astype(str).isin(["gaia", "catwise", "2mass", "tmass"])].assign(
+    refcat = refcat[refcat["cat"].astype(str).isin(["gaia", "catwise", "2mass", "tmass", "allwise"])].assign(
         cat=lambda r: r["cat"].astype(str))
     return members, pl, refcat
 

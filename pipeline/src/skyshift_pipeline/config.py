@@ -503,6 +503,8 @@ REFCAT_FALLBACK_REL = "refcat/{zone}_forced.parquet"  # the forced-photometry ta
 FORCED_DIR = "forced"                    # forced/<obs_id>D<det>.parquet
 CROSSID_ARCSEC = {"gaia": 2.5, "catwise": 3.0, "tmass": 3.0}  # match radius per catalogue
 CROSSID_SLACK_ARCSEC = 2.0     # extra search radius before the per-source epoch refinement
+CROSSID_PM_REL_TOL = 0.3       # 2MASS moved by a borrowed pm: this share of the move more along it (16 Nov: CatWISE's pm
+                               # put the L7.5 dwarf 2MASSW J0825+2115 4.4″ short of its 2MASS entry over 27 yr)
 # colours: simultaneous pairs only (same obs_id), so variability cancels
 COLOUR_MIN_PAIRS = 1           # simultaneous dot pairs needed for a colour
 # lightcurves: compare within a detector, normalised by the source's own spectrum
@@ -657,6 +659,16 @@ BD_H2O_MIN_DEPTH = 0.15
 BD_MIN_J_M46_AB = -0.5         # J_AB − [4.6]_AB above this is "red" (≈ J − W2 > 1.9 Vega; A0 star −2.4, M dwarfs ~ −1.4)
 BD_GAIA_FAINT_G = 19.0         # Gaia G fainter than this counts as faint
 BD_MIN_G_J_AB = 3.5            # ... or G − J_AB above this (L/T dwarfs are very red in G − J)
+# 16 Nov (165 brown_dwarf_like labels against the catalogue check; vetting round 1: 8 of 15 brown-dwarf leads are AGN):
+# 136 had methane (ch4_33) and no water: all catalogued galaxies or AGN colours (W2 − W3 median 3.9–4.2), none of the
+# 22 ultracool dwarfs with a Gaia parallax, which all show both water bands. So water is required where it can be seen:
+BD_WATER_TESTABLE_ERR = 0.1    # an H2O index measured to this depth error (a 0.5-deep L/T band at >= 5σ) must show water;
+                               # where neither can (a Y dwarf, faint at 1.4–1.9 µm) methane alone still counts
+BD_AGN_VETO = True             # and AllWISE colours (IRSA, the brown_dwarf_like rows only) veto AGN and dusty galaxies:
+BD_AGN_W2_W3 = 2.5             # W2 − W3 >= this (165 labels: AGN/galaxies median 3.9, dwarfs 0.5; max dwarf 1.1) ...
+BD_AGN_W3_SNR = 5.0            # ... with W3 detected at this S/N ...
+BD_AGN_MAX_W1_W2 = 2.0         # ... and W1 − W2 under this (late T and Y dwarfs: W1 − W2 > 2, and W3-bright)
+BD_ALLWISE_ARCSEC = 3.0        # the nearest AllWISE entry this close is the source's
 
 # --- photoz: template photometric redshifts (photoz.py) -------------------------------------
 PHOTOZ_TEMPLATES = "eazy_fsps_qsf12_v3_rest_0p3_5p2um.csv"  # pipeline/data/, see its README
@@ -891,7 +903,20 @@ HIGHPM_DEEP_MATCH_ARCSEC = 3.0 # a deep Gaia source is our object when its own m
                                # a 2MASS source (refcat) when our motion (less such a leak) puts us this close at its epoch
 HIGHPM_DEEP_TMASS_MAX_DMAG = 1.5  # ... and its J (AB) is within this of our D2 flux (AB), where both are known
 HIGHPM_DEEP_BATCH = 20         # rows per ESA query (two circles each)
-HIGHPM_DEEP_TIMEOUT_S = 60     # per ESA request; a failure keeps the rows "new" (report deep_gaia_checked false)
+HIGHPM_DEEP_TIMEOUT_S = 60     # per ESA / IRSA request; a failure keeps the rows "new" (report deep_*_checked false)
+# 16 Nov (vetting round 1: 9 real fast stars have a Gaia DR3 position-only source 3–5″ back along the track, Gliese 570 D
+# an AllWISE one 30″ back; a fixed pair end got status gaia from a still G 21 position-only source): catalogue entries with
+# no motion of their own are compared at their own epoch with our track (highpm._track_verdicts): on the track within
+# hypot(HIGHPM_DEEP_MATCH_ARCSEC, 2 × our pm error × Δt) and not at our position → a counterpart; at our position (within
+# HIGHPM_DEEP_STILL_ARCSEC) while our track, whatever the leak, is >= HIGHPM_DEEP_STILL_ARCSEC + max(HIGHPM_DEEP_MATCH_ARCSEC,
+# 3 × pm error × Δt) away → the source was there before us: reason gaia_still / allwise_still (only with no counterpart).
+# Measured on the 28 vetted `new` fits of the 61 zones' stored tables (live ESA/IRSA, leak k from the photo lists): all
+# 28 have one: 17 a Gaia position-only source on the track (0.08–0.62″ off), 2 Gaia with an agreeing pm, 9 an agreeing
+# CatWISE motion and 2MASS on the track; new 28 → 0, every one stays vetted (Gaia lists the star, not its motion).
+HIGHPM_DEEP_STILL_ARCSEC = 1.5
+HIGHPM_DEEP_ALLWISE_MJD = 55400.0   # AllWISE positions: mean W1 epoch (w1mjdmean, 55200–55600); the query's centre ...
+HIGHPM_DEEP_ALLWISE_PAD_YR = 0.6    # ... widened by our motion over this long
+HIGHPM_DEEP_IRSA_ROWS = 200         # rows per IRSA query (CatWISE2020, AllWISE: an uploaded table of circles)
 HIGHPM_STILL_PM_MAX = 30.0     # FP control: Gaia-5p stars slower than this (mas/yr) ...
 HIGHPM_STILL_PLX_MAX = 5.0     # ... and nearer than 200 pc no more: their pm + leak < ~50 mas/yr, i.e. still for us
 HIGHPM_PAIR_SEP_BINS = (3.0, 10.0, 30.0, 60.0, 120.0)  # pairs are tested against the control per separation bin (″)

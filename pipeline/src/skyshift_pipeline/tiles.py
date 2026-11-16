@@ -586,6 +586,10 @@ def pass2b(ctx: dict, tile: Tile, locus: dict, lc_model: dict, bad_keys: pd.Data
         cor, st_cor = raw, st_raw
     own.write_parquet("astrometry.parquet", cor)
     own.write_parquet("astrometry_raw.parquet", raw)
+    vp = st_cor.pop("visit_positions", None)
+    st_raw.pop("visit_positions", None)
+    if vp is not None:
+        own.write_parquet("astrometry_visits.parquet", vp)
     st["astrometry"] = {k: v for k, v in st_cor.items() if k in ("fitted", "with_parallax", "spacecraft_position_dots", "sources_in",
                                                                  "saturated_dots", "saturated_dots_corrected",
                                                                  "unsaturated_dots", "pixel_dots_corrected")}
@@ -1149,6 +1153,9 @@ class Run:
         cor = _concat(_read_parts(w, T, "astrometry.parquet"), ["source_id"])
         raw = _concat(_read_parts(w, T, "astrometry_raw.parquet"), ["source_id"])
         out["astrometry"] = _write(s, z, "astrometry.parquet", cor)
+        vis = _concat(_read_parts(w, T, "astrometry_visits.parquet"), ["source_id", "visit"])
+        if vis is not None:
+            out["astrometry_visits"] = _write(s, z, "astrometry_visits.parquet", vis)
         corrected = any(st["astrometry"]["corrected"] for st in self.pass2b_stats)
         sums = {k: sum(st["astrometry"].get(k, 0) for st in self.pass2b_stats) for k in ("fitted", "with_parallax", "spacecraft_position_dots")}
         cor_df = cor.to_pandas() if cor is not None else pd.DataFrame(columns=astrometry.COLUMNS)
