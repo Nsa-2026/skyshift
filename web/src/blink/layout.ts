@@ -271,7 +271,18 @@ export function planMarks(allStars: PlanStar[], dets: PlanDet[], o: PlanOptions)
 
   const hidden = new Map<number, string>(); // position in D → parent id
   D.forEach((d, j) => {
-    if (ownedBy.has(j) || PROTECTED.has(d.cls) || gaiaOfSource.has(j)) return;
+    if (ownedBy.has(j) || PROTECTED.has(d.cls)) return;
+    // Inside a saturated star's burnt core (its dashed ring): a source with no Gaia match, or found
+    // only on the stacks, is a piece of that core, never drawn, not even greyed (Barnard's Star held
+    // a cluster of dashed circles). Only a Gaia star that stands apart from the core backs it.
+    if (GLOW_PRONE.has(d.cls)) {
+      const core = bright.find((b) => b.saturated && dist(d, b) <= circleRadius(b.extent, o.floor));
+      if (core && !(gaiaOfSource.get(j) ?? []).some((id) => !lostIn.has(id) && id !== core.id)) {
+        hidden.set(j, core.id);
+        return;
+      }
+    }
+    if (gaiaOfSource.has(j)) return;
     if (fragmentReason(d)) {
       const parent = d.parentGaiaId && byId.has(d.parentGaiaId) ? d.parentGaiaId : nearest(bright, d)?.id;
       hidden.set(j, parent ?? d.parentGaiaId ?? "");

@@ -144,13 +144,10 @@ describe("one big star is never many small ones", () => {
     expect([...p.hidden.keys()].sort()).toEqual([0, 1]);
     expect(p.circles.map((c) => c.i)).toEqual([2]);
     expect(p.big).toEqual([{ id: "barnard", X: 100, Y: 100, r: 52, saturated: true, fragments: 2 }]);
-    // Advanced: the no-Gaia source in its blob is drawn greyed ("may not be real"); the artefact stays a piece.
+    // Advanced too: inside the burnt core nothing is drawn, not even greyed.
     const adv = planMarks(stars, dets, O);
-    expect(adv.circles.map((c) => [c.i, c.glow])).toEqual([
-      [0, "barnard"],
-      [2, undefined],
-    ]);
-    expect([...adv.hidden.keys()]).toEqual([1]);
+    expect(adv.circles.map((c) => [c.i, c.glow])).toEqual([[2, undefined]]);
+    expect([...adv.hidden.keys()].sort()).toEqual([0, 1]);
   });
 
   it("uses the server's bright_fragment reason and parent when given", () => {
@@ -443,6 +440,26 @@ describe("one object, one set of marks", () => {
     const adv = planMarks(stars, dets, O);
     expect(adv.circles.find((c) => c.i === 2)!.glow).toBe("big");
     expect(adv.glows).toEqual([{ id: "big", X: 100, Y: 100, r: 120 }]);
+  });
+
+  it("inside a saturated star's burnt core: no circles at all, not even greyed (Advanced too)", () => {
+    const stars = [star("barnard", 100, 100, 30, { g: 8.2, saturated: true, glow: 120 })];
+    const dets = [
+      det(0, 101, 100, 20, { cls: "other", snr: 2000 }), // its own measurement: the dashed ring
+      det(1, 115, 92, 2, { cls: "stack", snr: 9 }), // in the core
+      det(2, 88, 110, 2, { cls: "other", snr: 6 }), // in the core
+      det(3, 92, 95, 2, { cls: "suspect", snr: 6 }), // never hidden
+      det(4, 100, 170, 2, { cls: "stack", snr: 8 }), // in the glow, outside the core: greyed
+    ];
+    for (const hideGlow of [false, true]) {
+      const p = planMarks(stars, dets, { ...O, hideGlow });
+      expect(p.hidden.get(1)).toBe("barnard");
+      expect(p.hidden.get(2)).toBe("barnard");
+      expect(p.circles.map((c) => c.i)).not.toContain(1);
+      expect(p.circles.map((c) => c.i)).toContain(3);
+      expect(p.big[0]).toMatchObject({ id: "barnard", det: 0, fragments: hideGlow ? 3 : 2 });
+    }
+    expect(planMarks(stars, dets, O).circles.find((c) => c.i === 4)!.glow).toBe("barnard");
   });
 
   it("a star sitting in a bright star's glow reads that glow as its blob: the glow is still the bright star's", () => {
