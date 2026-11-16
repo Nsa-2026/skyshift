@@ -10,6 +10,8 @@ Shared scripts. Run with uv run, except make_fixtures.py (stdlib only).
                    known[] is MPC only (server known.py); `--known-only` recomputes just known[] of cand/*.
                    The top of each kind, every grade A/B mover, never a grade C one. A mover's frames must
                    show its own exposures (a partial search is retried once, then skipped).
+                   catalogue_check.py (check producer `catalogue`, run from pipeline/): IRSA catalogues at every
+                   candidate → ~/skyshift-data/checks/catalogue.json; answers cached per position (--cache).
                    Tests: cd server && uv run pytest ../scripts/candidates/tests
 - vet/             P1. Vet one finding against the photos, catalogues and known bodies (vet.py tools), build agent
                    rounds (make_round.py) and check which known bodies we saw (known_check.py). Read only; local data

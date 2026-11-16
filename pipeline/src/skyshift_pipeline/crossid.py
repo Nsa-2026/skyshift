@@ -174,7 +174,14 @@ def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
     refcat = load_refcat(store, zone)
     out = compute(src, epochs, refcat)
     store.write_parquet(results_rel(zone.name, "crossids.parquet"), out)
+    from .refcat import FULL, built_partial, catalogs_in
+    made = catalogs_in(store, zone.name)
+    if built_partial(store, zone.name):  # 16 Nov: 64 combined zones were matched to Gaia alone without a word
+        L.error("crossid %s: refcat/%s.parquet holds %s only (no %s): catwise_*/tmass_* stay empty; run `refcat` with every "
+                "catalogue (cli `all` does), then crossid onward", zone.name, zone.name, ",".join(made),
+                ",".join(c for c in FULL if c not in made))
     st = {"sources": int(len(out)), "refcat_rows": int(len(refcat)),
+          "refcat_catalogs": made if made is not None else list(FULL), "refcat_complete": not built_partial(store, zone.name),
           "refcat_per_cat": {k: int((refcat["cat"] == k).sum()) for k in ("gaia", "catwise", "tmass")},
           "matched_gaia": int((out["gaia_ref_id"] != "").sum()),
           "matched_catwise": int((out["catwise_ref_id"] != "").sum()),
