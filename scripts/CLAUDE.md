@@ -13,6 +13,13 @@ Shared scripts. Run with uv run, except make_fixtures.py (stdlib only).
                    catalogue_check.py (check producer `catalogue`, run from pipeline/): IRSA catalogues at every
                    candidate → ~/skyshift-data/checks/catalogue.json; answers cached per position (--cache).
                    Tests: cd server && uv run pytest ../scripts/candidates/tests
+                   known_check.py (run from pipeline/; check producer `known`, contracts v3.23): every mover of any
+                   candidates.json against MPC asteroids (all V) and comets (cometels + allcometels) at its dots'
+                   times from SPHEREx (kete via skyshift_core.known_index), Horizons planets/moons near a planet
+                   → <root>/checks/known.json (`known_nearby`, status known when certain); `--mpchecker N` cross-checks
+                   the top N open movers with MPC's MPChecker. Cache: <root>/cache/known_check. The all-V index is
+                   built once; it reuses the server's index in <root>/cache/mpc/known_index/ when present.
+                   Tests: cd pipeline && uv run pytest ../scripts/candidates/tests/test_known_check.py
                    pixel_check.py (P1, 16 Nov): check producer for movers (contracts v3.23 `checks`), measured in
                    NASA's photos by small S3 range reads (s3pixels.py): partner detector, faint on the path, hot
                    pixel, persistence, sharp, wide, one-photo. Writes ~/skyshift-data/checks/pixel.json; --validate
