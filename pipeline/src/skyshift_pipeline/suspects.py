@@ -1,8 +1,10 @@
 """Step 6, `suspects`: movers nobody has catalogued.
 
 A mover becomes a suspect when:
-- no known object (MPC asteroids and comets, JPL Horizons planets and moons; any brightness) lies within
-  KNOWN_ARCSEC of it in the same session;
+- no known object (MPC asteroids and comets, JPL Horizons planets and moons; V < MPC_V_MAX or no V) lies within
+  KNOWN_ARCSEC of it in the same session, and no known object of any brightness certainly is it (known.certain_known:
+  within KNOWN_CERTAIN_ARCSEC at each dot's time with the same rate and direction; summary `cut_known_certain_only`
+  counts the movers only this rule removed: fainter known asteroids and NEOs, 16 Nov);
 - it is not near a planet at its time (skyshift_core.planets, offline: Mars 60′, Jupiter 80′, Saturn 45′,
   Uranus 5′, Neptune 3′; the planet itself, its moons, listed or not, and its glare; summary `cut_planet`);
 - it has none of the GHOST, GHOST_FPA, GHOST_EXT, CROSSTALK, HALO or BLOOM bits;
@@ -41,7 +43,7 @@ from skyshift_core.planets import near_planets
 from . import config as C
 from . import log
 from . import vet as V
-from .known import load_predictions
+from .known import brighter, certain_known, load_predictions
 from .sky import SkyTree, angsep, offset_radec
 from .store import Store, photolist_rel, results_rel
 from .tracklets import mover_ids
@@ -339,15 +341,18 @@ def select(movers: pd.DataFrame, fixed: pd.DataFrame, pred: pd.DataFrame) -> tup
     st = {"movers": int(len(m))}
     if len(m) == 0:
         return m, st
-    m["nearest_known_arcsec"] = nearest_known_arcsec(m, pred)
-    known = (m["nearest_known_arcsec"] <= C.KNOWN_ARCSEC).to_numpy()
+    m["nearest_known_arcsec"] = nearest_known_arcsec(m, brighter(pred))  # V < MPC_V_MAX or no V, as before 16 Nov
+    near = (m["nearest_known_arcsec"] <= C.KNOWN_ARCSEC).to_numpy()
+    sure = certain_known(m, pred)["known_name"].to_numpy(object) != ""  # any V: place, rate and direction (known.py)
+    known = near | sure
     planet = near_planet_names(m) != ""
     veto = (m["flags"].to_numpy(np.int64) & C.SUSPECT_VETO_BITS) != 0
     bright = near_bright_fixed(m, fixed)
     fpk = m["flags_peak_all"].to_numpy(np.int64) if "flags_peak_all" in m else np.zeros(len(m), np.int64)
     source = (fpk & C.SOURCE_BIT) != 0
     gone = known | planet
-    st.update({"cut_known": int(known.sum()), "cut_planet": int((~known & planet).sum()),
+    st.update({"cut_known": int(known.sum()), "cut_known_certain_only": int((sure & ~near).sum()),
+               "cut_planet": int((~known & planet).sum()),
                "cut_flags": int((~gone & veto).sum()),
                "cut_bright_fixed": int((~gone & ~veto & bright).sum()),
                "cut_source_bit": int((~gone & ~veto & ~bright & source).sum())})
