@@ -519,7 +519,10 @@ def prepare(l2, obs_id: str, glow: bool | None = None, holes: bool | None = None
     noise = np.asarray(ctx.noise, np.float64)
     info = {"obs_id": obs_id, "hole_px": 0, "holes": 0}
     if holes:
-        hm = dark_holes(sub, noise, bad)
+        from skyshift_core.holes import dark_holes as core_dark_holes  # extraction v2's rule (#392), as dots.py
+        hm, _ = core_dark_holes(sub, noise, bad, l2.flags, sigma=C.HOLE_SIGMA, min_px=C.HOLE_MIN_PX,
+                                max_px=C.HOLE_MAX_PX, near_bits=C.HOLE_NEAR_BITS, near_px=C.HOLE_NEAR_PX,
+                                grow_px=C.HOLE_GROW_PX)
         if hm.any():
             info["hole_px"] = int(hm.sum())
             info["holes"] = int(ndimage.label(hm)[1])
