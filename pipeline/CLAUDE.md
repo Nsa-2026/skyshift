@@ -82,8 +82,9 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
 - Changes in known stars (16 Nov; changes.py, changes_step.py, changes_export.py; not a CLI step, not in `all`;
   docs/watch-changes.md): `uv run python -m skyshift_pipeline.changes_step --zones a,b|all [--skip-done] [--drop-points]
   --root gs://nasa-glazing-data [--out-root <dir>] --cache <dir>` reads a finished zone's lightcurves (11 of its columns,
-  ~57% of the file: 61 zones hold 99.5 GB, median 1.4 GB, ecl09 7.6 GB; one detector at a time: peak 1.4–1.9 GB on the
-  featured zones of 8–11 M points, not measured on an ecliptic zone, ecl09 has ~36× t_rdra's points), crossids,
+  ~57% of the file: 61 zones hold 99.5 GB, median 1.4 GB, ecl09 7.6 GB) in star chunks of `--chunk-points` (default
+  1 M; same output as one chunk, tested): peak RSS follows the chunk, not the zone (t_rwaur 10.8 M points: 1.5 GB at
+  1 M, 2.5 GB at 3 M; ecl09 ~300 M points estimated ≤ 5 GB: its crossids/sources/refcat reads add ~2–3 GB), crossids,
   sources, fragments, refcat, orphans and photolist →
   results/<zone>/changes.parquet + changes_report.json (brightness, colour, vanished/appeared, each with text, look,
   checks; halves-null false-alarm rate). Gaia variability, and bright neighbours outside refcat's box, from ESA's

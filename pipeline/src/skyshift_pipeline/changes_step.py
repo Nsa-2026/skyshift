@@ -68,6 +68,7 @@ CHANGES_GAIA_NEAR_ARCSEC = 6.0           # ... a Gaia star this close: probably 
 CHANGES_GHOST_ARCSEC = 360.0             # ... a star this bright this close can throw a ghost (check ghost_possible)
 CHANGES_GHOST_G = 11.0
 CHANGES_GAIA_NEIGHBOUR_G = 18.0          # GaiaLookup.around: neighbours this bright (a 2.5 mag brighter one of a G 20.5)
+CHANGES_CHUNK_POINTS = 1_000_000         # star chunks of about this many points (t_rwaur: 1.5 GB peak at 1 M, 2.5 GB at 3 M)
 CHANGES_OTHERS_Z = 2.0                   # other detectors named in the text from this many sigma
 
 # changes.parquet: one row per listed change
@@ -476,27 +477,37 @@ def _measure(vt: pd.DataFrame, before: dict, after: dict, refs: np.ndarray, floo
     return best, CH.star_brightness(best), CH.star_colour(best), floors
 
 
-def null_rates(vth: pd.DataFrame, xid: pd.DataFrame | None, floors: dict, visits: list[int]) -> dict:
-    """The halves null (docs/watch-changes.md): the same rules between the two halves of each visit's sessions, with
-    the between-visit floors. Alerts per 1,000 stars: the false-alarm rate (a few fast real variables included).
-    vth: changes.visit_table(points, halves=True)."""
-    if not len(vth):
-        return {"stars": 0}
-    vth, _ = CH.zero_points(vth, reference_stars(vth, xid))
+def null_counts(vth: pd.DataFrame, xid: pd.DataFrame | None, floors: dict, visits: list[int]) -> list[dict]:
+    """The halves null on one star chunk (zero points already applied): per visit, the same rules between the two
+    halves of its sessions, with the between-visit floors."""
     refs = reference_stars(vth, xid)
-    per, tot = [], {"stars": 0, "alerts": 0, "colour_alerts": 0, "stars_own_source": 0, "alerts_own_source": 0}
+    out = []
     for v in visits:
         best, sb, sc, _ = _measure(vth, {"visit": v, "half": 0}, {"visit": v, "half": 1}, refs, floors)
         own = sb["source_id"].to_numpy(np.int64) >= 0
-        r = {"visit": int(v), "stars": int(len(sb)), "alerts": int(sb["alert"].sum()),
-             "colour_alerts": int(sc["colour_alert"].sum()), "stars_own_source": int(own.sum()),
-             "alerts_own_source": int(sb["alert"].to_numpy()[own].sum())}
-        per.append(r)
-        for k in tot:
-            tot[k] += r[k]
+        out.append({"visit": int(v), "stars": int(len(sb)), "alerts": int(sb["alert"].sum()),
+                    "colour_alerts": int(sc["colour_alert"].sum()), "stars_own_source": int(own.sum()),
+                    "alerts_own_source": int(sb["alert"].to_numpy()[own].sum())})
+    return out
+
+
+def null_summary(per_chunk: list[list[dict]]) -> dict:
+    """The halves null (docs/watch-changes.md) summed over the star chunks. Alerts per 1,000 stars: the false-alarm
+    rate (a few fast real variables included)."""
+    keys = ["stars", "alerts", "colour_alerts", "stars_own_source", "alerts_own_source"]
+    per: dict[int, dict] = {}
+    for rows in per_chunk:
+        for r in rows:
+            p = per.setdefault(r["visit"], {"visit": r["visit"], **{k: 0 for k in keys}})
+            for k in keys:
+                p[k] += r[k]
+    per_visit = [per[v] for v in sorted(per)]
+    tot = {k: sum(p[k] for p in per_visit) for k in keys}
+    if not per_visit:
+        return {"stars": 0}
     tot["per_1000"] = round(1000.0 * tot["alerts"] / max(tot["stars"], 1), 3)
     tot["per_1000_own_source"] = round(1000.0 * tot["alerts_own_source"] / max(tot["stars_own_source"], 1), 3)
-    return {**tot, "per_visit": per}
+    return {**tot, "per_visit": per_visit}
 
 
 def _visit_mjd(vt: pd.DataFrame, stars: np.ndarray) -> dict[tuple, float]:
@@ -510,8 +521,8 @@ def _f(x, nd=4):
 
 
 class Points:
-    """lightcurves.parquet's points from a local copy, read one detector at a time (a light curve never spans two
-    detectors, so the per-visit tables are exact; an ecliptic zone's 60 M points never sit in memory at once)."""
+    """lightcurves.parquet's points from a local copy, read in batches with a filter (a file written as one row group
+    never decodes whole): one star chunk, one detector or some stars."""
 
     def __init__(self, path: Path, columns: list[str] = POINT_COLUMNS):
         self.path, self.columns = Path(path), list(columns)
@@ -519,8 +530,8 @@ class Points:
     BATCH = 1_000_000
 
     def read(self, keep=None) -> pd.DataFrame:
-        """The rows where keep(batch) (a boolean Arrow array) is true, scanned a million rows at a time (a file
-        written as one row group never decodes whole). keep None: every row."""
+        """The rows where keep(batch) (a boolean Arrow array) is true, scanned a million rows at a time.
+        keep None: every row."""
         import pyarrow as pa
         import pyarrow.parquet as pq
 
@@ -560,47 +571,155 @@ class Points:
         return self.read(keep)
 
 
+def star_chunks(path: Path, chunk_points: int, workdir: Path) -> list[Path]:
+    """Split the points into ceil(rows / chunk_points) files by star (changes.star_keys modulo the count), so every
+    light curve of a star sits in one file and each file holds ~chunk_points points. One chunk: the file itself.
+    Reads one batch at a time; the parts take about the file's size on disk."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    pf = pq.ParquetFile(path)
+    k = max(1, math.ceil(pf.metadata.num_rows / max(int(chunk_points), 1)))
+    if k == 1:
+        return [Path(path)]
+    cols = [c for c in POINT_COLUMNS if c in set(pf.schema_arrow.names)]
+    paths = [Path(workdir) / f"stars_{i:04d}.parquet" for i in range(k)]
+    writers: list = [None] * k
+    try:
+        for b in pf.iter_batches(batch_size=Points.BATCH, columns=cols):
+            b = pa.RecordBatch.from_arrays([a.cast(a.type.value_type) if pa.types.is_dictionary(a.type) else a
+                                            for a in b.columns], names=b.schema.names)   # one plain schema for all parts
+            sid = b.column("source_id").to_numpy(zero_copy_only=False)
+            ref = b.column("ref_id").to_numpy(zero_copy_only=False)
+            part = (CH.star_keys(sid, ref).view(np.uint64) % np.uint64(k)).astype(np.int64)
+            for i in np.unique(part):
+                sub = b.filter(pa.array(part == i))
+                if writers[i] is None:
+                    writers[i] = pq.ParquetWriter(paths[i], sub.schema, compression="zstd")
+                writers[i].write_table(pa.Table.from_batches([sub]))
+    finally:
+        for w in writers:
+            if w is not None:
+                w.close()
+    return [p for p, w in zip(paths, writers) if w is not None]
+
+
+def _zp_inputs(vt: pd.DataFrame, xid) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """A chunk's share of the zero points: its reference rows' keys and means, and every key it has."""
+    k = CH.zp_keys(vt)
+    isref = np.isin(vt["star"].to_numpy(np.int64), reference_stars(vt, xid))
+    return k[isref], vt["mean"].to_numpy(np.float64)[isref], np.unique(k)
+
+
+def _zp_table(parts: list[tuple[np.ndarray, np.ndarray, np.ndarray]]) -> dict:
+    if not parts:
+        return {}
+    keys = np.concatenate([p[0] for p in parts] + [p[2] for p in parts])
+    nref = sum(p[0].size for p in parts)
+    means = np.concatenate([p[1] for p in parts] + [np.full(keys.size - nref, np.nan)])
+    return CH.zero_point_table(keys, means, np.arange(keys.size) < nref)
+
+
 def brightness_changes(zone: str, pts: Points, xid, src, frag, refcat, gaia: GaiaLookup, sky_positions=None,
-                       with_null: bool = True) -> tuple[list[dict], dict]:
-    """Rows of kind brightness and colour for one zone's light-curve points, and the report."""
+                       with_null: bool = True, chunk_points: int = CHANGES_CHUNK_POINTS, workdir: Path | None = None) -> tuple[list[dict], dict]:
+    """Rows of kind brightness and colour for one zone's light-curve points, and the report. The points are split by
+    star into chunks of ~chunk_points (star_chunks); zero points and floors come from every chunk (exact: the same
+    numbers as one chunk), each chunk is measured alone, so memory follows chunk_points, not the zone."""
+    import shutil
+    import tempfile
+
+    if workdir is not None:
+        Path(workdir).mkdir(parents=True, exist_ok=True)
+    tmp = Path(tempfile.mkdtemp(prefix="skyshift-changes-chunks-", dir=workdir))
+    try:
+        return _brightness_changes(zone, pts, xid, src, frag, refcat, gaia, sky_positions, with_null, chunk_points, tmp)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _brightness_changes(zone, pts, xid, src, frag, refcat, gaia, sky_positions, with_null, chunk_points, tmp):
     z = C.ZONES[zone]
     t0 = time.time()
-    vts, vths = [], []
-    for d in range(1, 7):
-        p = pts.detector(d)
-        if len(p):
-            vts.append(CH.visit_table(p))
-            if with_null:
-                vths.append(CH.visit_table(p, halves=True))
+    chunks = star_chunks(pts.path, chunk_points, tmp)
+    # 1. per star chunk: visit tables (kept on disk) and the zero points' inputs
+    zin, zin_h, vt_files, vth_files = [], [], [], []
+    n_vt, visit_set = 0, set()
+    for i, path in enumerate(chunks):
+        p = Points(path).read()
+        vt = CH.visit_table(p)
+        vth = CH.visit_table(p, halves=True) if with_null else None
         del p
-    vt = pd.concat(vts, ignore_index=True) if vts else CH.visit_table(pts.of([], []))
-    vth = pd.concat(vths, ignore_index=True) if vths else None
-    del vts, vths
-    rep: dict = {"light_curve_visits": int(len(vt))}
-    L.info("changes %s: %d light-curve visits (%.0f s)", zone, len(vt), time.time() - t0)
-    if not len(vt):
+        if len(vt):
+            zin.append(_zp_inputs(vt, xid))
+            visit_set |= {int(v) for v in np.unique(vt["visit"].to_numpy())}
+            n_vt += len(vt)
+            vt_files.append(tmp / f"vt_{i:04d}.pkl")
+            vt.to_pickle(vt_files[-1])
+        if vth is not None and len(vth):
+            zin_h.append(_zp_inputs(vth, xid))
+            vth_files.append(tmp / f"vth_{i:04d}.pkl")
+            vth.to_pickle(vth_files[-1])
+        del vt, vth
+        if path != pts.path:
+            Path(path).unlink(missing_ok=True)
+    rep: dict = {"light_curve_visits": int(n_vt), "chunks": len(chunks), "chunk_points": int(chunk_points)}
+    L.info("changes %s: %d light-curve visits in %d star chunks (%.0f s)", zone, n_vt, len(chunks), time.time() - t0)
+    if not n_vt:
         return [], {**rep, "skipped": "no usable points"}
-    refs = reference_stars(vt, xid)
-    vt, zps = CH.zero_points(vt, refs)
-    visits = sorted(int(v) for v in vt["visit"].unique())
+    table = _zp_table(zin)
+    zps = CH.zero_point_rows(table)
+    del zin
+    visits = sorted(visit_set)
     rep.update({"visits": visits, "zero_points": zps})
     if len(visits) < 2:
         return [], {**rep, "skipped": "one visit"}
     last = visits[-1]
     before_visits = visits[:-1]
     before = {"visit": visits[0]} if len(visits) == 2 else {"visits": before_visits}
-    best, sb, sc, floors = _measure(vt, before, {"visit": last}, refs)
-    rep.update({"before": before_visits, "after": last, "floors": floors, "stars": int(len(sb)),
-                "stars_own_source": int((sb["source_id"].to_numpy(np.int64) >= 0).sum()),
-                "alerts": int(sb["alert"].sum()), "colour_alerts": int(sc["colour_alert"].sum())})
-    L.info("changes %s: %d stars, %d brightness and %d colour alerts (%.0f s)", zone, len(sb), rep["alerts"],
-           rep["colour_alerts"], time.time() - t0)
-    if vth is not None and len(vth):
-        rep["null"] = null_rates(vth, xid, floors, visits)
+    after = {"visit": last}
+
+    def chunk_vt(f):
+        return CH.apply_zero_points(pd.read_pickle(f), table)
+
+    # 2. the floors from every chunk's reference light curves
+    fl = []
+    for f in vt_files:
+        vt = chunk_vt(f)
+        pr = CH.pairs(vt, before, after)
+        m = np.isin(pr["star"].to_numpy(np.int64), reference_stars(vt, xid))
+        fl.append(pd.DataFrame({"star": np.zeros(int(m.sum()), np.int64), "detector": pr["detector"].to_numpy()[m],
+                                "origin": pr["origin"].astype(str).to_numpy()[m], "d": pr["d"].to_numpy(np.float64)[m],
+                                "sd": pr["sd"].to_numpy(np.float64)[m]}))
+    floors = CH.fit_floor(pd.concat(fl, ignore_index=True), np.zeros(1, np.int64))
+    del fl
+    # 3. each chunk measured alone; only the candidates are kept
+    cands, bests, scs, vmjd = [], [], [], {}
+    tot = {"stars": 0, "stars_own_source": 0, "alerts": 0, "colour_alerts": 0}
+    for f in vt_files:
+        vt = chunk_vt(f)
+        best, sb, sc, _ = _measure(vt, before, after, reference_stars(vt, xid), floors)
+        tot["stars"] += int(len(sb))
+        tot["stars_own_source"] += int((sb["source_id"].to_numpy(np.int64) >= 0).sum())
+        tot["alerts"] += int(sb["alert"].sum())
+        tot["colour_alerts"] += int(sc["colour_alert"].sum())
+        sca = sc.loc[sc["colour_alert"].to_numpy(bool)]
+        c = sb[sb["alert"].to_numpy(bool) | sb["star"].isin(sca["star"]).to_numpy()]
+        cands.append(c)
+        bests.append(best[best["star"].isin(c["star"]).to_numpy()])
+        scs.append(sca)
+        vmjd.update(_visit_mjd(vt, c["star"].to_numpy(np.int64)))
+    rep.update({"before": before_visits, "after": last, "floors": floors, **tot})
+    L.info("changes %s: %d stars, %d brightness and %d colour alerts (%.0f s)", zone, tot["stars"], tot["alerts"],
+           tot["colour_alerts"], time.time() - t0)
+    if vth_files:
+        table_h = _zp_table(zin_h)
+        rep["null"] = null_summary([null_counts(CH.apply_zero_points(pd.read_pickle(f), table_h), xid, floors, visits)
+                                    for f in vth_files])
         L.info("changes %s: null %s per 1,000 (%.0f s)", zone, rep["null"].get("per_1000"), time.time() - t0)
-    del vth
-    sc_alert = sc.loc[sc["colour_alert"].to_numpy(bool)].set_index("star")
-    cand = sb[sb["alert"].to_numpy(bool) | sb["star"].isin(sc_alert.index).to_numpy()].copy()
+    del zin_h
+    cand = pd.concat(cands, ignore_index=True).sort_values("star", kind="stable").reset_index(drop=True)
+    best = pd.concat(bests, ignore_index=True)
+    sc_alert = pd.concat(scs, ignore_index=True).set_index("star")
     if not len(cand):
         return [], {**rep, "listed": 0}
     info = star_info(cand, z, xid, src, frag, refcat, gaia, sky_positions).set_index("star")
@@ -629,7 +748,6 @@ def brightness_changes(zone: str, pts: Points, xid, src, frag, refcat, gaia: Gai
         "neighbours_unchecked": int((~cand["neighbours_checked"].to_numpy(bool)).sum()),
         "listed_brightness": int(is_b.sum()), "listed_colour": int(is_c.sum()),
     })
-    vmjd = _visit_mjd(vt, cand["star"].to_numpy(np.int64))
     rows = []
     for i in np.flatnonzero(is_b | is_c):
         r = cand.iloc[i]
@@ -798,7 +916,7 @@ def new_source_changes(zone: str, orph: pd.DataFrame | None, src: pd.DataFrame |
 
 # --- the step --------------------------------------------------------------------------------------------------------
 def run(store: Store, zone: str, *, cache: Path | None = None, out: Store | None = None, gaia: GaiaLookup | None = None,
-        with_null: bool = True, keep_points: bool = True) -> dict:
+        with_null: bool = True, keep_points: bool = True, chunk_points: int = CHANGES_CHUNK_POINTS) -> dict:
     """results/<zone>/changes.parquet (CHANGE_COLUMNS) and changes_report.json, written to `out` (default the store).
     A zone without lightcurves.parquet gets appeared / vanished only (the report says so). keep_points False: the
     light-curve copy is deleted after the zone (the small reads and Gaia's answers stay in `cache`)."""
@@ -818,7 +936,8 @@ def run(store: Store, zone: str, *, cache: Path | None = None, out: Store | None
     if lp is None:
         rep["brightness"] = {"skipped": "no lightcurves.parquet"}
     else:
-        b, brep = brightness_changes(zone, Points(lp), xid, src, frag, refcat, gaia, sky_forced_positions(rd), with_null)
+        b, brep = brightness_changes(zone, Points(lp), xid, src, frag, refcat, gaia, sky_forced_positions(rd), with_null,
+                                     chunk_points=chunk_points, workdir=cache)
         rows += b
         rep["brightness"] = brep
         last = (brep.get("visits") or [None])[-1]
@@ -871,6 +990,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="delete each zone's light-curve copy when it is done (~0.6 GB per ecliptic zone otherwise kept)")
     ap.add_argument("--out-root", help="write results/<zone>/changes.* under this root instead of --root")
     ap.add_argument("--no-gaia", action="store_true", help="never ask ESA's archive (variability unknown)")
+    ap.add_argument("--chunk-points", type=int, default=CHANGES_CHUNK_POINTS,
+                    help="light-curve points per star chunk (memory follows this, not the zone; default %(default)s)")
     ap.add_argument("--no-null", action="store_true", help="skip the halves null (the report's false-alarm rate)")
     a = ap.parse_args(argv)
     log.setup()
@@ -885,7 +1006,7 @@ def main(argv: list[str] | None = None) -> int:
             continue
         try:
             run(store, z, cache=cache, out=out, gaia=GaiaLookup(cache / "gaia" if cache else None, enabled=not a.no_gaia),
-                with_null=not a.no_null, keep_points=not a.drop_points)
+                with_null=not a.no_null, keep_points=not a.drop_points, chunk_points=a.chunk_points)
         except Exception:  # noqa: BLE001  one zone's failure doesn't stop the others
             L.exception("changes %s failed", z)
             bad += 1

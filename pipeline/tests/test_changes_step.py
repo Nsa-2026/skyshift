@@ -200,3 +200,18 @@ def test_headline_words():
     assert EX.headline({**base, "change_frac": -0.9, "rel_after": 0.1}).startswith("faded below detection in D2")
     assert EX.headline({"kind": "colour", "colour_change": 0.23}) == "became redder: +23% from D1 to D6"
     assert EX.headline({"kind": "appeared", "visit_after": 3}) == "appeared in visit 3"
+
+
+def test_star_chunks_give_the_same_changes(tmp_path):
+    """Memory follows the chunk size, not the zone: tiny star chunks list the same changes, numbers and report."""
+    st = _zone(tmp_path / "zone")
+    reps, dfs = [], []
+    for name, cp in (("one", 10**9), ("many", 500)):
+        out = Store(str(tmp_path / name))
+        rep = ST.run(st, "pilot", gaia=ST.GaiaLookup(None, tap=FakeGaia()), with_null=True, chunk_points=cp, out=out)
+        reps.append(rep["brightness"])
+        dfs.append(out.read_parquet("results/pilot/changes.parquet"))
+    assert reps[0]["chunks"] == 1 and reps[1]["chunks"] > 3
+    pd.testing.assert_frame_equal(dfs[0], dfs[1])
+    drop = {"chunks", "chunk_points"}
+    assert {k: v for k, v in reps[0].items() if k not in drop} == {k: v for k, v in reps[1].items() if k not in drop}

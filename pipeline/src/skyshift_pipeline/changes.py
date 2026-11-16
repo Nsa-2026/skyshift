@@ -218,23 +218,52 @@ def visit_table_from_summary(summ: pd.DataFrame) -> pd.DataFrame:
     return out[ok & (out["n"].to_numpy() >= CHANGES_MIN_POINTS)].reset_index(drop=True)
 
 
+def zp_keys(vt: pd.DataFrame) -> np.ndarray:
+    """One int64 per row for its (detector, origin, visit, half): the zero point's group."""
+    forced = vt["origin"].astype(str).to_numpy() == "forced"
+    return ((vt["detector"].to_numpy(np.int64) * 2 + forced) * 65536 + vt["visit"].to_numpy(np.int64)) * 4 \
+        + (vt["half"].to_numpy(np.int64) + 1)
+
+
+def zero_point_table(keys: np.ndarray, means: np.ndarray, isref: np.ndarray) -> dict[int, tuple[float, int]]:
+    """{zp_keys value: (zero point, reference light curves)}: per group the median mean of the reference stars' light
+    curves (1 with fewer than 20). Any subset of rows that holds every reference row and every group gives the same
+    table (the step builds it from star chunks)."""
+    uniq, code = np.unique(np.asarray(keys, np.int64), return_inverse=True)
+    isref = np.asarray(isref, bool)
+    zp = group_median(code[isref], np.asarray(means, np.float64)[isref], len(uniq))
+    nref = np.bincount(code[isref], minlength=len(uniq))
+    zp = np.where(np.isfinite(zp) & (nref >= 20) & (zp > 0), zp, 1.0)
+    return {int(k): (float(zp[i]), int(nref[i])) for i, k in enumerate(uniq)}
+
+
+def apply_zero_points(vt: pd.DataFrame, table: dict[int, tuple[float, int]]) -> pd.DataFrame:
+    """Divide mean, err and median by their group's zero point (1 for a group not in the table)."""
+    vt = vt.copy()
+    uniq, code = np.unique(zp_keys(vt), return_inverse=True)
+    zp = np.array([table.get(int(k), (1.0, 0))[0] for k in uniq], np.float64)[code] if len(vt) else np.ones(0)
+    for c in ("mean", "err", "median"):
+        vt[c] = (vt[c].to_numpy(np.float64) / zp).astype(np.float32)
+    return vt
+
+
+def zero_point_rows(table: dict[int, tuple[float, int]]) -> list[dict]:
+    """The table as the report's rows (rounded), sorted by origin, detector, visit, half."""
+    rows = []
+    for k, (zp, n) in table.items():
+        dk, rest = divmod(k, 65536 * 4)
+        v, h = divmod(rest, 4)
+        rows.append({"detector": int(dk // 2), "origin": "forced" if dk % 2 else "dot", "visit": int(v), "half": int(h - 1),
+                     "zero_point": round(float(zp), 4), "ref_light_curves": int(n)})
+    return sorted(rows, key=lambda r: (r["origin"], r["detector"], r["visit"], r["half"]))
+
+
 def zero_points(vt: pd.DataFrame, ref_stars: np.ndarray) -> tuple[pd.DataFrame, list[dict]]:
     """Divide each (detector, origin, visit, half)'s means by the median mean of the reference stars' light curves
     there (a whole visit a little brighter or fainter in one detector is calibration, not the stars)."""
-    vt = vt.copy()
     isref = np.isin(vt["star"].to_numpy(np.int64), ref_stars)
-    key = pd.MultiIndex.from_arrays([vt["detector"].to_numpy(), vt["origin"].to_numpy(), vt["visit"].to_numpy(),
-                                     vt["half"].to_numpy()])
-    code, uniq = pd.factorize(key)
-    zp = group_median(code[isref], vt["mean"].to_numpy(np.float64)[isref], len(uniq))
-    nref = np.bincount(code[isref], minlength=len(uniq))
-    zp = np.where(np.isfinite(zp) & (nref >= 20) & (zp > 0), zp, 1.0)
-    vt["mean"] = (vt["mean"].to_numpy(np.float64) / zp[code]).astype(np.float32)
-    vt["err"] = (vt["err"].to_numpy(np.float64) / zp[code]).astype(np.float32)
-    vt["median"] = (vt["median"].to_numpy(np.float64) / zp[code]).astype(np.float32)
-    rows = [{"detector": int(d), "origin": str(o), "visit": int(v), "half": int(h), "zero_point": round(float(zp[i]), 4),
-             "ref_light_curves": int(nref[i])} for i, (d, o, v, h) in enumerate(uniq)]
-    return vt, sorted(rows, key=lambda r: (r["origin"], r["detector"], r["visit"], r["half"]))
+    table = zero_point_table(zp_keys(vt), vt["mean"].to_numpy(np.float64), isref)
+    return apply_zero_points(vt, table), zero_point_rows(table)
 
 
 # --- brightness change -------------------------------------------------------------------------------------------
