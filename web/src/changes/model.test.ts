@@ -6,6 +6,7 @@ import {
   numbers,
   parseChange,
   parseChangesFile,
+  roundedFollows,
   sortChanges,
   starKey,
   variableLabel,
@@ -58,6 +59,26 @@ describe('changes.json', () => {
     expect(visible(file.changes, 'following', following).map((c) => c.id)).toEqual([b.id]);
     expect(visible(file.changes, 'all', following)).toHaveLength(8);
     expect(followedElsewhere(file.changes, following)).toBe(1);
+  });
+
+  it('reads gaia_id as a string, every digit (contract v3.27)', () => {
+    const row = { id: 'z-ch-gaia160747814004063488', kind: 'brightness', ra: 1, dec: 2 };
+    expect(parseChange({ ...row, gaia_id: '160747814004063488' })!.gaia_id).toBe('160747814004063488');
+    // an older file's number: JavaScript has rounded it; ref_id gives the digits back
+    const old = parseChange({ ...row, gaia_id: 160747814004063488, ref_id: 'gaia:160747814004063488' })!;
+    expect(old.gaia_id).toBe('160747814004063488');
+    expect(starKey(old)).toBe('gaia:160747814004063488');
+    expect(parseChange({ ...row, gaia_id: 'x1' })!.gaia_id).toBeNull();
+    expect(parseChange({ ...row, gaia_id: 1.5 })!.gaia_id).toBeNull();
+    expect(file.changes.filter((c) => c.gaia_id != null).every((c) => c.ref_id === `gaia:${c.gaia_id}`)).toBe(true);
+  });
+
+  it('moves a follow saved under a rounded Gaia id to the star\'s exact key', () => {
+    const c = parseChange({ id: 'z-ch-g', kind: 'brightness', ra: 1, dec: 2, gaia_id: '160747814004063488' })!;
+    const rounded = `gaia:${String(Number('160747814004063488'))}`;     // what the page saved before v3.27
+    expect(rounded).not.toBe('gaia:160747814004063488');
+    expect(roundedFollows([c], new Set([rounded, 'gaia:42']))).toEqual([[rounded, 'gaia:160747814004063488']]);
+    expect(roundedFollows([c], new Set(['gaia:160747814004063488']))).toEqual([]);
   });
 
   it('opens the Viewer on the months clock in the change\'s detector', () => {

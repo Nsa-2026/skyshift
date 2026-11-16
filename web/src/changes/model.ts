@@ -20,7 +20,8 @@ export interface Change {
   zone: string;
   zones: string[];
   name: string;
-  gaia_id: number | null;
+  /** Gaia DR3 source_id as a string (contract v3.27: above 2^53 a JSON number loses digits in JavaScript). */
+  gaia_id: string | null;
   ref_id: string | null;
   source_id: number | null;
   ra: number;
@@ -80,6 +81,16 @@ const num = (x: unknown): number | null => (typeof x === 'number' && Number.isFi
 const str = (x: unknown): string => (typeof x === 'string' ? x : '');
 const ints = (x: unknown): number[] => (Array.isArray(x) ? x.filter((v): v is number => Number.isInteger(v)) : []);
 
+/** The Gaia id as a string. Files before v3.27 wrote a JSON number, which JavaScript rounds (11 of the 66 sample ids
+ * came out wrong): the exact digits are then taken from ref_id `gaia:<N>` when it is the same star. */
+export function gaiaId(x: unknown, refId: string | null): string | null {
+  if (typeof x === 'string') return /^\d+$/.test(x) ? x : null;
+  if (typeof x !== 'number' || !Number.isInteger(x) || x <= 0) return null;
+  const m = /^gaia:(\d+)$/.exec(refId ?? '');
+  if (m && Number(m[1]) === x) return m[1];
+  return BigInt(x).toString();
+}
+
 function check(x: unknown): ChangeCheck | null {
   if (!x || typeof x !== 'object') return null;
   const c = x as Record<string, unknown>;
@@ -107,7 +118,7 @@ export function parseChange(x: unknown): Change | null {
     zone: str(c.zone),
     zones: Array.isArray(c.zones) ? c.zones.filter((z): z is string => typeof z === 'string') : [str(c.zone)],
     name: str(c.name) || id,
-    gaia_id: num(c.gaia_id),
+    gaia_id: gaiaId(c.gaia_id, str(c.ref_id) || null),
     ref_id: str(c.ref_id) || null,
     source_id: num(c.source_id),
     g_mag: num(c.g_mag),
@@ -176,6 +187,21 @@ export function starKey(c: Pick<Change, 'gaia_id' | 'ref_id' | 'source_id' | 'id
   if (c.ref_id) return c.ref_id;
   if (c.source_id != null) return `src:${c.source_id}`;
   return `id:${c.id}`;
+}
+
+/** Follows saved while gaia_id was a rounded number (`gaia:160747814004063500`): the key of the star in this list
+ * whose id rounds to the same number. Returns [old, new] pairs; keys of stars not in this list stay as they are. */
+export function roundedFollows(list: Change[], following: ReadonlySet<string>): [string, string][] {
+  const here = new Map<number, string>();
+  for (const c of list) if (c.gaia_id != null) here.set(Number(c.gaia_id), starKey(c));
+  const out: [string, string][] = [];
+  for (const k of following) {
+    const m = /^gaia:(\d+)$/.exec(k);
+    if (!m) continue;
+    const now = here.get(Number(m[1]));
+    if (now && now !== k && !following.has(now)) out.push([k, now]);
+  }
+  return out;
 }
 
 export type ListFilter = 'all' | 'following';
