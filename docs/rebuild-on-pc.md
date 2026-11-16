@@ -3,6 +3,26 @@
 > **Wait until the orchestrator says go: the exporter's slim reads (branch p1/exporter-slim-reads) cut the export from
 > ~50 GB to a few GB.**
 
+## TODO before the full run (16 Nov)
+
+**Do NOT run yet:**
+
+- the full run (`tocheck.sh` without `--dry-run`): wait for the orchestrator's go (slim reads above);
+- step (m) (the PR #388 chain, ~519 GB, ~$68 from the PC): the user decides on its cost first, or it runs inside GCP
+  (~$5, needs a VM: the orchestrator's call);
+- `--with-changes` (step k, ~57 GB, ~$7): it needs PR #386 merged plus the watch agent's chunking follow-up, and the
+  user's yes on the cost;
+- `--upload-refcat` and `--upload-known-index`: only when the orchestrator asks.
+
+**Open items:**
+
+- [ ] Rerun `--dry-run` after the slim reads merge and update the (c) numbers here.
+- [ ] Measure (m)'s memory and time on one large zone (hunt or an ecliptic zone, ~95 deg², untiled) before all 62.
+- [ ] (m) does not rerun fragments, orphans or link, which a full refcat (a0) also changes: decide whether it should.
+- [ ] (k) reads the bucket's tables, not the ones (a0) and (m) wrote on the PC: point it at the mirror once #386 lands.
+
+Safe now: `scripts/rebuild/tocheck.sh --dry-run` (bucket listing only, free).
+
 What it does: completes the Gaia-only reference catalogues (CatWISE and 2MASS added, free), reruns `suspects` for every
 zone with the 16 Nov rule (remove only the certain), reruns crossid → classify → astrometry → highpm → shape per zone
 (PR #388's fixes), exports a new `candidates.json` (with `candidates-more/` for grade C), runs the check producers (known, catalogue, pixel), merges them, builds static frames for the 300 best open
