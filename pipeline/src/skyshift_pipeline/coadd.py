@@ -504,25 +504,31 @@ def dark_holes(sub: np.ndarray, noise: np.ndarray, bad: np.ndarray, nsigma: floa
     return m & ~bad
 
 
-def prepare(l2, obs_id: str, glow: bool | None = None, holes: bool | None = None) -> tuple[S.Cut, dict]:
+def prepare(l2, obs_id: str, glow: bool | None = None, holes: bool | None = None,
+            shared: "tuple | None" = None) -> tuple[S.Cut, dict]:
     """A Level 2 photo (core.level2) → stack.Cut: IMAGE − v2's background (dots.photo_context), bad pixels and dark
-    holes 0 with noise inf, the glow subtracted (noise × its factor). meta: obs_id, detector, mjd, conv."""
+    holes 0 with noise inf, the glow subtracted (noise × its factor). meta: obs_id, detector, mjd, conv.
+    shared: (detection background of the raw photo, its dark-hole mask) as dots.raw_background_holes made them for the
+    dots of the same photo (the fused dots worker: computed once, same values)."""
     from skyshift_core.photometry import ujy_per_mjysr
 
     from .dots import photo_context
     glow = C.SESSION_STACK_GLOW if glow is None else glow
     holes = C.SESSION_STACK_HOLES if holes is None else holes
     t0 = time.process_time()
-    ctx = photo_context(l2)
+    ctx = photo_context(l2, pre=None if shared is None else shared[0])
     bad = np.asarray(ctx.bad, bool).copy()
     sub = np.asarray(ctx.sub, np.float64)
     noise = np.asarray(ctx.noise, np.float64)
     info = {"obs_id": obs_id, "hole_px": 0, "holes": 0}
     if holes:
-        from skyshift_core.holes import dark_holes as core_dark_holes  # extraction v2's rule (#392), as dots.py
-        hm, _ = core_dark_holes(sub, noise, bad, l2.flags, sigma=C.HOLE_SIGMA, min_px=C.HOLE_MIN_PX,
-                                max_px=C.HOLE_MAX_PX, near_bits=C.HOLE_NEAR_BITS, near_px=C.HOLE_NEAR_PX,
-                                grow_px=C.HOLE_GROW_PX)
+        if shared is not None and shared[1] is not None:
+            hm = shared[1]
+        else:
+            from skyshift_core.holes import dark_holes as core_dark_holes  # extraction v2's rule (#392), as dots.py
+            hm, _ = core_dark_holes(sub, noise, bad, l2.flags, sigma=C.HOLE_SIGMA, min_px=C.HOLE_MIN_PX,
+                                    max_px=C.HOLE_MAX_PX, near_bits=C.HOLE_NEAR_BITS, near_px=C.HOLE_NEAR_PX,
+                                    grow_px=C.HOLE_GROW_PX)
         if hm.any():
             info["hole_px"] = int(hm.sum())
             info["holes"] = int(ndimage.label(hm)[1])
@@ -1116,8 +1122,7 @@ def run_task(root: str, task: dict, maps: bool = False, loader=None) -> dict:
     from .store import Store
     store = Store(root)
     rel = session_rel(task["key"])
-    st = {"key": task["key"], "session": task["session"], "detector": task["detector"], "n_photos": len(task["obs_ids"]),
-          "status": ""}
+    st = _task_stats(task)
     if store.exists(rel):
         st["status"] = "exists"
         return st
@@ -1134,24 +1139,137 @@ def run_task(root: str, task: dict, maps: bool = False, loader=None) -> dict:
             cuts.append(cut)
             prep.append(info)
             del l2
-        src, ph, meta, mp = stack_session(cuts, task, maps=maps)
     except Exception as e:  # noqa: BLE001 - one session failing never stops the zone
         st.update(status="failed", error=repr(e)[:300])
         return st
-    meta["prepare"] = prep
-    meta["wall_s"] = round(time.time() - t0, 1)
-    meta["cpu_s"]["total"] = round(time.process_time() - c0, 1)
-    store.write_bytes(session_rel(task["key"], photos=True), _parquet(ph))
-    store.write_bytes(session_moving_rel(task["key"]), _parquet(moving_rows(src, ph)))
-    if mp is not None:
-        buf = io.BytesIO()
-        np.savez_compressed(buf, **mp)
-        store.write_bytes(session_map_rel(task["key"]), buf.getvalue())
-    store.write_bytes(rel, _parquet(src, meta))  # last: its existence means the session is done
+    return write_task(store, task, cuts, prep, maps, t0, c0)
+
+
+def _task_stats(task: dict) -> dict:
+    return {"key": task["key"], "session": task["session"], "detector": task["detector"], "n_photos": len(task["obs_ids"]),
+            "status": ""}
+
+
+def write_task(store, task: dict, cuts: list[S.Cut], prep: list[dict], maps: bool = False, t0: float | None = None,
+               c0: float | None = None, extra_cpu_s: float = 0.0, fused: bool = False) -> dict:
+    """Stack one (session, detector) from its prepared photos and write its files (the sources file last). t0 / c0:
+    wall and CPU clocks at the task's start (run_task: before the first read); extra_cpu_s: CPU spent before c0 that
+    belongs to the task (the fused dots worker: the photos' preparation). Never raises."""
+    st = _task_stats(task)
+    t0 = time.time() if t0 is None else t0
+    c0 = time.process_time() if c0 is None else c0
+    try:
+        src, ph, meta, mp = stack_session(cuts, task, maps=maps)
+        meta["prepare"] = prep
+        meta["wall_s"] = round(time.time() - t0, 1)
+        meta["cpu_s"]["total"] = round(time.process_time() - c0 + extra_cpu_s, 1)
+        if fused:
+            meta["fused_in_dots"] = True
+        store.write_bytes(session_rel(task["key"], photos=True), _parquet(ph))
+        store.write_bytes(session_moving_rel(task["key"]), _parquet(moving_rows(src, ph)))
+        if mp is not None:
+            buf = io.BytesIO()
+            np.savez_compressed(buf, **mp)
+            store.write_bytes(session_map_rel(task["key"]), buf.getvalue())
+        store.write_bytes(session_rel(task["key"]), _parquet(src, meta))  # last: its existence means the session is done
+    except Exception as e:  # noqa: BLE001 - one session failing never stops the zone
+        st.update(status="failed", error=repr(e)[:300])
+        return st
     st.update(status="done", n_sources=int(len(src)), threshold=meta["threshold"], wall_s=meta["wall_s"],
               cpu_s=meta["cpu_s"]["total"], depth=meta["depth_ab_5sigma"], per_deg2=meta["per_deg2"],
               neg_per_deg2=meta["false_alarms"]["neg_per_deg2"], n_glitch=meta["n_glitch"])
     return st
+
+
+class Stacker:
+    """Session stacks built inside the dots worker (fused: extraction v2 with SESSION_STACK on; docs/session-stacks.md
+    §8). The worker hands over every photo it holds, raw (before its dots run), with the detection background and
+    dark-hole mask it computed once for both (dots.raw_background_holes); a (session, detector) is stacked and written
+    as soon as its last photo is prepared, and its cuts are freed. Only tasks whose every photo is in the worker's job
+    list are attempted; a photo that could not be read drops its task (the `sessionstack` step after dots does it
+    later, reading the photos again). results: one stats dict per task (done / failed / incomplete), as run_task's."""
+
+    def __init__(self, store, tasks: list[dict], have: set, maps: bool = False):
+        self.store, self.maps = store, maps
+        self.tasks: dict[str, dict] = {}
+        self.by_photo: dict[tuple, str] = {}
+        self.results: list[dict] = []
+        for t in tasks:
+            need = {(str(o), int(t["detector"])) for o in t["obs_ids"]}
+            if not need <= have:
+                self.results.append({**_task_stats(t), "status": "incomplete", "fused": True})
+                continue
+            self.tasks[t["key"]] = t
+            for k in need:
+                self.by_photo[k] = t["key"]
+        self.cuts: dict[str, dict] = {k: {} for k in self.tasks}
+        self.prep: dict[str, dict] = {k: {} for k in self.tasks}
+        self.cpu: dict[str, float] = {k: 0.0 for k in self.tasks}
+        self.t0: dict[str, float] = {}
+
+    def wants(self, obs_id: str, detector: int) -> bool:
+        return (str(obs_id), int(detector)) in self.by_photo
+
+    def held(self) -> int:
+        """Prepared photos held right now (memory: ~50 MB each for a full photo)."""
+        return sum(len(v) for v in self.cuts.values())
+
+    def add(self, obs_id: str, detector: int, l2, shared: tuple | None = None, read_s: float | None = None) -> dict | None:
+        """Prepare one photo of a wanted task; stack and write the task when it is complete. Returns that task's
+        stats when it finished (done or failed), else None. Never raises."""
+        key = self.by_photo.pop((str(obs_id), int(detector)), None)
+        if key is None or key not in self.tasks:
+            return None
+        self.t0.setdefault(key, time.time())
+        c0 = time.process_time()
+        try:
+            cut, info = prepare(l2, str(obs_id), shared=shared)
+        except Exception as e:  # noqa: BLE001
+            return self._drop(key, f"prepare {obs_id}: {e!r}"[:300])
+        info["read_wall_s"] = None if read_s is None else round(float(read_s), 1)
+        self.cpu[key] += time.process_time() - c0
+        self.cuts[key][str(obs_id)] = cut
+        self.prep[key][str(obs_id)] = info
+        t = self.tasks[key]
+        if len(self.cuts[key]) < len(t["obs_ids"]):
+            return None
+        cuts = [self.cuts[key][str(o)] for o in t["obs_ids"]]
+        prep = [self.prep[key][str(o)] for o in t["obs_ids"]]
+        cpu = self.cpu[key]
+        self._forget(key)
+        st = write_task(self.store, t, cuts, prep, self.maps, t0=self.t0[key], extra_cpu_s=cpu, fused=True)
+        st["fused"] = True
+        st["prepare_cpu_s"] = round(cpu, 2)
+        self.results.append(st)
+        return st
+
+    def fail(self, obs_id: str, detector: int, why: str) -> dict | None:
+        """A photo of a wanted task could not be read: the task is dropped (its cuts freed)."""
+        key = self.by_photo.pop((str(obs_id), int(detector)), None)
+        if key is None or key not in self.tasks:
+            return None
+        return self._drop(key, why)
+
+    def _drop(self, key: str, why: str) -> dict:
+        st = {**_task_stats(self.tasks[key]), "status": "failed", "error": why, "fused": True}
+        self._forget(key)
+        self.results.append(st)
+        return st
+
+    def _forget(self, key: str) -> None:
+        self.tasks.pop(key, None)
+        self.cuts.pop(key, None)
+        self.prep.pop(key, None)
+        self.cpu.pop(key, None)
+        for k in [k for k, v in self.by_photo.items() if v == key]:
+            del self.by_photo[k]
+
+    def close(self) -> list[dict]:
+        """Tasks never completed (a photo never came) are reported incomplete; returns every task's stats."""
+        for key in list(self.tasks):
+            self.results.append({**_task_stats(self.tasks[key]), "status": "incomplete", "fused": True})
+            self._forget(key)
+        return self.results
 
 
 def _run_task_star(a):
@@ -1160,10 +1278,12 @@ def _run_task_star(a):
 
 def run(store, zone: C.Zone, workers: int = 2, limit: int | None = None) -> dict:
     """Step `sessionstack` for a zone: every session × detector with >= SESSION_STACK_MIN_EXP photos (limit: the
-    first N), in at most SESSION_STACK_WORKERS_MAX processes; results/<zone>/session_stack.json sums them up."""
+    first N), in at most SESSION_STACK_WORKERS_MAX processes; results/<zone>/session_stack.json sums them up. With
+    extraction v2 the dots worker builds them while it holds the photos (Stacker; docs/session-stacks.md §8): this
+    step then finds them written ("exists", nothing read) and does only those the worker could not."""
     from concurrent.futures import ProcessPoolExecutor
 
-    from .store import photolist_rel, results_rel
+    from .store import photolist_rel
     t0 = time.time()
     photos = store.read_parquet(photolist_rel(zone.name))
     tasks = session_tasks(photos)
@@ -1178,6 +1298,15 @@ def run(store, zone: C.Zone, workers: int = 2, limit: int | None = None) -> dict
         import multiprocessing as mp
         with ProcessPoolExecutor(n, mp_context=mp.get_context("spawn")) as ex:
             res = list(ex.map(_run_task_star, args))
+    return write_index_report(store, zone, tasks, res, t0)
+
+
+def write_index_report(store, zone: C.Zone, tasks: list[dict], res: list[dict], t0: float,
+                       fused: bool = False) -> dict:
+    """session_stacks/index/<zone>.parquet (every task done or already there) and results/<zone>/session_stack.json
+    from the tasks' stats. A run that stacked nothing new keeps the previous report's per-detector figures (the
+    `sessionstack` step after a fused dots run finds every stack written)."""
+    from .store import results_rel
     done = [r for r in res if r.get("status") == "done"]
     ok_keys = {r["key"] for r in res if r.get("status") in ("done", "exists")}
     idx = [{"key": t["key"], "session": t["session"], "visit": t["visit"], "detector": t["detector"], "obs_id": o,
@@ -1187,18 +1316,30 @@ def run(store, zone: C.Zone, workers: int = 2, limit: int | None = None) -> dict
     by_det: dict = {}
     for r in done:
         by_det.setdefault(int(r["detector"]), []).append(r)
+    rep_rel = results_rel(zone.name, "session_stack.json")
+    old: dict = {}
+    if not done:
+        try:
+            old = (store.read_json(rep_rel) if store.exists(rep_rel) else None) or {}
+        except Exception:  # noqa: BLE001 - an unreadable old report is simply replaced
+            old = {}
+    per_det = {f"D{d}": {"sessions": len(v),
+                         "depth_ab_5sigma_median": _median([x["depth"].get("searched") for x in v]),
+                         "sources_per_deg2_median": _median([x["per_deg2"] for x in v]),
+                         "neg_per_deg2_median": _median([x["neg_per_deg2"] for x in v]),
+                         "threshold_median": _median([x["threshold"] for x in v]),
+                         "cpu_s_median": _median([x["cpu_s"] for x in v])}
+               for d, v in sorted(by_det.items())}
     rep = {"zone": zone.name, "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "tasks": len(tasks),
            "done": len(done), "exists": sum(r.get("status") == "exists" for r in res),
+           "incomplete": sum(r.get("status") == "incomplete" for r in res),
            "failed": [r for r in res if r.get("status") == "failed"][:50],
-           "per_detector": {f"D{d}": {"sessions": len(v),
-                                      "depth_ab_5sigma_median": _median([x["depth"].get("searched") for x in v]),
-                                      "sources_per_deg2_median": _median([x["per_deg2"] for x in v]),
-                                      "neg_per_deg2_median": _median([x["neg_per_deg2"] for x in v]),
-                                      "threshold_median": _median([x["threshold"] for x in v]),
-                                      "cpu_s_median": _median([x["cpu_s"] for x in v])}
-                            for d, v in sorted(by_det.items())},
+           "per_detector": per_det or old.get("per_detector", {}),
+           "fused_in_dots": bool(fused) or bool(old.get("fused_in_dots", False)),
            "wall_s": round(time.time() - t0, 1)}
-    store.write_json(results_rel(zone.name, "session_stack.json"), rep)
+    if fused and done:
+        rep["prepare_cpu_s_median"] = _median([r.get("prepare_cpu_s") for r in done])
+    store.write_json(rep_rel, rep)
     return {k: v for k, v in rep.items() if k != "failed"} | {"failed": len(rep["failed"])}
 
 

@@ -312,12 +312,10 @@ def photo_context(l2, timing: dict | None = None, pre: tuple | None = None) -> P
     return ctx
 
 
-def mask_dark_holes(l2, timing: dict | None = None) -> tuple[object, dict, tuple | None]:
-    """Extraction v2's dark-hole mask (16 Nov, second pass; core skyshift_core.holes, config HOLE_*): unflagged
-    pixels far below the sky (mostly cold pixels NASA's COLD mask misses) set to NaN in a shallow copy of l2, so that every
-    later step treats them as bad pixels (build_mask masks non-finite values). Returns (l2 or its copy, the footer's
-    `dark_holes` counts, the detection background to reuse when nothing was masked, else None)."""
-    t0 = time.perf_counter()
+def raw_background_holes(l2) -> tuple[tuple, np.ndarray, dict]:
+    """(detection background of the raw photo as _detection_background returns it, the dark-hole mask, its counts):
+    what mask_dark_holes computes first. The fused dots worker computes it once per photo and hands it to both the
+    dots (mask_dark_holes `shared`) and the session stack (coadd.prepare `shared`): same values, one computation."""
     pre = _detection_background(l2)
     b, bad, masked = pre
     sub = masked - b.level
@@ -325,6 +323,17 @@ def mask_dark_holes(l2, timing: dict | None = None) -> tuple[object, dict, tuple
     m, info = dark_holes(sub, psf_noise(l2, b.rms), bad, l2.flags, sigma=C.HOLE_SIGMA, min_px=C.HOLE_MIN_PX,
                          max_px=C.HOLE_MAX_PX, near_bits=C.HOLE_NEAR_BITS, near_px=C.HOLE_NEAR_PX,
                          grow_px=C.HOLE_GROW_PX)
+    return pre, m, info
+
+
+def mask_dark_holes(l2, timing: dict | None = None, shared: tuple | None = None) -> tuple[object, dict, tuple | None]:
+    """Extraction v2's dark-hole mask (16 Nov, second pass; core skyshift_core.holes, config HOLE_*): unflagged
+    pixels far below the sky (mostly cold pixels NASA's COLD mask misses) set to NaN in a shallow copy of l2, so that every
+    later step treats them as bad pixels (build_mask masks non-finite values). Returns (l2 or its copy, the footer's
+    `dark_holes` counts, the detection background to reuse when nothing was masked, else None). shared: what
+    raw_background_holes(l2) returned (the fused worker; its time is then in timing `shared_s`)."""
+    t0 = time.perf_counter()
+    pre, m, info = raw_background_holes(l2) if shared is None else (shared[0], shared[1], dict(shared[2]))
     info["config"] = {"sigma": C.HOLE_SIGMA, "min_px": C.HOLE_MIN_PX, "max_px": C.HOLE_MAX_PX,
                       "near_bits": int(C.HOLE_NEAR_BITS), "near_px": C.HOLE_NEAR_PX, "grow_px": C.HOLE_GROW_PX}
     if timing is not None:
@@ -1240,9 +1249,10 @@ class Pending:
 
 
 def _measure(store: Store, l2, obs_id: str, detector: int, session: int, visit: int, zone: str | None,
-             st: dict) -> Pending | None:
+             st: dict, shared: tuple | None = None) -> Pending | None:
     """Everything after the read but the dot file's write: dots, forced photometry (written), metadata; v2 also the
-    peaks table and the partner image. None (st status "failed") on an error; never raises."""
+    peaks table and the partner image. None (st status "failed") on an error; never raises. shared: the raw photo's
+    raw_background_holes (the fused worker computed it for the session stack too)."""
     settings = C.zone_detect(zone)
     ddir, deblend = settings.folder, settings.deblend_cont
     counts: dict = {}
@@ -1262,7 +1272,7 @@ def _measure(store: Store, l2, obs_id: str, detector: int, session: int, visit: 
             timing: dict = {}
             pre = None
             if settings.v2 and C.DOTS_V2_HOLES and getattr(l2, "flags", None) is not None:
-                l2, holes, pre = mask_dark_holes(l2, timing)
+                l2, holes, pre = mask_dark_holes(l2, timing, shared=shared)
                 extras["dark_holes"] = holes
             ctx = photo_context(l2, timing, pre=pre)
             df = dots_table(l2, obs_id, detector, session, visit, timing=timing, ctx=ctx, settings=settings, counts=counts,
@@ -1546,8 +1556,39 @@ def _pair_order(jobs: list) -> list:
     return sorted(jobs, key=lambda j: (first[j[0]], (j[1] - 1) % 3, j[1]))
 
 
+def session_groups(todo: list, n: int) -> list[list]:
+    """Worker tasks of at least n photos (rows with .session, in run order) that never split a session: the fused
+    worker (extraction v2 + session stacks) holds a session's photos of a detector until it stacks them."""
+    groups: list[list] = []
+    cur: list = []
+    for r in todo:
+        if len(cur) >= n and int(r.session) != int(cur[-1].session):
+            groups.append(cur)
+            cur = []
+        cur.append(r)
+    if cur:
+        groups.append(cur)
+    return groups
+
+
+def _stack_order(jobs: list) -> list:
+    """Fused worker: per session, the partner pair D1+D4 of every exposure, then D2+D5, then D3+D6 (partners stay next
+    to each other, so the v2 pairing is unchanged), so a detector's photos of a session come together and only two
+    detectors' prepared photos are held at once."""
+    first_s, first_o = {}, {}
+    for k, j in enumerate(jobs):
+        first_s.setdefault(j[3], k)
+        first_o.setdefault(j[0], k)
+    return sorted(jobs, key=lambda j: (first_s[j[3]], (j[1] - 1) % 3, first_o[j[0]], j[1]))
+
+
+def fused_stacks(settings: C.DetectSettings) -> bool:
+    """The dots worker builds the session stacks itself: extraction v2 and SESSION_STACK both on."""
+    return bool(settings.v2 and C.SESSION_STACK)
+
+
 def process_photos(root: str, photos: list[tuple], zone: str | None = None,
-                   prefetch: bool | None = None) -> list[dict]:
+                   prefetch: bool | None = None, stacks: list[dict] | None = None) -> list[dict]:
     """process_photo for several photos (obs_id, detector, url, session, visit) in one worker, in order.
     With prefetch (default C.DOTS_PREFETCH), photo k + 1 is read in a background thread while photo k
     is measured, so the core doesn't sit idle waiting for the network. Same functions per photo, so
@@ -1555,29 +1596,81 @@ def process_photos(root: str, photos: list[tuple], zone: str | None = None,
     Extraction v2 (config DOTS_V2): partner detectors of one exposure are measured one after the other and the first
     is written after the second, each with partner_flux_ujy/partner_err_ujy from the other (a partner not in this
     task, already done or failed leaves them NaN); one partner image (~50 MB) waits at most.
+    Session stacks fused (`stacks`: coadd.session_tasks of these photos not yet written; only with fused_stacks): each
+    photo of such a task is also prepared for its stack while it is in memory (a photo whose dot file exists is read
+    for the stack only), and the stack is written when its last photo is in (coadd.Stacker): no photo is read twice.
+    The photos then go session by session, D1+D4 / D2+D5 / D3+D6 (_stack_order). The stacks' stats come after the
+    photos' with "stack": True.
     Returns one stats dict per photo (in processing order: v2 puts partners side by side); never raises."""
     prefetch = C.DOTS_PREFETCH if prefetch is None else prefetch
     store = _store(root)
     settings = C.zone_detect(zone)
     ddir = settings.folder
+    fused = bool(stacks) and fused_stacks(settings)
+    want: set = set()
+    if fused:
+        want = {(str(o), int(t["detector"])) for t in stacks for o in t["obs_ids"]}
     out: list[dict] = []
-    jobs = []
+    jobs = []  # (obs_id, detector, url, session, visit, st, measure)
     for obs_id, detector, url, session, visit in photos:
         st = _new_stats(obs_id, detector)
         if _already_done(store, dots_rel(obs_id, detector, ddir), st):
-            out.append(st)
+            if (str(obs_id), int(detector)) in want:
+                jobs.append((obs_id, int(detector), url, int(session), int(visit), st, False))  # read for its stack
+            else:
+                out.append(st)
         else:
-            jobs.append((obs_id, int(detector), url, int(session), int(visit), st))
-    if settings.v2:
+            jobs.append((obs_id, int(detector), url, int(session), int(visit), st, True))
+    stacker = None
+    if fused:
+        from .coadd import Stacker
+        stacker = Stacker(store, stacks, {(str(j[0]), int(j[1])) for j in jobs},
+                          maps=zone in C.SESSION_STACK_MAP_ZONES)
+        jobs = _stack_order(jobs)
+    elif settings.v2:
         jobs = _pair_order(jobs)
     held: list = []  # [(obs_id, detector, Pending)] waiting for its partner (v2)
 
+    def stack_part(k: int, l2) -> tuple | None:
+        """Fused: prepare the photo for its session stack (before its dots: the stack's input is the raw photo);
+        returns the shared background and hole mask for its dots."""
+        obs_id, detector, st = jobs[k][0], jobs[k][1], jobs[k][5]
+        if stacker is None or not stacker.wants(obs_id, detector):
+            return None
+        if l2 is None:
+            stacker.fail(obs_id, detector, f"read: {st.get('error', '')}"[:300])
+            return None
+        t0, c0 = time.time(), time.process_time()
+        shared = None
+        try:
+            if int(l2.detector) == int(detector) and C.DOTS_V2_HOLES and getattr(l2, "flags", None) is not None \
+                    and not bad_finast(l2.header.get("FINAST")):
+                shared = raw_background_holes(l2)
+        except Exception:  # noqa: BLE001 - the dots and the stack then compute it themselves
+            shared = None
+        st["shared_s"] = round(time.process_time() - c0, 2)
+        c1 = time.process_time()
+        if int(l2.detector) != int(detector):
+            stacker.fail(obs_id, detector, f"header DETECTOR {l2.detector} != photo list {detector}")
+        else:
+            stacker.add(obs_id, detector, l2, shared=shared, read_s=st.get("read_s"))
+        st["stack_cpu_s"] = round(time.process_time() - c1, 2)  # prepare (+ the stack when this photo completed it)
+        st["stack_wall_s"] = round(time.time() - t0, 2)
+        st["stack_held"] = stacker.held()
+        return shared
+
     def handle(k: int, l2) -> None:
-        obs_id, detector, url, session, visit, st = jobs[k]
+        obs_id, detector, url, session, visit, st, measure = jobs[k]
+        shared = stack_part(k, l2)
+        if not measure:  # read for its session stack only: the dot file is there
+            if st["status"] == "failed":
+                st["status"] = "skipped"
+            out.append(st)
+            return
         if not settings.v2:
             out.append(st if l2 is None else _measure_and_write(store, l2, obs_id, detector, session, visit, zone, st))
             return
-        p = None if l2 is None else _measure(store, l2, obs_id, detector, session, visit, zone, st)
+        p = None if l2 is None else _measure(store, l2, obs_id, detector, session, visit, zone, st, shared=shared)
         partner = C.PARTNER_DETECTOR.get(detector)
         if held and held[0][0] == obs_id and held[0][1] == partner:
             _, _, q = held.pop()
@@ -1590,18 +1683,19 @@ def process_photos(root: str, photos: list[tuple], zone: str | None = None,
             _, _, q = held.pop()
             out.append(_finish(store, q, q.st))
         nxt = jobs[k + 1] if k + 1 < len(jobs) else None
-        if p is not None and nxt is not None and nxt[0] == obs_id and nxt[1] == partner:
+        if p is not None and nxt is not None and nxt[0] == obs_id and nxt[1] == partner and nxt[6]:
             held.append((obs_id, detector, p))
         else:
             out.append(_finish(store, p, st))
 
     if not prefetch or len(jobs) < 2:
-        for k, (obs_id, detector, url, session, visit, st) in enumerate(jobs):
-            handle(k, _load_retrying(url, st))
+        for k, j in enumerate(jobs):
+            handle(k, _load_retrying(j[2], j[5]))
     else:
         with ThreadPoolExecutor(max_workers=1) as reader:
             nxt = reader.submit(_load_retrying, jobs[0][2], jobs[0][5])
-            for k, (obs_id, detector, url, session, visit, st) in enumerate(jobs):
+            for k, j in enumerate(jobs):
+                st = j[5]
                 t0 = time.time()
                 l2 = nxt.result()  # _load_retrying never raises
                 st["wait_s"] = round(time.time() - t0, 2)  # time this core waited for the read
@@ -1611,6 +1705,8 @@ def process_photos(root: str, photos: list[tuple], zone: str | None = None,
     while held:
         _, _, q = held.pop()
         out.append(_finish(store, q, q.st))
+    if stacker is not None:
+        out += [{**r, "stack": True} for r in stacker.close()]
     return out
 
 
@@ -1649,30 +1745,77 @@ def spread_limit(todo: list, limit: int | None) -> list:
     return [todo[i] for i in sorted(set(keep))]
 
 
+def session_limit(todo: list, limit: int | None) -> list:
+    """Fused run: at most about `limit` photos of `todo` as whole sessions (a stack needs all of its photos), the
+    sessions spread evenly over the list."""
+    if limit is None or len(todo) <= limit:
+        return list(todo)
+    by_s: dict[int, list] = {}
+    for r in todo:
+        by_s.setdefault(int(r.session), []).append(r)
+    sessions = list(by_s)
+    keep: list[int] = []
+    n = 0
+    step = max(1, len(sessions) // max(1, int(np.ceil(limit * len(sessions) / len(todo)))))
+    for i in range(0, len(sessions), step):
+        if n >= limit:
+            break
+        keep.append(sessions[i])
+        n += len(by_s[sessions[i]])
+    ks = set(keep)
+    return [r for r in todo if int(r.session) in ks]
+
+
 def run(store: Store, zone: C.Zone, workers: int, limit: int | None = None) -> dict:
     t_start = time.time()
     photos = store.read_parquet(photolist_rel(zone.name)).sort_values(["mjd", "detector"]).reset_index(drop=True)
     ddir, deblend = C.zone_dots(zone.name)
     done = {n for n in store.listdir(ddir) if n.endswith(".parquet")}
-    todo = [r for r in photos.itertuples() if f"{r.obs_id}D{int(r.detector)}.parquet" not in done]
-    n_done_before = len(photos) - len(todo)
-    todo = spread_limit(todo, limit)
-    L.info("dots %s: %d photos, %d already done in %s/ (deblend_cont %g), %d to do now, %d workers", zone.name, len(photos),
-           n_done_before, ddir, deblend, len(todo), workers)
+    fused = fused_stacks(C.zone_detect(zone.name))
+    tasks: list[dict] = []
+    pending: list[dict] = []
+    if fused:  # session stacks built here (docs/session-stacks.md §8): photos of a stack not yet written are read too
+        from . import coadd
+        tasks = coadd.session_tasks(photos)
+        have = {n for n in store.listdir(C.SESSION_STACK_DIR) if n.endswith(".parquet")}
+        pending = [t for t in tasks if f"{t['key']}.parquet" not in have]
+    need = {(str(o), int(t["detector"])) for t in pending for o in t["obs_ids"]}
+    n_done_before = sum(f"{r.obs_id}D{int(r.detector)}.parquet" in done for r in photos.itertuples())
+    todo = [r for r in photos.itertuples() if f"{r.obs_id}D{int(r.detector)}.parquet" not in done
+            or (str(r.obs_id), int(r.detector)) in need]
+    todo = session_limit(todo, limit) if fused else spread_limit(todo, limit)
+    L.info("dots %s: %d photos, %d already done in %s/ (deblend_cont %g), %d to do now, %d workers%s", zone.name,
+           len(photos), n_done_before, ddir, deblend, len(todo), workers,
+           f", session stacks fused: {len(pending)} of {len(tasks)} to build" if fused else "")
     stats: list[dict] = []
+    stack_stats: list[dict] = []
     if todo:
         ctx = mp.get_context("spawn")
         with ProcessPoolExecutor(max_workers=max(1, workers), mp_context=ctx, initializer=log.setup) as ex:
             n = max(1, C.DOTS_TASK_PHOTOS)
             groups = [todo[i:i + n] for i in range(0, len(todo), n)]
-            if C.zone_detect(zone.name).v2:
+            if fused:
+                groups = session_groups(todo, n)  # a session's photos in one task (its stacks, partner_* columns)
+            elif C.zone_detect(zone.name).v2:
                 groups = exposure_groups(todo, n)  # partner detectors in one task (partner_* columns)
+
+            def group_stacks(g) -> list[dict] | None:
+                if not fused:
+                    return None
+                ss = {int(r.session) for r in g}
+                return [t for t in pending if int(t["session"]) in ss]
+
             futs = [ex.submit(process_photos, store.root,
                               [(r.obs_id, int(r.detector), r.url, int(r.session), int(r.visit)) for r in g],
-                              zone.name) for g in groups]
+                              zone.name, None, group_stacks(g)) for g in groups]
             k = 0
             for f in as_completed(futs):
                 for st in f.result():
+                    if st.get("stack"):
+                        stack_stats.append(st)
+                        if st["status"] != "done":
+                            L.warning("session stack %s: %s %s", st["key"], st["status"], st.get("error", ""))
+                        continue
                     k += 1
                     stats.append(st)
                     if st["status"] == "failed":
@@ -1709,9 +1852,21 @@ def run(store: Store, zone: C.Zone, workers: int, limit: int | None = None) -> d
             "forced_kb_per_photo_median": round(float(a["forced_bytes"].median()) / 1e3, 1),
             "photos_per_minute": round(len(done_now) / wall * 60.0, 1),
         })
+    if fused:
+        from . import coadd
+        todo_keys = {t["key"] for t in pending}
+        exists = [{"key": t["key"], "status": "exists"} for t in tasks if t["key"] not in todo_keys]
+        out["session_stacks"] = coadd.write_index_report(store, zone, tasks, stack_stats + exists, t_start, fused=True)
+        stats_s = [s for s in stats if "stack_cpu_s" in s]
+        if stats_s:
+            a = pd.DataFrame(stats_s)
+            out["session_stacks"]["per_photo_cpu_s_median"] = {
+                "shared_background_holes": float(a["shared_s"].median()),
+                "stack_prepare_and_stack": float(a["stack_cpu_s"].median()),
+                "stack_mean_per_photo": round(float(a["stack_cpu_s"].mean()), 2)}
     if stats:
         store.write_json(results_rel(zone.name, f"dots_runs/{time.strftime('%Y%m%dT%H%M%S')}.json"),
-                         {"summary": out, "photos": stats})
+                         {"summary": out, "photos": stats, "session_stacks": stack_stats})
     L.info("dots %s: %s", zone.name, {k: v for k, v in out.items() if k != "failed_photos"})
     return out
 

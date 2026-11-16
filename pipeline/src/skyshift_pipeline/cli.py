@@ -26,7 +26,9 @@ skyshift-pipeline sessionstack --zone ZONE [--root ROOT] [--workers N] [--limit 
   with the ePSF-matched filter, every stacked source measured in each photo → session_stacks/<key>*.parquet (+ maps for
   config SESSION_STACK_MAP_ZONES), session_stacks/index/<zone>.parquet, results/<zone>/session_stack.json. `all` runs it
   right after dots only when SKYSHIFT_SESSION_STACK=1 (config SESSION_STACK), which also makes link use its rows.
-  --limit N: the first N session × detector tasks. At most SESSION_STACK_WORKERS_MAX processes.
+  --limit N: the first N session × detector tasks. At most SESSION_STACK_WORKERS_MAX processes. With SKYSHIFT_DOTS_V2=1
+  too, `dots` builds the stacks while it holds the photos (fused, each photo read once); this step then only does the
+  ones the dots workers could not (an unreadable photo, --limit) and rewrites the index.
 
 skyshift-pipeline stack --zone ZONE [--root ROOT] [--workers N] [--cache DIR] [--limit N]
   Not part of `all`: detect on per-visit stacks of the zone's photos, then a joint ePSF fit of every photo at all

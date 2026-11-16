@@ -63,6 +63,15 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   over the session (tracklet_dots then has stack_key/stack_row; stats recovered_stack_rows, control too). 8 hunt
   sessions, SWIR stacks: known units V < 18 found 91 → 97 of 164 (V < 16 35 → 36 of 37), control 0 → 0, 7 stack rows
   recovered on tracks vs 0 with the tracks moved 2′ (docs/session-stacks.md §7 round 2).
+  Fused (16 Nov night, docs/session-stacks.md §8): with SKYSHIFT_DOTS_V2=1 and SKYSHIFT_SESSION_STACK=1 the dots
+  worker builds the stacks itself (dots.fused_stacks): tasks never split a session (session_groups), photos go per
+  session D1+D4 / D2+D5 / D3+D6 (_stack_order), each raw photo's background + dark-hole mask is computed once for both
+  (raw_background_holes → mask_dark_holes / coadd.prepare `shared`), coadd.Stacker writes a stack when its last photo is
+  in (write_task); photos with a dot file but no stack are read for the stack only; an unreadable photo or `--limit`
+  (whole sessions: session_limit) leaves its stack to `sessionstack`, which `all` still runs after dots (it then reads
+  nothing for the stacks there and keeps the report's figures). dots.run writes the index and session_stack.json.
+  Hunt session 72, D1 + D4, 8 real photos: all 22 tables and 2 maps identical to dots v2 + the step; +4.6 s CPU per
+  photo (dots v2 7.9 s), each photo read once instead of twice; ~0.5 GB more held per worker at 5 exposures.
 - Candidates for the site (contracts/api.md, candidates.json): `uv run skyshift-candidates [--zones hunt,pilot]
   [--cache <dir>]` reads results/ of every finished zone (largest first) and writes ../web/public/data/candidates.json;
   then `cd ../server && uv run python ../scripts/candidates/frames.py` adds static frames for the top ones.
@@ -143,6 +152,14 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   #63975007456300); the fit gets them too (catalogued_at names AllWISE companions). A visit's offset error has a 0.25″
   floor (companion_move_sigma 6–10 → 0.8–1.7 on the hunt's fixed companions); two catalogued objects 1–4.5″ apart
   within 2.5 mag block the split (`companion_blocked`: #64104007282900's NW "companion" mirrored the SE neighbours).
+- Red forced layer downstream (16 Nov night): crossid ties each `allwise:` target (forced_sky --red, read from
+  refcat/sky/forced_red_n32/ around the zone's sources) to the nearest source within CROSSID_RED_ARCSEC 3″ (crossids
+  allwise_ref_id, allwise_sep_arcsec; link_red, link_by_position); lightcurves ties those forced rows through it (were
+  source_id −1); classify.forced_j reads the linked targets' rows of the D2 and D6 forced files (load_forced
+  `detectors`, `ref_ids`) and fills J and/or [4.6] where the spectrum lacks them (j_m46_from spectrum / forced /
+  forced_limit: J under CLASSIFY_FORCED_J_MIN_SNR 3 is a 3σ limit, the colour then a lower bound; a [4.6] limit gives
+  none). #392's four test exposures: 1,672 of 3,866 red targets link; 1,324 of them had neither J nor [4.6] in their
+  spectrum. Rerun crossid, then classify and lightcurves, once the layer exists.
 - crossid, colours, lightcurves, astrometry, highpm use only stored tables (members → dots, sources, refcat/<zone>.parquet
   or refcat/<zone>_forced.parquet, forced/), never photos; a missing refcat or forced/ gives a warning and empty matches.
 - astrometry (14 Nov night, ASTRO_SAT_OFFSET): saturated dots sit ~0.01–0.06 px off the star along −x (fixed in pixels,

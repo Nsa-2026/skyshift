@@ -30,7 +30,8 @@ point (an unflagged cosmic-ray hit or a bad pixel), against LC_VARIABLE_CHI2_NU.
 
 Points: dots of fixed sources (members; PSF flux when the dot files have it, else aperture flux;
 MASK bits out), and forced photometry at catalogue positions (forced/<obs_id>D<det>.parquet),
-non-detections included, tied to a source through crossids (Gaia, CatWISE, 2MASS ref_id).
+non-detections included, tied to a source through crossids (Gaia, CatWISE, 2MASS ref_id, and the red forced layer's
+`allwise:` targets, which crossid ties to a source by position within CROSSID_RED_ARCSEC).
 
 Writes results/<zone>/lightcurves.parquet (one row per point) and lightcurves_summary.parquet
 (one row per (source or ref, detector, origin)).
@@ -76,10 +77,12 @@ def points_from_dots(d: pd.DataFrame) -> pd.DataFrame:
 
 
 def points_from_forced(f: pd.DataFrame, crossids: pd.DataFrame | None) -> pd.DataFrame:
+    """Forced rows as points; source_id from crossids' Gaia, CatWISE, 2MASS and (16 Nov) allwise_ref_id (the red
+    forced layer's target crossid tied to the source by position); −1 = a catalogue-only light curve."""
     sid = np.full(len(f), -1, np.int64)
     if crossids is not None and len(crossids) and len(f):
         ref = f["ref_id"].astype(str)
-        for col in ("gaia_ref_id", "catwise_ref_id", "tmass_ref_id"):
+        for col in ("gaia_ref_id", "catwise_ref_id", "tmass_ref_id", "allwise_ref_id"):
             if col not in crossids:
                 continue
             m = crossids[crossids[col].astype(str) != ""]

@@ -537,6 +537,7 @@ REFCAT_REL = "refcat/{zone}.parquet"     # Gaia DR3 / CatWISE / 2MASS unified, a
 REFCAT_FALLBACK_REL = "refcat/{zone}_forced.parquet"  # the forced-photometry targets, if the full one is missing
 FORCED_DIR = "forced"                    # forced/<obs_id>D<det>.parquet
 CROSSID_ARCSEC = {"gaia": 2.5, "catwise": 3.0, "tmass": 3.0}  # match radius per catalogue
+CROSSID_RED_ARCSEC = 3.0  # the red forced layer's AllWISE targets (allwise:, forced_sky --red) tie to a source within this
 CROSSID_SLACK_ARCSEC = 2.0     # extra search radius before the per-source epoch refinement
 CROSSID_PM_REL_TOL = 0.3       # 2MASS moved by a borrowed pm: this share of the move more along it (16 Nov: CatWISE's pm
                                # put the L7.5 dwarf 2MASSW J0825+2115 4.4″ short of its 2MASS entry over 27 yr)
@@ -692,6 +693,8 @@ BD_CH4_33_MIN_DEPTH = 0.25
 BD_CH4_16_MIN_DEPTH = 0.15
 BD_H2O_MIN_DEPTH = 0.15
 BD_MIN_J_M46_AB = -0.5         # J_AB − [4.6]_AB above this is "red" (≈ J − W2 > 1.9 Vega; A0 star −2.4, M dwarfs ~ −1.4)
+CLASSIFY_FORCED_J_MIN_SNR = 3.0     # forced J (red layer, classify.forced_j): a measured J from this S/N, else a limit
+CLASSIFY_FORCED_J_LIMIT_SIGMA = 3.0 # ... at max(flux, 0) + this many sigma (J fainter: J − [4.6] a lower bound)
 BD_GAIA_FAINT_G = 19.0         # Gaia G fainter than this counts as faint
 BD_MIN_G_J_AB = 3.5            # ... or G − J_AB above this (L/T dwarfs are very red in G − J)
 # 16 Nov (165 brown_dwarf_like labels against the catalogue check; vetting round 1: 8 of 15 brown-dwarf leads are AGN):
