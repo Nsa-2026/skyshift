@@ -34,6 +34,25 @@ companion's light. Rows stay sorted by flux_ujy, brightest first. Test on 43 hun
 found 9% → 81%, known asteroids within 6 px of a brighter star 4 → 14 of 17; estimated fake dots per photo (~21,900
 dots) ~12 with clean_param 3 and the second pass, up to ~50 with 1e-4 as well, mostly near G < 10 stars.
 
+**Glow model (16 Nov).** Around a saturated or very bright star the wings and halo stay above the sky to ~25–30 px
+(150–180″), and detection cut them into "stars" with nothing behind them (Barnard's Star, stack-only sources per
+arcmin² per epoch: ~21 within 30″, 5–7 at 30–120″, 1.4 at 120–180″, against a flat Gaia density). The glow model
+(skyshift_core.glow) takes it out before detection; columns, units and rules of the dot table do not change. Per photo:
+the stars to model are every saturated core (a masked blob holding OVERFLOW/NONLINEAR) and every peak ≥ 300 × the pixel
+noise, at most 400, brightest first. Each star's model = its ePSF (evaluated at pixel centres, fitted on the unmasked,
+unsaturated wing pixels; skipped when the masked core leaves too few) + a smooth term: a radial profile (medians in
+narrow rings of ≥ 40 good pixels, which ignore a real star in the ring) × an angular modulation (medians per sector of
+wide rings), to the last ring whose median is ≥ 0.15 × the pixel noise. The local noise factor k ≥ 1 is the robust
+scatter of r = 2 px aperture sums of what is left, in polar bins, over the photo's own scatter. Detection (sep, the
+guard and the second pass) then runs on IMAGE minus the model with noise × k, outside each star's own pixels (3.5 px; a
+saturated core's radius + 1.5 px), which stay as observed. Each modelled star keeps one dot, the detection nearest it
+within max(2 px, core radius + 1.5 px), and its aperture flux is measured on IMAGE as before; other detections that
+close are pieces of it and dropped. Every other dot is measured on the glow-free image. Files with it live in a folder
+with the suffix `_glow` (config.dots_dir_for): the `DOTS_FINE_ZONES` now use `dots_deblend1e-4_cp3_g6_psf_glow/`;
+`dots_deblend1e-4_cp3_g6_psf/` stays as written and is read only by a zone whose link recorded it. The sky run (`dots/`)
+is unchanged (config `DOTS_SKY_GLOW` false). The stack step (`stack_sources`) does the same at load (each photo block's
+glow subtracted, a saturated core's rim too) and scales each S/N map by its own local scatter around bright stars.
+
 | column | type | unit | meaning |
 |---|---|---|---|
 | obs_id | string | | IRSA observation id, e.g. `2025W18_1B_0074_2` |
@@ -112,7 +131,9 @@ key-value metadata under the key `skyshift_photo` (read it with `skyshift_pipeli
 `epsf_calib` (ePSF calibration id from the IMAGE HISTORY), `n_dots`, `n_forced` (null without a refcat),
 `detect` (15 Nov: `thresh`, `min_snr`, `deblend_cont`, `dots_dir`, the settings that made the file; absent in older
 files, which used thresh 2, min_snr 5, deblend_cont 0.005; v2 adds `clean_param`, `sat_guard_px`, `psf_pass`, and the
-counts `n_guard_dropped`, `n_psf_pass`), `read_s`, `detect_s`, `forced_s`, `stages_s` (seconds per stage), `zodi_median_mjysr`, `bkg_median_mjysr`,
+counts `n_guard_dropped`, `n_psf_pass`; the glow model (16 Nov) adds `glow` (true), `glow_config` (`r_max_px`,
+`min_peak_snr`, `max_stars`, `self_px`, `r_keep_px`) and the counts `n_glow_stars`, `n_glow_saturated`, `n_glow_extended`
+(stars with a smooth term), `n_glow_pieces` (detections dropped as pieces of a modelled star)), `read_s`, `detect_s`, `forced_s`, `stages_s` (seconds per stage), `zodi_median_mjysr`, `bkg_median_mjysr`,
 `ujy_per_mjysr`, `aperture_radii_px`, `aperture_bkg_annulus_px`, `psf_fit` (`half_px`, `model_frac`, `noise`; v4 also
 `position` (true if x_psf … were fitted), `pos_min_snr`, `pos_err_floor_arcsec`),
 `header` (IMAGE header values as written by IRSA, null when absent: MJD-BEG/AVG/END, XPOSURE, TELAPSE;
