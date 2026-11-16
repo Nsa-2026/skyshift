@@ -250,8 +250,30 @@ ELONG_BKG_PX = (3.5, 5.5)      # local background annulus for elong
 # One cache file per session in cache/mpc/<zone>/; score and suspects read it.
 MPC_ORBITS_URL = "https://minorplanetcenter.net/Extended_Files/mpcorb_extended.json.gz"
 MPC_ORBITS_DIR = "cache/mpc/orbits"  # mpcorb_<date>.parquet + cometels_<date>.parquet: dated snapshots, newest used everywhere
-MPC_V_MAX = 21.0                     # keep objects brighter than this (score uses V < 16 to 18)
+# Comets (16 Nov): cometels.json.gz (what kete reads, = CometEls.txt) holds only the comets whose orbits the MPC moved to
+# its current epoch (973 on 16 Nov 2026: epoch 2026-11-15); comets last observed earlier in the mission are left out
+# (306P/LINEAR, the ecl04 "grade A" mover: epoch 2025-11-21). allcometels.json.gz (= AllCometEls.txt, 4,666 comets) has
+# every comet's latest orbit. The cometels snapshot is both, by designation, cometels' row first; from allcometels
+# only orbits with an epoch (or, without one, a perihelion) from MPC_ALLCOMETS_MIN_JD on: older ones are lost or
+# historical comets (SOHO sungrazers, 19th-century apparitions) whose elements say nothing about 2025–2026.
+MPC_COMETS_URL = "https://minorplanetcenter.net/Extended_Files/cometels.json.gz"         # kete's comet file
+MPC_COMETS_ALL_URL = "https://minorplanetcenter.net/Extended_Files/allcometels.json.gz"
+MPC_ALLCOMETS_MIN_JD = 2457023.5     # 2015-01-01
+MPC_V_MAX = 21.0                     # the 30″ position-only known cut (suspects) and nearest_known_arcsec use objects brighter
+                                     # than this (or without V: comets, planets); score uses V < 16 to 18
+MPC_V_STORE = 23.0                   # the cache keeps objects to this V (16 Nov; was MPC_V_MAX): fainter known asteroids and
+                                     # NEOs glowing in D5–D6 are flagged by the certain rule below, never by position alone.
+                                     # Rows per photo vs V < 21: x2.5 at 22, x5.1 at 23, x8.9 at 25 (1,754 movers, 16 Nov); the
+                                     # faintest body SPHEREx put on a mover was V 21.3 (an NEO), so 23 leaves 1.7 mag; the check
+                                     # producer scripts/candidates/known_check.py matches near candidates with no V cut at all
 MPC_G_DEFAULT = 0.15                 # H-G slope when the MPC has none
+# Certain known body (contracts/api.md v3.23 `status` known): predicted within KNOWN_CERTAIN_ARCSEC of every dot's time and
+# place, its on-sky rate within KNOWN_RATE_TOL (fraction) of ours and its direction within KNOWN_PA_TOL_DEG when both move.
+# Any brightness. Nearer than KNOWN_NEARBY_ARCSEC but not certain: a `known_nearby` check (warn) for a person to look at.
+KNOWN_CERTAIN_ARCSEC = 10.0
+KNOWN_RATE_TOL = 0.2
+KNOWN_PA_TOL_DEG = 15.0
+KNOWN_NEARBY_ARCSEC = 120.0
 MPC_HEADER_WORKERS = 32              # parallel IMAGE header reads (one per exposure; ~1 s each, I/O bound)
 MPC_HEADER_BLOCK = 262_144           # bytes per HTTPS read: the primary and IMAGE headers fit in the first block
 MPC_FOV_PAD_DEG = 0.05               # kete fields are the s_region corners pushed out 3′; load_predictions cuts exactly

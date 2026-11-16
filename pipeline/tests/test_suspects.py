@@ -31,7 +31,7 @@ def test_select_and_rank():
     pred = pd.DataFrame([dict(name="X", ra=ra, dec=dec, mjd=61000.3, dra_arcsec_h=0.0, ddec_arcsec_h=0.0, v=18.0, session=3)])
     fixed = pd.DataFrame([dict(ra=m.loc[2, "ra"], dec=m.loc[2, "dec"] + 10 / 3600, snr=500.0)])
     s, st = S.select(m, fixed, pred)
-    assert st == {"movers": 5, "cut_known": 1, "cut_planet": 0, "cut_flags": 1, "cut_bright_fixed": 1,
+    assert st == {"movers": 5, "cut_known": 1, "cut_known_certain_only": 0, "cut_planet": 0, "cut_flags": 1, "cut_bright_fixed": 1,
                   "cut_source_bit": 0}
     assert sorted(s["cell"]) == [0, 1]
     r = S.rank(s)
