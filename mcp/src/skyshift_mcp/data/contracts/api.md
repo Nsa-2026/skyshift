@@ -1,4 +1,4 @@
-# contracts/api.md: endpoints, static twins, visits, Firestore (v3.20)
+# contracts/api.md: endpoints, static twins, visits, Firestore (v3.21)
 
 Owner: P1. Implemented by server/ and scripts/precompute/ (P2). Read by web/src/api (P3) and
 web/src/blink, web/src/vote (P4). Version 3, 14 Nov 2026 (changes from v2 at the end; v3: P1's answers to the P2 engine PR:
@@ -21,7 +21,8 @@ v3.17: planets and their large moons (JPL Horizons) count as known bodies for mo
 v3.18: a mover near a planet is known whatever it is (moon, glare): the suspects' veto `planets`, no such mover in
 candidates.json, measured class `known` named `Saturn` or `a moon of Saturn`;
 v3.19: optional `mjd` on `/api/frames` for the hours clock: the visit and the whole session of a find;
-v3.20: optional `/data/cand/<id>/fill.json`, exposures that only fill the plate's empty edge).
+v3.20: optional `/data/cand/<id>/fill.json`, exposures that only fill the plate's empty edge;
+v3.21: months `shifts[]` say whether the motion is steady: `visits`, `chi2_nu`, `wobble_arcsec`, `steady`).
 
 Static first: the site reads `/data/<slug>/` before it calls `/api/`. The static files have the
 same shapes as the API, so if front and back don't meet, the static format is the contract.
@@ -223,7 +224,9 @@ measured: { zone, stage, zone_box:{ra:[min,max], dec:[min,max]}, clock,
                       dots:[{ ra, dec, mjd, epoch_id }] }],
             shifts:[{ source_id, gaia_id|null, class, ra, dec, mjd_from, mjd_to, dt_yr,
                       dra_arcsec, ddec_arcsec, shift_arcsec, err_arcsec, pa_deg,
-                      pmra, pmdec, pm_err, pm_snr }] } | null
+                      pmra, pmdec, pm_err, pm_snr,
+                      visits?:[{ epoch_id, det, mjd, ra, dec, err_arcsec }],     # v3.21, optional
+                      chi2_nu?|null, wobble_arcsec?|null, steady?|null }] } | null
 measured_reason: "not_processed" | "processing" | "no_dots" | "unavailable" | null
 ```
 
@@ -294,7 +297,8 @@ in the hunt zone, real asteroids sit on it too) and OUTLIER (bit 19: 52% of MPC-
 **shifts[]** (months clock): sources in the field whose astrometric fit
 (`results/<zone>/astrometry.parquet`) has `pm_snr` ≥ 3, at most 300 (highest `pm_snr` first).
 Proper motion only (parallax not included: ≤ 1″ for Barnard's Star; `/api/object` `measure` has the
-full measurement).
+full measurement). v3.21: each shift is checked against its own visits in the response (computed before the
+per-epoch cap of `detections`): it is a motion only when `steady` is not false.
 
 | field | type | meaning |
 |---|---|---|
@@ -306,6 +310,10 @@ full measurement).
 | shift_arcsec, err_arcsec | float, arcsec | Length of the shift and its 1σ error per axis (pm error × dt_yr) |
 | pa_deg | float, deg | Direction, east of north, 0–360 |
 | pmra, pmdec, pm_err, pm_snr | float, mas/yr | The fit (pmra × cos dec), its 1σ error per axis, and pm / error |
+| visits | [object] | **v3.21.** The source's position in each visit epoch of this response where it has a detection, in time order (then by detector): `epoch_id`, `det`, `mjd` (the epoch's `mjd_mid`), `ra`, `dec` (deg, as its detection), `err_arcsec` (1σ per axis: the dots' raw pos_err model over the visit, √((1.4 × 3.2″ / snr)² + 0.25″² / n_dots) with the detection's `snr` and `n_dots`, × 1.6 because raw pos_err is 1.4–1.8× too small against Gaia). Compare positions within one detector only (colour offsets) |
+| chi2_nu | float or null | **v3.21.** χ²_ν of `visits` about the reported motion: a straight line of slope (pmra, pmdec) with one position zero point per detector; detectors with one visit here are left out; a Gaia star's parallax (`gaia[]`) is taken out of the positions first. Degrees of freedom 2 × (visits − detectors). null: no detector has two visits here |
+| wobble_arcsec | float or null | **v3.21.** RMS distance (″, 1/err²-weighted, corrected for the zero points) of `visits` from that line: how far the position goes back and forth between visits. null as `chi2_nu` |
+| steady | bool or null | **v3.21.** true: a steady motion, `chi2_nu` ≤ 3, or the motion still ≥ 5σ with the errors × √`chi2_nu` (a fast star whose saturated core scatters, e.g. Barnard's Star). false: its position wobbles between visits by about `wobble_arcsec`, within what SPHEREx can measure: not a motion; show no arrow and do not describe a step between two visits as one. null: not tested (as `chi2_nu`); read as before |
 
 **measured_reason**
 
@@ -1148,3 +1156,21 @@ cover that corner, chosen by scripts/candidates/fill.py. The site paints them on
 photo has no data, drawn as filled; they are not epochs of the blink and carry no `gaia`, `known` or
 `measured` (empty lists, `measured` absent). Readers that don't know the file need no change; without it the
 site may ask `/api/frames` (with the candidate's `mjd`) for the same purpose.
+
+## Changes in v3.21 (16 Nov 2026): steady motion or a wobble
+
+Additive, months clock only. A proper motion is a straight line at steady speed; parallax adds an out-and-back
+every six months of at most 0.55″ (Barnard's Star). On the five featured fields about 1 in 7 sources seen in 3 or
+more visits of one detector goes more than 1″ out and comes back (e.g. (0, 0) → (−1.15, +0.17) → (−0.34, +0.50)″):
+measurement scatter (blends whose brightest star changes with wavelength, the position on the detector,
+saturation), not motion. The pipeline's fit can still give such a source `pm_snr` ≥ 3, and the site described the
+last step between two visits as the motion.
+- `shifts[]` gain `visits` (the per-visit positions with a 1σ error), `chi2_nu` and `wobble_arcsec` (the visits
+  about the reported motion's straight line) and `steady` (section "shifts[]"). Thresholds: χ²_ν ≤ 3 (2 degrees of
+  freedom: 5% of honest cases above it; the pipeline's fake-pm tail had median χ²_ν 3.1 against 0.94 for its core),
+  or ≥ 5σ with the errors × √χ²_ν. Per-visit errors × 1.6 (the Gaia check of pos_err).
+- `steady: false` shifts stay in the list (not dropped) and in `pm_snr` order; readers show no arrow for them and
+  say the position wobbles by about `wobble_arcsec`. Shifts without the fields (older static files, or `steady`
+  null) read as before.
+- server measured.py `VERSION` 3 (cache key). The static twins get the fields from the files' own detections
+  (scripts/precompute `--steady-only`, no data bucket needed). fixtures/api/ has no shifts, so it is unchanged.
