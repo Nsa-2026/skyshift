@@ -15,11 +15,12 @@
 // kind by kind, under "Less likely".
 // DESIGN.md: "Product", "Pages", "Candidates", "Smart filters", "Votes and consensus".
 import "./discover.css";
-import { STATUSES, STATUS_TEXT, checksOf, lessLikely, statusOf } from "../api/checks";
+import { STATUSES, STATUS_TEXT, anyChecked, checksOf, lessLikely, statusOf } from "../api/checks";
 import { loadCandidates } from "../api/client";
+import { isMoreOpen, loadMore, loadedMore, moreOf, moreTotal, moreVersion, openedMore, setMoreOpen } from "../api/more";
 import { checksHtml, statusHtml } from "../review/checks";
 import { GRADE_TEXT, failedGates, gatesPhrase, gradeLabel, gradeOf, isGate, votable } from "../api/grades";
-import type { Candidate, CandidatesResponse } from "../api/types";
+import type { Candidate, CandidatesMore, CandidatesResponse } from "../api/types";
 import { DETECTORS, formatMjd, formatRaDec } from "../app/astro";
 import type { MountPage } from "../app/modules";
 import { queueOrder } from "../review/model";
@@ -255,8 +256,10 @@ export const mountDiscover: MountPage = (el, ctx) => {
       renderOne();
       return;
     }
-    byId = new Map(data.candidates.map((c) => [c.id, c]));
-    rows = toRows(data.candidates, counts);
+    more = moreOf(data);
+    checkedList = anyChecked(data.candidates);
+    byId = new Map(allCands().map((c) => [c.id, c]));
+    rows = toRows(allCands(), counts);
     for (const n of [presetsEl, filtersEl, toolbar]) n.hidden = false;
     buildFilters();
     apply();
@@ -270,15 +273,124 @@ export const mountDiscover: MountPage = (el, ctx) => {
     renderIntro();
     try {
       reader ??= await openVoteReader();
-      counts = await reader.counts(data.candidates.map((c) => c.id));
+      counts = await reader.counts(allCands().map((c) => c.id));
       voteStatus = reader.mode === "local" ? "local" : "ok";
     } catch {
       voteStatus = "error";
     }
     votesAt = Date.now();
-    rows = toRows(data.candidates, counts, (id) => reader?.votedOn(id) ?? false);
+    rows = toRows(allCands(), counts, (id) => reader?.votedOn(id) ?? false);
     apply();
   }
+
+  // ---- the Less likely files (contracts/api.md v3.24 `more`) ------------------------------------
+  // A zone's open grade C movers are in a file of their own, read only when someone opens that zone
+  // under "Less likely" (src/api/more.ts keeps it for the page and the Viewer). Opened zones join the
+  // list, where they sort under "Less likely"; pressing a zone again takes it out (still in memory).
+
+  /** The Less likely files candidates.json names ([] for older files). */
+  let more: CandidatesMore[] = [];
+  /** What each file is doing (by url); which are open is shared with the Viewer (isMoreOpen). */
+  const moreBusy = new Map<string, "loading" | "error">();
+  let moreSay = "";
+  /** moreVersion() when the rows were last built: the Viewer may open a zone (a link to one of its own). */
+  let moreSeen = moreVersion();
+  /** Does the file carry v3.23's checks? (Older files: no "Less likely" divider, no files offered.) */
+  let checkedList = false;
+  const lessSplit = () => checkedList && splitsLessLikely(state);
+
+  /** Every candidate on the list: candidates.json's, and those of the Less likely files opened. */
+  const allCands = (): Candidate[] => (data ? [...data.candidates, ...loadedMore(openedMore(more))] : []);
+
+  /** The files this list's filters would let through (kind, zone, grade), on the list to check. */
+  const moreOffer = (): CandidatesMore[] =>
+    state.status !== "open"
+      ? []
+      : more.filter(
+          (e) =>
+            (!state.kind.length || state.kind.includes(e.kind)) &&
+            (!state.zone.length || state.zone.includes(e.zone)) &&
+            (!state.grade.length || state.grade.includes(e.grade ?? "none")),
+        );
+
+  /** The data changed (a file opened or closed): rows, lookups and the map follow. */
+  function rebuild() {
+    moreSeen = moreVersion();
+    const cands = allCands();
+    byId = new Map(cands.map((c) => [c.id, c]));
+    rows = toRows(cands, counts, (id) => reader?.votedOn(id) ?? false);
+    map?.setData(cands);
+    apply();
+  }
+
+  async function openMore(entries: CandidatesMore[], focusKey: string) {
+    const on = !entries.every(isMoreOpen);
+    if (!on) {
+      for (const e of entries) setMoreOpen(e, false);
+      moreSay = `${zonesText(entries)}: taken off the list.`;
+      rebuild();
+      refocus(focusKey);
+      return;
+    }
+    const todo = entries.filter((e) => !isMoreOpen(e));
+    for (const e of todo) moreBusy.set(e.url, "loading");
+    moreSay = `Reading ${zonesText(todo)} (${plural(moreTotal(todo), "object", "objects")})…`;
+    renderList();
+    refocus(focusKey);
+    const got = await Promise.allSettled(todo.map((e) => loadMore(e)));
+    const failed: CandidatesMore[] = [];
+    got.forEach((g, i) => {
+      const e = todo[i];
+      if (g.status === "fulfilled") {
+        moreBusy.delete(e.url);
+        setMoreOpen(e, true);
+      } else {
+        moreBusy.set(e.url, "error");
+        failed.push(e);
+      }
+    });
+    const ok = todo.filter(isMoreOpen);
+    moreSay = [
+      ok.length ? `${zonesText(ok)}: ${plural(loadedMore(ok).length, "object", "objects")} listed below, under “Less likely”.` : "",
+      failed.length ? `${zonesText(failed)} couldn't be read just now. Try again.` : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    rebuild();
+    // Show the opened ones: the page reaches past the divider.
+    const at = sorted.findIndex((r) => lessLikely(r.c));
+    if (at >= 0 && shown < at + PAGE) {
+      shown = at + PAGE;
+      renderList();
+    }
+    refocus(focusKey);
+    // Their votes (grade C isn't put to a vote, but a vote may exist).
+    const fresh = loadedMore(ok).map((c) => c.id);
+    if (reader && fresh.length)
+      reader
+        .counts(fresh)
+        .then((m) => {
+          for (const [id, k] of m) counts.set(id, k);
+          rows = toRows(allCands(), counts, (id) => reader?.votedOn(id) ?? false);
+          apply();
+        })
+        .catch(() => {
+          /* counts stay as they were */
+        });
+  }
+
+  const zoneName = (z: string) => `${z.charAt(0).toUpperCase()}${z.slice(1)}`;
+  const zonesText = (es: CandidatesMore[]) => (es.length === 1 ? `The ${zoneName(es[0].zone)} file` : `${es.length} zone files`);
+  const refocus = (key: string) => list.querySelector<HTMLButtonElement>(`button[data-more-file="${cssEsc(key)}"]`)?.focus();
+
+  list.addEventListener("click", (ev) => {
+    const b = (ev.target as Element).closest<HTMLButtonElement>("button[data-more-file]");
+    if (!b || b.getAttribute("aria-disabled") === "true") return;
+    const key = b.dataset.moreFile!;
+    const offer = moreOffer();
+    const entries = key === "all" ? offer : offer.filter((e) => e.url === key);
+    if (entries.length) void openMore(entries, key);
+  });
 
   // ---- state ------------------------------------------------------------------------------------
 
@@ -1008,10 +1120,13 @@ export const mountDiscover: MountPage = (el, ctx) => {
   });
 
   /** The list's rows; in score order, the "Less likely" divider before the first open one with a
-   *  strong check (sortRows puts them last, kind by kind), and the kind before each kind's run there. */
+   *  strong check or grade C (sortRows puts them last, kind by kind), and the kind before each kind's
+   *  run there. The divider offers the Less likely files (v3.24): at the end of the list when nothing
+   *  here is less likely yet. */
   function listHtml(items: Row[]): string {
-    if (!splitsLessLikely(state)) return items.map(rowHtml).join("");
+    if (!lessSplit()) return items.map(rowHtml).join("");
     const tail = sorted.filter((r) => lessLikely(r.c));
+    const offer = moreOffer();
     const perKind = countBy(tail, (r) => [r.c.kind]);
     let kind: string | null = null;
     let started = false;
@@ -1020,7 +1135,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
       if (lessLikely(r.c)) {
         if (!started) {
           started = true;
-          out.push(lessHtml(tail.length));
+          out.push(lessHtml(tail.length, offer));
         }
         if (perKind.size > 1 && r.c.kind !== kind) {
           const k = KIND_TEXT[r.c.kind];
@@ -1030,20 +1145,52 @@ export const mountDiscover: MountPage = (el, ctx) => {
       }
       out.push(rowHtml(r));
     }
+    if (!started && offer.length && items.length === sorted.length) out.push(lessHtml(0, offer));
     return out.join("");
   }
 
-  /** The divider: what "Less likely" means. */
-  function lessHtml(n: number): string {
+  /** The divider: what "Less likely" means, and the Less likely files to open. */
+  function lessHtml(n: number, offer: CandidatesMore[]): string {
     return html`<li class="dv-less" role="presentation">
-      <h3 class="dv-less-h">Less likely <span class="dv-less-n">${n.toLocaleString("en-GB")}</span></h3>
-      <p class="dv-less-text">Each of these has a measured sign against it, shown first under it as “Sign against”: it may be a known body, a flaw of one detector or a star. Still worth a look: nothing is hidden for it.</p>
+      <h3 class="dv-less-h">Less likely${n ? html` <span class="dv-less-n">${n.toLocaleString("en-GB")}</span>` : ""}</h3>
+      <p class="dv-less-text">Each of these has a measured sign against it (“Sign against”, shown first under it) or fails one of our checks (grade C): it may be a known body, a flaw of one detector or a star. Still worth a look: nothing is hidden for it.</p>
+      ${offer.length ? moreHtml(offer) : ""}
     </li>`;
+  }
+
+  /** Over this many in all, "All zones" isn't offered: one zone at a time keeps phones light. */
+  const MORE_ALL_MAX = 5000;
+
+  /** The Less likely files: how many in all, and a button per zone (pressed once it's on the list). */
+  function moreHtml(offer: CandidatesMore[]): string {
+    const total = moreTotal(offer);
+    const movers = offer.every((e) => e.kind === "mover" && e.grade === "C");
+    const what = movers ? plural(total, "more grade C fast mover", "more grade C fast movers") : plural(total, "more less likely object", "more less likely objects");
+    const btn = (key: string, label: string, n: number, on: boolean, busy: boolean, title: string) =>
+      html`<button type="button" class="fchip" data-more-file="${esc(key)}" aria-pressed="${on}"${busy ? ' aria-disabled="true" aria-busy="true"' : ""} title="${esc(title)}"><span>${esc(label)}</span><span class="fx-n">${n.toLocaleString("en-GB")}</span></button>`;
+    const zones = offer.map((e) =>
+      btn(e.url, zoneName(e.zone), e.count, isMoreOpen(e), moreBusy.get(e.url) === "loading", isMoreOpen(e) ? "Take them off the list" : `List the ${zoneName(e.zone)} zone's ${e.count.toLocaleString("en-GB")} here`),
+    );
+    const all =
+      offer.length > 1 && total <= MORE_ALL_MAX
+        ? btn("all", "All zones", total, offer.every(isMoreOpen), offer.some((e) => moreBusy.get(e.url) === "loading"), "List every zone's here")
+        : "";
+    return html`<div class="dv-morefiles">
+      <p class="dv-morefiles-text" id="dv-morefiles-l">${esc(`${what} ${total === 1 ? "is" : "are"} kept in a file per zone, so this page stays light. Open a zone to list ${total === 1 ? "it" : "them"} here:`)}</p>
+      <div class="dv-morefiles-zones" role="group" aria-labelledby="dv-morefiles-l">${zones.join("")}${all}</div>
+      <p class="dv-morefiles-status" role="status" aria-live="polite">${esc(moreSay)}</p>
+    </div>`;
   }
 
   function renderList() {
     const items = sorted.slice(0, shown);
+    // A zone file's button keeps the focus through a redraw (its votes arriving, say).
+    const active = document.activeElement as HTMLElement | null;
+    const focusKey = active && list.contains(active) ? active.dataset.moreFile : undefined;
     list.innerHTML = listHtml(items);
+    // Nothing here matches, but the Less likely files may hold some: offer them above the note.
+    if (!sorted.length && lessSplit() && moreOffer().length) list.innerHTML = lessHtml(0, moreOffer());
+    if (focusKey) refocus(focusKey);
     list.querySelectorAll<HTMLElement>("[data-thumb]").forEach((b) => {
       if (byId.get(b.dataset.thumb ?? "")?.frames_url) thumbs.observe(b);
     });
@@ -1053,7 +1200,10 @@ export const mountDiscover: MountPage = (el, ctx) => {
     const rest = sorted.length - items.length;
     moreEl.hidden = rest <= 0;
     if (rest > 0) {
-      moreEl.querySelector(".dv-more-n")!.textContent = `Showing ${items.length.toLocaleString("en-GB")} of ${sorted.length.toLocaleString("en-GB")}.`;
+      // The Less likely files are offered at the divider: say they exist before it's reached.
+      const offer = lessSplit() && !list.querySelector(".dv-less") ? moreOffer().filter((e) => !isMoreOpen(e)) : [];
+      const later = offer.length ? ` “Less likely” comes last, with ${plural(moreTotal(offer), "more", "more")} in zone files.` : "";
+      moreEl.querySelector(".dv-more-n")!.textContent = `Showing ${items.length.toLocaleString("en-GB")} of ${sorted.length.toLocaleString("en-GB")}.${later}`;
       moreEl.querySelector("[data-more]")!.textContent = `Show ${Math.min(PAGE, rest)} more`;
     }
     if (!sorted.length) renderNoMatch();
@@ -1292,7 +1442,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
     }
     if (!map) {
       map = mountSkyMap(mapEl, { onOpen: open });
-      map.setData(data.candidates);
+      map.setData(allCands());
     }
     if (drawn !== sorted) map.setFiltered((drawn = sorted).map((r) => r.c.id));
   }
@@ -1321,6 +1471,8 @@ export const mountDiscover: MountPage = (el, ctx) => {
         shown = PAGE;
         apply();
       }
+      // A link to a Less likely candidate opened its zone in the Viewer: list it here too.
+      if (data && moreSeen !== moreVersion()) rebuild();
       renderOne();
       syncOne();
       if (mapView && !wasMap) $<HTMLElement>("#dv-sky-title").focus({ preventScroll: true });

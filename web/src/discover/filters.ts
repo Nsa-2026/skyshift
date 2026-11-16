@@ -16,6 +16,7 @@
 // filter). In score order, open ones with a measured sign against them (a `strong` check) come last,
 // kind by kind, under "Less likely".
 import { anyChecked, lessLikely, statusOf } from "../api/checks";
+import { isFromMore } from "../api/more";
 import { gradeOf, gradeRank, leadRank } from "../api/grades";
 import type { Candidate, CandidateKind, CandidateStatus } from "../api/types";
 import { consensus as voteConsensus, type Answer, type Counts } from "../vote/model";
@@ -127,7 +128,8 @@ export function setAsideOf(c: Candidate): SetAside | null {
   if (c.kind === "high_pm") return c.gaia_match ? "gaia_known" : null;
   if (c.kind !== "mover") return null;
   const g = gradeOf(c);
-  if (g === "C") return "grade_c";
+  // A grade C mover from a Less likely file (v3.24) was asked for: it is listed, under "Less likely".
+  if (g === "C") return isFromMore(c.id) ? null : "grade_c";
   if (g !== "A" && c.reasons.includes("motion_not_significant")) return "not_significant";
   return null;
 }
@@ -419,15 +421,16 @@ const kindRank = (c: Candidate) => {
   return i < 0 ? KIND_ORDER.length : i;
 };
 
-/** The "Pipeline score" order. Open ones with a measured sign against them (lessLikely) go last,
- *  kind by kind; then grade A first and grade C last (candidates.json: A, then B or no grade, then C);
+/** The "Pipeline score" order. In a file with checks (v3.23), open ones with a measured sign against
+ *  them or grade C (lessLikely) go last, kind by kind; then grade A first and grade C last (A, then B
+ *  or no grade, then C);
  *  then the score as the file gives it (v3.23: a strong check already lowered it), how sure the
  *  motion is, and S/N. A file without checks (before v3.23) also puts anything an artefact may be
  *  behind last, then the pipeline's doubts, before the score: the order it always was. */
 function promisingBy(checked: boolean): (a: Row, b: Row) => number {
   return (a, b) => {
-    const la = lessLikely(a.c);
-    const lb = lessLikely(b.c);
+    const la = checked && lessLikely(a.c);
+    const lb = checked && lessLikely(b.c);
     return (
       Number(la) - Number(lb) ||
       (la && lb ? kindRank(a.c) - kindRank(b.c) : 0) ||

@@ -1,8 +1,12 @@
-// The To check page with a contracts/api.md v3.23 list (synthetic: ../review/checks.fixture.json):
-// each row's checks, the certain matches listed apart, and the "Less likely" divider.
+// The To check page with a contracts/api.md v3.23/v3.24 list (synthetic: ../review/checks.fixture.json
+// and its Less likely files, ../review/checks.more-*.fixture.json): each row's checks, the certain
+// matches listed apart, the "Less likely" divider and the zone files it opens.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import pilot from "../../../fixtures/api/candidates.json";
 import sample from "../review/checks.fixture.json";
+import moreEcl04 from "../review/checks.more-ecl04.fixture.json";
+import moreHunt from "../review/checks.more-hunt.fixture.json";
+import { _resetMoreForTests } from "../api/more";
 import type { CandidatesResponse } from "../api/types";
 
 const loadCandidates = vi.fn<() => Promise<CandidatesResponse | null>>();
@@ -25,21 +29,39 @@ async function mount(hash = "#/candidates") {
   return { el, page };
 }
 
+// The Less likely files, served by path; anything else isn't there.
+const files: Record<string, unknown> = { "/data/candidates-more/hunt.json": moreHunt, "/data/candidates-more/ecl04.json": moreEcl04 };
+const fetchMock = vi.fn(async (url: string) => {
+  const body = files[new URL(url, location.href).pathname];
+  return body ? new Response(JSON.stringify(body)) : new Response("", { status: 404 });
+});
+const moreReads = () => fetchMock.mock.calls.map(([u]) => new URL(u, location.href).pathname).filter((u) => u.includes("candidates-more"));
+const settle = async () => {
+  for (let i = 0; i < 6; i++) await tick();
+};
+
 const rowIds = (el: HTMLElement) => [...el.querySelectorAll<HTMLElement>(".dv-row")].map((r) => r.dataset.id);
 const row = (el: HTMLElement, id: string) => el.querySelector<HTMLElement>(`.dv-row[data-id="${id}"]`)!;
 
 describe("the To check list with checks and statuses (v3.23)", () => {
-  beforeEach(() => loadCandidates.mockResolvedValue(structuredClone(sample) as unknown as CandidatesResponse));
+  beforeEach(() => {
+    _resetMoreForTests();
+    fetchMock.mockClear();
+    vi.stubGlobal("fetch", fetchMock);
+    loadCandidates.mockResolvedValue(structuredClone(sample) as unknown as CandidatesResponse);
+  });
   afterEach(() => {
+    vi.unstubAllGlobals();
     document.body.innerHTML = "";
   });
 
   it("shows every check on its row, strong first, each marked in words with what was measured and what to look at", async () => {
     const { el } = await mount();
     const items = [...row(el, "hunt-664250077777-87801640").querySelectorAll<HTMLElement>(".dv-checks .ck")];
-    expect(items.map((li) => li.querySelector(".ck-level")!.textContent)).toEqual(["Can't rule out:", "Can't rule out:", "Sign for:"]);
-    expect(items[1].querySelector(".ck-text")?.textContent).toBe("NASA marked 3 of the 9 pixels at its second dot OUTLIER.");
-    expect(items[1].querySelector(".ck-look")?.textContent).toBe("Look: Hours, D6, photo 2: a single very sharp pixel is a cosmic ray, not a body.");
+    expect(items.map((li) => li.querySelector(".ck-level")!.textContent)).toEqual(["Can't rule out:", "Sign for:", "Sign for:"]);
+    expect(items[0].querySelector(".ck-look")?.textContent).toBe("Look: Hours, D6: look for a third dot along the same line in the next session.");
+    expect(items[1].querySelector(".ck-text")?.textContent).toBe("NASA marked OUTLIER at the peak of 1 of its 2 dots, as for 68% of known asteroids: a sign it moved.");
+    expect(items[1].querySelector(".ck-look")).toBeNull();
     const strong = row(el, "hunt-664250081234-87801655").querySelector<HTMLElement>(".ck")!;
     expect(strong.classList.contains("is-strong")).toBe(true);
     expect(strong.textContent).toContain("Sign against");
@@ -88,30 +110,144 @@ describe("the To check list with checks and statuses (v3.23)", () => {
     const list = el.querySelector<HTMLOListElement>(".dv-list")!;
     const kids = [...list.children] as HTMLElement[];
     const less = kids.findIndex((k) => k.classList.contains("dv-less"));
-    expect(less).toBe(6);
-    expect(kids[less].querySelector(".dv-less-h")?.textContent).toBe("Less likely 3");
+    // v3.24: Sinuhe 14″ away is a `warn` (near, not certain), so it stays with the rest.
+    expect(less).toBe(7);
+    expect(kids[6].dataset.id).toBe("ecl04-701100223344-88001122");
+    expect(kids[less].querySelector(".dv-less-h")?.textContent).toBe("Less likely 2");
     const after = kids.slice(less + 1).map((k) => (k.classList.contains("dv-less-kind") ? `[${k.textContent!.trim()}]` : k.dataset.id));
-    expect(after).toEqual(["[Fast movers 2]", "ecl04-701100223344-88001122", "hunt-664250081234-87801655", "[One or two? 1]", "hunt-sh-65039007800055"]);
+    expect(after).toEqual(["[Fast movers 1]", "hunt-664250081234-87801655", "[One or two? 1]", "hunt-sh-65039007800055"]);
     expect(kids.slice(0, less).every((k) => !k.classList.contains("is-less"))).toBe(true);
   });
 
   it("draws no divider in another order", async () => {
     const { el } = await mount("#/candidates/sort=brightest");
-    expect(el.querySelector(".dv-less")).toBeNull();
+    expect(el.querySelector(".dv-less, .dv-morefiles")).toBeNull();
     expect(el.querySelectorAll(".dv-row")).toHaveLength(9);
   });
 });
 
-describe("an older list without checks or statuses", () => {
-  beforeEach(() => loadCandidates.mockResolvedValue(structuredClone(pilot) as unknown as CandidatesResponse));
+describe("the Less likely files (v3.24 `more`)", () => {
+  beforeEach(() => {
+    _resetMoreForTests();
+    fetchMock.mockClear();
+    vi.stubGlobal("fetch", fetchMock);
+    loadCandidates.mockResolvedValue(structuredClone(sample) as unknown as CandidatesResponse);
+  });
   afterEach(() => {
+    vi.unstubAllGlobals();
     document.body.innerHTML = "";
   });
 
-  it("works as before: no switch, no divider, no checks, the chips it always had", async () => {
+  const zoneButtons = (el: HTMLElement) => [...el.querySelectorAll<HTMLButtonElement>(".dv-less [data-more-file]")];
+
+  it("says under “Less likely” how many the zone files hold, and reads none until asked", async () => {
+    const { el } = await mount();
+    const files = el.querySelector(".dv-less .dv-morefiles")!;
+    expect(files.querySelector(".dv-morefiles-text")?.textContent).toBe(
+      "5 more grade C fast movers are kept in a file per zone, so this page stays light. Open a zone to list them here:",
+    );
+    expect(zoneButtons(el).map((b) => [b.textContent, b.getAttribute("aria-pressed")])).toEqual([
+      ["Hunt3", "false"],
+      ["Ecl042", "false"],
+      ["All zones5", "false"],
+    ]);
+    expect(moreReads()).toEqual([]);
+  });
+
+  it("reads a zone's file when its button is pressed, lists it under “Less likely”, and takes it off again", async () => {
+    const { el } = await mount();
+    zoneButtons(el)[0].click();
+    await settle();
+    expect(moreReads()).toEqual(["/data/candidates-more/hunt.json"]);
+    const hunt = zoneButtons(el)[0];
+    expect(hunt.getAttribute("aria-pressed")).toBe("true");
+    expect(document.activeElement).toBe(hunt);
+    expect(el.querySelector(".dv-morefiles-status")?.textContent).toBe("The Hunt file: 3 objects listed below, under “Less likely”.");
+    expect(el.querySelector(".dv-less-h")?.textContent).toBe("Less likely 5");
+    const kids = [...el.querySelector(".dv-list")!.children] as HTMLElement[];
+    const less = kids.findIndex((k) => k.classList.contains("dv-less"));
+    const after = kids.slice(less + 1).map((k) => (k.classList.contains("dv-less-kind") ? `[${k.textContent!.trim()}]` : k.dataset.id));
+    expect(after).toEqual([
+      "[Fast movers 4]",
+      "hunt-664250081234-87801655",
+      "hunt-664250090001-87801720",
+      "hunt-664250090002-87801731",
+      "hunt-664250090003-87801745",
+      "[One or two? 1]",
+      "hunt-sh-65039007800055",
+    ]);
+    // Its checks are on its row, like any other.
+    expect(row(el, "hunt-664250090002-87801731").querySelector(".ck.is-strong")?.textContent).toContain("4 px from the photo's edge");
+    expect(el.querySelector('.dv-lists [data-status="open"]')?.textContent).toBe("To check 12");
+
+    zoneButtons(el)[0].click();
+    await settle();
+    expect(rowIds(el)).not.toContain("hunt-664250090001-87801720");
+    expect(zoneButtons(el)[0].getAttribute("aria-pressed")).toBe("false");
+    expect(el.querySelector(".dv-morefiles-status")?.textContent).toBe("The Hunt file: taken off the list.");
+    // Open again: already read, nothing fetched.
+    zoneButtons(el)[0].click();
+    await settle();
+    expect(rowIds(el)).toContain("hunt-664250090001-87801720");
+    expect(moreReads()).toHaveLength(1);
+  });
+
+  it("opens every zone at once, and says when a file can't be read", async () => {
+    delete files["/data/candidates-more/ecl04.json"];
+    try {
+      const { el } = await mount();
+      zoneButtons(el)[2].click();
+      await settle();
+      expect(moreReads().sort()).toEqual(["/data/candidates-more/ecl04.json", "/data/candidates-more/hunt.json"]);
+      expect(zoneButtons(el).map((b) => b.getAttribute("aria-pressed"))).toEqual(["true", "false", "false"]);
+      expect(el.querySelector(".dv-morefiles-status")?.textContent).toBe(
+        "The Hunt file: 3 objects listed below, under “Less likely”. The Ecl04 file couldn't be read just now. Try again.",
+      );
+    } finally {
+      files["/data/candidates-more/ecl04.json"] = moreEcl04;
+    }
+  });
+
+  it("offers only the zones the filters let through, even when nothing in candidates.json matches", async () => {
+    const { el } = await mount("#/candidates/grade=C&zone=ecl04");
+    expect(el.querySelectorAll(".dv-row")).toHaveLength(0);
+    expect(zoneButtons(el).map((b) => b.textContent)).toEqual(["Ecl042"]);
+    zoneButtons(el)[0].click();
+    await settle();
+    expect(rowIds(el)).toEqual(["ecl04-701100240001-88001240", "ecl04-701100240002-88001255"]);
+    expect(el.querySelector(".dv-less-h")?.textContent).toBe("Less likely 2");
+  });
+
+  it("offers nothing on the lists apart", async () => {
+    const { el } = await mount("#/candidates/status=known");
+    expect(el.querySelector(".dv-morefiles")).toBeNull();
+  });
+});
+
+describe("an older list without checks or statuses", () => {
+  beforeEach(() => {
+    fetchMock.mockClear();
+    vi.stubGlobal("fetch", fetchMock);
+    loadCandidates.mockResolvedValue(structuredClone(pilot) as unknown as CandidatesResponse);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    document.body.innerHTML = "";
+  });
+
+  it("works as before: no switch, no divider, no checks, no zone files, the chips it always had", async () => {
     const { el } = await mount();
     expect(el.querySelector<HTMLElement>(".dv-lists")!.hidden).toBe(true);
-    expect(el.querySelector(".dv-less, .dv-checks, .ck-status")).toBeNull();
+    expect(el.querySelector(".dv-less, .dv-checks, .ck-status, .dv-morefiles")).toBeNull();
     expect(el.querySelector(".dv-count")?.textContent).toBe("52 of 194 objects");
+    expect(moreReads()).toEqual([]);
+  });
+
+  it("keeps a graded older list's grade C where it was, with no divider", async () => {
+    const graded = structuredClone(pilot) as unknown as CandidatesResponse;
+    graded.candidates.forEach((c, i) => Object.assign(c, { grade: i % 3 === 0 ? "C" : "B" }));
+    loadCandidates.mockResolvedValue(graded);
+    const { el } = await mount("#/candidates/show=all");
+    expect(el.querySelector(".dv-less, .dv-morefiles")).toBeNull();
   });
 });

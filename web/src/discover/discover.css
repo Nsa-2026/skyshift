@@ -741,6 +741,37 @@
   color: var(--ink-2);
   line-height: 1.45;
 }
+/* The Less likely files (v3.24 `more`): a zone's file is read only when its button is pressed. */
+.dv-morefiles {
+  display: grid;
+  gap: 6px;
+  margin-top: var(--s3);
+  font-size: var(--step--1);
+  line-height: 1.45;
+}
+.dv-morefiles-text {
+  max-width: 72ch;
+  color: var(--ink);
+}
+.dv-morefiles-zones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.dv-morefiles-zones .fchip {
+  gap: 6px;
+}
+.dv-morefiles-zones .fchip[aria-busy="true"] {
+  cursor: progress;
+  opacity: 0.7;
+}
+.dv-morefiles-status {
+  min-height: 1.45em;
+  color: var(--ink-2);
+}
+.dv-morefiles-status:empty {
+  min-height: 0;
+}
 .dv-less-kind {
   padding: var(--s3) var(--s2) 6px;
   border-bottom: 1px solid var(--hair);

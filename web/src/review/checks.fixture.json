@@ -1,10 +1,14 @@
 {
   "synthetic": true,
-  "note": "SYNTHETIC, for web tests and screenshots only: a small candidates.json in contracts/api.md v3.23 shape, with status, known_name and checks (texts and numbers made up in the contract's style). Never copy it into web/public/data/ and never show it as real data.",
+  "note": "SYNTHETIC, for web tests and screenshots only: a small candidates.json in contracts/api.md v3.24 shape, with status, known_name, checks and more (the Less likely files: checks.more-<zone>.fixture.json) (texts and numbers made up in the contract's style). Never copy it into web/public/data/ and never show it as real data.",
   "generated": "2026-11-16T12:00:00Z",
   "data_release": "DR1+QR3",
   "zones": ["hunt", "ecl04"],
   "counts": { "mover": 8, "high_pm": 3, "spectral": 1, "shape": 1 },
+  "more": [
+    { "zone": "hunt", "kind": "mover", "grade": "C", "count": 3, "url": "candidates-more/hunt.json" },
+    { "zone": "ecl04", "kind": "mover", "grade": "C", "count": 2, "url": "candidates-more/ecl04.json" }
+  ],
   "candidates": [
     {
       "id": "hunt-664250069368-87801613", "kind": "mover", "ra": 123.599449, "dec": 20.709591, "mjd": 60973.34207, "clock": "hours", "det": 2,
@@ -27,7 +31,7 @@
       "status": "open", "known_name": null,
       "checks": [
         { "code": "two_photos", "level": "warn", "text": "Seen in 2 photos 2.1 minutes apart: two dots always line up, so its path can't be checked", "look": "Hours, D6: look for a third dot along the same line in the next session", "values": { "photos": 2 } },
-        { "code": "flag_outlier", "level": "warn", "text": "NASA marked 3 of the 9 pixels at its second dot OUTLIER", "look": "Hours, D6, photo 2: a single very sharp pixel is a cosmic ray, not a body", "values": null },
+        { "code": "flag_outlier", "level": "ok", "text": "NASA marked OUTLIER at the peak of 1 of its 2 dots, as for 68% of known asteroids: a sign it moved", "look": "", "values": { "dots_peak": 1, "dots": 2, "known_share": 0.68 } },
         { "code": "one_detector", "level": "ok", "text": "D3 measured 410 ± 60 µJy at its place, against 1,795 in D6 (ratio 0.23; known asteroids here: 0.03–3)", "look": "Hours, D3: a faint dot at the same place in the same photos", "values": { "flux_ujy": 410, "ratio": 0.23 } }
       ]
     },
@@ -51,7 +55,7 @@
       "why": "Seen at different places in 4 exposures over 6.4 minutes, moving about 39″ an hour; a known asteroid was predicted 14″ away.",
       "status": "open", "known_name": null,
       "checks": [
-        { "code": "known_nearby", "level": "strong", "text": "(4512) Sinuhe was predicted 14″ away, moving 41″ an hour toward 112°; this moves 39″ an hour toward 109°", "look": "Hours, D5: the violet double circle marks Sinuhe; if it sits on the dot in every photo, it's that asteroid", "values": { "sep_arcsec": 14.2, "rate_arcsec_h": 41.0 } }
+        { "code": "known_nearby", "level": "warn", "text": "(4512) Sinuhe was predicted 14″ away, moving 41″ an hour toward 112°; this moves 39″ an hour toward 109°", "look": "Hours, D5: the violet double circle marks Sinuhe; if it sits on the dot in every photo, it's that asteroid", "values": { "sep_arcsec": 14.2, "rate_arcsec_h": 41.0 } }
       ]
     },
     {
@@ -62,7 +66,7 @@
       "why": "On a track over 5 sessions, moving about 61″ an hour toward the south-west.",
       "status": "known", "known_name": "306P/LINEAR",
       "checks": [
-        { "code": "known_nearby", "level": "strong", "text": "306P/LINEAR was predicted within 2.1″ at every one of its 14 dots, moving 63″ an hour toward 241°; this moves 61″ an hour toward 243°", "look": "Hours, D6: the violet double circle sits on the dot in every photo", "values": { "sep_arcsec": 2.1, "rate_arcsec_h": 63.0 } }
+        { "code": "known_body", "level": "strong", "text": "306P/LINEAR was predicted within 2.1″ at every one of its 14 dots, moving 63″ an hour toward 241°; this moves 61″ an hour toward 243°", "look": "Hours, D6: the violet double circle sits on the dot in every photo", "values": { "sep_arcsec": 2.1, "rate_arcsec_h": 63.0 } }
       ]
     },
     {
@@ -73,7 +77,7 @@
       "why": "On a track over 7 sessions, moving about 12″ an hour toward the east.",
       "status": "known", "known_name": "Iapetus",
       "checks": [
-        { "code": "known_nearby", "level": "strong", "text": "Iapetus (a moon of Saturn) was predicted within 0.8″ at every one of its 21 dots, moving 12.6″ an hour toward 97°", "look": "Hours, D3: the violet double circle sits on the dot in every photo", "values": { "sep_arcsec": 0.8, "rate_arcsec_h": 12.6 } }
+        { "code": "known_body", "level": "strong", "text": "Iapetus (a moon of Saturn) was predicted within 0.8″ at every one of its 21 dots, moving 12.6″ an hour toward 97°", "look": "Hours, D3: the violet double circle sits on the dot in every photo", "values": { "sep_arcsec": 0.8, "rate_arcsec_h": 12.6 } }
       ]
     },
     {

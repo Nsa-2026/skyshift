@@ -1,0 +1,35 @@
+{
+  "synthetic": true,
+  "note": "SYNTHETIC, for web tests and screenshots only: one zone's Less likely file (/data/candidates-more/ecl04.json) in contracts/api.md v3.24 shape, named by checks.fixture.json `more`. Texts and numbers made up in the contract's style. Never copy it into web/public/data/ and never show it as real data.",
+  "generated": "2026-11-16T12:00:00Z",
+  "data_release": "DR1+QR3",
+  "zone": "ecl04",
+  "kind": "mover",
+  "grade": "C",
+  "count": 2,
+  "candidates": [
+    {
+      "id": "ecl04-701100240001-88001240", "kind": "mover", "ra": 181.50112, "dec": -1.30441, "mjd": 61012.31001, "clock": "hours", "det": 5,
+      "zone": "ecl04", "zones": ["ecl04"], "grade": "C", "score": 0.14, "snr": 12.1, "flux_ujy": 640.0, "rate_arcsec_h": 44.0,
+      "pm_mas_yr": null, "pm_err_mas_yr": null, "pa_deg": 115.0, "nearest_known_arcsec": 48.0, "gaia_match": false, "catwise_match": false,
+      "galactic_b": 59.9, "labels": [], "reasons": ["two_exposures", "sharp_outlier"], "flags": [], "frames_url": null,
+      "why": "Seen at different places in 2 exposures 2.1 minutes apart; its dots are sharper than the stars around them.",
+      "status": "open", "known_name": null,
+      "checks": [
+        { "code": "known_nearby", "level": "warn", "text": "(18837) 1999 TT10 was predicted 48″ away, moving 46″ an hour toward 117°: near, not on it", "look": "Hours, D5: the violet double circle marks it; if it doesn't sit on the dot, it's something else", "values": { "sep_arcsec": 48.0 } },
+        { "code": "sharp", "level": "strong", "text": "Both dots are 0.4 × as wide as stars of the same brightness in the same photos: cosmic rays look like this", "look": "Hours, D5: a single very sharp pixel, not a soft round dot", "values": { "size_arcsec": 3.1, "star_size_arcsec": 7.6, "ratio": 0.41 } }
+      ]
+    },
+    {
+      "id": "ecl04-701100240002-88001255", "kind": "mover", "ra": 182.01107, "dec": -1.10213, "mjd": 61012.32001, "clock": "hours", "det": 2,
+      "zone": "ecl04", "zones": ["ecl04"], "grade": "C", "score": 0.04, "snr": 14.0, "flux_ujy": 520.0, "rate_arcsec_h": 31.8,
+      "pm_mas_yr": null, "pm_err_mas_yr": null, "pa_deg": 287.0, "nearest_known_arcsec": null, "gaia_match": false, "catwise_match": false,
+      "galactic_b": 60.1, "labels": [], "reasons": ["two_exposures", "bright_star"], "flags": ["halo"], "frames_url": null,
+      "why": "Seen at different places in 2 exposures 2.1 minutes apart, 11″ from a bright star.",
+      "status": "open", "known_name": null,
+      "checks": [
+        { "code": "bright_star", "level": "strong", "text": "A star 150 times as bright (S/N 920) sits 11″ away: its glow can make dots that seem to move", "look": "Hours, D2: the dots sit on the star's halo, not on dark sky", "values": { "sep_arcsec": 11.0, "star_snr": 920, "star_flux_ratio": 150 } }
+      ]
+    }
+  ]
+}

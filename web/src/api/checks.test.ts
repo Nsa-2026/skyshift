@@ -36,13 +36,17 @@ describe("checks (contracts/api.md v3.23)", () => {
     expect(checksOf({ checks: [{ code: "edge", level: "warn" }] })[0].text).toBe("edge");
   });
 
-  it("is less likely only when open with a strong check", () => {
+  it("is less likely only when open with a strong check or grade C", () => {
     const strong = { checks: [check("strong")] };
     expect(hasStrong(strong)).toBe(true);
     expect(lessLikely(strong)).toBe(true);
     expect(lessLikely({ ...strong, status: "known" })).toBe(false);
     expect(lessLikely({ checks: [check("warn"), check("ok")] })).toBe(false);
     expect(lessLikely({})).toBe(false);
+    // v3.24: a zone's open grade C movers are its Less likely file.
+    expect(lessLikely({ grade: "C", status: "open", checks: [check("warn")] })).toBe(true);
+    expect(lessLikely({ grade: "C", status: "flaw", checks: [] })).toBe(false);
+    expect(lessLikely({ grade: "B", status: "open", checks: [check("warn")] })).toBe(false);
   });
 
   it("tells a v3.23 list from an older one", () => {

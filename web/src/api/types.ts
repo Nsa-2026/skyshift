@@ -439,6 +439,31 @@ export interface CandidatesResponse {
   /** Files written before the shape kind (api v3.7) have no `shape` key: read it as 0. */
   counts: Record<Exclude<CandidateKind, "shape">, number> & { shape?: number };
   candidates: Candidate[];
+  /** v3.24: the Less likely files, one per zone that has any (today a zone's open grade C movers).
+   *  Absent in older files: read as [] (every candidate is in this file). Reader: ./more.ts. */
+  more?: CandidatesMore[];
+}
+
+/** contracts/api.md v3.24, candidates.json `more`: one zone's Less likely file. */
+export interface CandidatesMore {
+  zone: string;
+  kind: CandidateKind;
+  grade: Grade | null;
+  /** The file's `candidates` length. */
+  count: number;
+  /** `candidates-more/<zone>.json`, resolved against the URL of candidates.json. */
+  url: string;
+}
+
+/** contracts/api.md v3.24, /data/candidates-more/<zone>.json: the same candidate objects as candidates.json. */
+export interface CandidatesMoreFile {
+  generated: string;
+  data_release: string;
+  zone: string;
+  kind: CandidateKind;
+  grade: Grade | null;
+  count: number;
+  candidates: Candidate[];
 }
 
 // ---- The distant-planet search (contracts/api.md v3.6, /data/distant.json; pipeline step `orphans`)

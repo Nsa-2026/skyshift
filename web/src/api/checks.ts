@@ -4,7 +4,9 @@
 //
 //   status   open: to check · known: certainly a known body (known_name) · flaw: certainly the instrument
 //   checks   [{ code, level, text, look, values }], shown strong, warn, then ok:
-//            strong "Sign against", warn "Can't rule out", ok "Sign for"
+//            strong "Sign against", warn "Can't rule out", ok "Sign for". Codes are shown as given
+//            (v3.24: `known_body` is the certain known body, `known_nearby` a near one, not certain).
+import { gradeOf } from "./grades";
 import type { CandidateCheck, CandidateStatus, CheckLevel } from "./types";
 
 export type { CandidateCheck, CandidateStatus, CheckLevel } from "./types";
@@ -62,9 +64,10 @@ export function hasStrong(x: { checks?: unknown } | null | undefined): boolean {
   return checksOf(x).some((c) => c.level === "strong");
 }
 
-/** Open, with a strong check: listed under "Less likely", after the rest of its kind. */
-export function lessLikely(x: { status?: unknown; checks?: unknown } | null | undefined): boolean {
-  return statusOf(x) === "open" && hasStrong(x);
+/** Open, with a strong check or grade C (v3.24: a zone's open grade C movers are its "Less likely"
+ *  file): listed under "Less likely", after the rest, kind by kind. */
+export function lessLikely(x: { status?: unknown; checks?: unknown; grade?: unknown } | null | undefined): boolean {
+  return statusOf(x) === "open" && (hasStrong(x) || gradeOf(x) === "C");
 }
 
 /** Does any row of this list carry v3.23's fields? (Older files: nothing to list apart, no checks.) */
