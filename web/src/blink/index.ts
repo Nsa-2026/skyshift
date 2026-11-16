@@ -5,9 +5,25 @@
 // strip sits right under it, one row of primary controls follows, and everything secondary lives
 // behind "Adjust".
 import "./blink.css";
-import { ALLOWED_FOV, ApiFailure, DEFAULT_FOV, detectorsIn, epochsFor, getReal, loadFrameData, loadFrames, loadTargetIndex, toMJySr } from "../api/client";
-import { AUTO_PHOTOS, mergePage, PAGE_RETRY_MS, pageable, pageUrl, pagesText, sameGrid } from "./pages";
-import { detKey, onePhotoChecksAsync, onePhotoWords, type OnePhoto, type OPFrame } from "./onephoto";
+import { ALLOWED_FOV, ApiFailure, DEFAULT_FOV, detectorsIn, epochsFor, loadFrameData, loadFrames, loadTargetIndex, toMJySr } from "../api/client";
+import {
+  absolute,
+  gridWhy,
+  joinPage,
+  newStream,
+  nextPage,
+  PAGE_RETRY_MS,
+  PAGES_AT_ONCE,
+  PAGES_AT_ONCE_PAIRED,
+  pageUrl,
+  pagesText,
+  photosOf,
+  sameGrid,
+  streamDone,
+  visitSource,
+  type PageStream,
+} from "./pages";
+import { detKey, KIND_ORDER, KIND_WORDS, onePhotoChecksAsync, onePhotoCounts, onePhotoSay, type OnePhoto, type OnePhotoKind, type OPFrame } from "./onephoto";
 import { combineFrames, detectorsNote, groupEpochs, mergeMeasured, remapMeasured, type WaveGroup, type WavePart } from "./allwave";
 import type { Clock, Det, Epoch, FramesResponse, GaiaStar, Measured, MeasuredClass, MeasuredDetection, SkyPos, TargetIndex } from "../api/types";
 import { DETECTORS, SAME_MOMENT, formatRaDec, gaiaAt, pixelToSky, skyToPixel } from "../app/astro";
@@ -16,7 +32,7 @@ import { nearestIndex, type Axis } from "./axis";
 import { SPHEREX_V_LIMIT, seenBySpherex } from "./known";
 import { besideArrow, LabelSpace, type Disc } from "./labels";
 import { circleRadius, OWN_ARCSEC, planMarks, sourceGaia, type Plan, type PlanDet, type PlanStar } from "./layout";
-import { arrowBarbs, arrowPath, bigStar, compass, diamond, flagMark, hatchPattern, label, measuredMark, pencil, reticle, ring, scaleBar } from "./marks";
+import { arrowBarbs, arrowPath, bigStar, compass, diamond, flagMark, hatchPattern, label, measuredMark, onePhotoBadge, pencil, reticle, ring, scaleBar } from "./marks";
 import { engineNow, loadEngine, nearEcliptic, planetsWithin, type PlanetSpot } from "./planets";
 import { getsRing, glowRadius, localSky, peakNear, ringLimitG, standsOutAt, type SeenStar } from "./rings";
 import {
@@ -120,12 +136,11 @@ interface LivePart {
   resp: FramesResponse;
   /** Its page 0's URL (page k is the same request with `page`). */
   url: string;
-  /** Hours: pages merged into resp, and whether it has no more. */
-  pages?: number;
-  ended?: boolean;
-  /** Its page fetches, one after another. */
-  chain?: Promise<void>;
 }
+/** One detector's pages of the visit on show (pages.ts); `part`: joined to a LivePart, not the plate's
+ *  own answer. `first`: the exposures of its page 0 (an API without pages answers it again). `joined`:
+ *  the pages it has put in its answer (a page may still be asked again: it was partial). */
+type Stream = PageStream & { part: boolean; first: string; joined: Set<number> };
 
 // Featured targets list their precomputed clocks and fields; any other spot goes to the live API.
 const indexCache = new Map<string, Promise<TargetIndex | null>>();
@@ -239,6 +254,8 @@ const LIST_SHOWN = 6;
 const TRACK_DASH = [4, 3.5];
 const TRACK_GLYPH = (dashed: boolean) =>
   `<svg class="bk-mg" data-cls="track" viewBox="0 0 18 18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="9" cy="9" r="6"${dashed ? ` stroke-dasharray="3 2.6"` : ""}/></svg>`;
+/** A circle with the small "1" of a dot circled in one photo only (marks.ts onePhotoBadge). */
+const ONE_GLYPH = `<svg class="bk-mg bk-one-g" viewBox="0 0 18 18" aria-hidden="true"><circle cx="10.5" cy="10.5" r="5.5" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="5" cy="5" r="4.4" fill="var(--glass, #edf0ef)" stroke="currentColor" stroke-width="1.1"/><text x="5" y="5.3" font-size="6.5" font-weight="700" text-anchor="middle" dominant-baseline="middle" fill="currentColor">1</text></svg>`;
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 /** A word waiting for its spot on the plate (labels.ts): beside the mark `at`, lowest `prio` placed first. */
@@ -292,9 +309,8 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
           </div>
         </div>
         <p class="bk-pages" hidden>
-          <span class="bk-pages-n" aria-live="polite"></span>
-          <button class="btn btn-ghost bk-pages-more" type="button" hidden
-            title="Load up to 6 more photos of this visit from SPHEREx (about half a minute)">More photos</button>
+          <span class="bk-pages-n" aria-live="polite"
+            title="SkyShift loads every photo of this visit from SPHEREx by itself, a few at a time (each takes up to half a minute), and adds them to the blink as they arrive."></span>
         </p>
 
         <div class="bk-row">
@@ -422,6 +438,11 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
           <p class="bk-meas-rest pro-only"></p>
           <ul class="bk-meas-key" aria-label="Marks"></ul>
           <p class="bk-meas-short plain-only"></p>
+          <div class="bk-meas-one" hidden>
+            <p class="bk-meas-one-h"></p>
+            <ul class="bk-meas-one-list"></ul>
+            <p class="bk-meas-one-note"></p>
+          </div>
           <p class="bk-meas-how pro-only"></p>
           <div class="bk-meas-items">
             <p class="bk-meas-lh" id="${uid}-ml"></p>
@@ -459,7 +480,6 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   const strip = { track: $<HTMLDivElement>(".bk-track"), labels: $<HTMLDivElement>(".bk-tls") };
   const pagesEl = $<HTMLParagraphElement>(".bk-pages");
   const pagesN = $<HTMLSpanElement>(".bk-pages-n");
-  const pagesMore = $<HTMLButtonElement>(".bk-pages-more");
   const adjBtn = $<HTMLButtonElement>(".bk-adjust-btn");
   const adj = $<HTMLDivElement>(".bk-adjust");
   const refSel = $<HTMLSelectElement>("select.bk-ref");
@@ -486,6 +506,11 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     notes: $<HTMLParagraphElement>(".bk-meas-notes"),
     pro: $<HTMLParagraphElement>(".bk-meas-pro"),
     short: $<HTMLParagraphElement>(".bk-meas-short"),
+    /** Dots circled in one photo only: what the other photos say (onephoto.ts). */
+    one: $<HTMLDivElement>(".bk-meas-one"),
+    oneH: $<HTMLParagraphElement>(".bk-meas-one-h"),
+    oneList: $<HTMLUListElement>(".bk-meas-one-list"),
+    oneNote: $<HTMLParagraphElement>(".bk-meas-one-note"),
   };
   const off = document.createElement("canvas");
   const offCtx = off.getContext("2d");
@@ -529,14 +554,25 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     pending: false,
   };
   /**
-   * More photos of the shown visit (hours, live: contracts/api.md v3.23 `page`). `merged` is page 0
-   * with every page loaded since; `done` the last page merged; `total` the visit's exposures of the
-   * detector; `run` the pager's generation while it fetches (0: idle). `gen` changes when the plate
-   * goes elsewhere, and a fetch of an older generation is dropped.
+   * The whole visit on show (hours: contracts/api.md v3.23 `page`). `merged` is the answer show() was
+   * handed with every page joined since (all its detectors); the plate shows `filter(merged)`. One
+   * stream per detector asks the live pages. `gen` changes when the plate goes elsewhere, and a page
+   * of an older generation is dropped when it lands.
    */
   const pg = {
-    gen: 0, on: false, key: "", url0: "", merged: null as FramesResponse | null,
-    done: 0, more: false, total: null as number | null, run: 0, failed: false,
+    gen: 0, on: false, key: "",
+    /** The URL of the answer show() was handed (the same plate again keeps its visit), and the one its
+     *  relative data_url resolve against (a live answer's, once the plate went live on another grid). */
+    src: "", base: "",
+    merged: null as FramesResponse | null,
+    filter: null as ((f: FramesResponse) => FramesResponse) | null,
+    streams: [] as Stream[],
+    /** Why the plate shows live photos instead of the saved ones (another grid), else "". */
+    switched: "",
+    /** Pages joined that the plate doesn't show yet. */
+    dirty: false,
+    /** Photos of the shown detector on the plate (joined and loaded into the blink), for the line. */
+    shown: 0,
   };
   /** The last full load (not a quiet one): pages wait for it, so they never cut it short. */
   let pendingLoad: Promise<void> = Promise.resolve();
@@ -573,9 +609,11 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   /** What the last plate drew that the legend explains (redrawn when it changes). */
   let plateKey = { dots: false, glow: false };
   /** Hours: what the other photos of its detector say about a dot circled in one photo only
-   *  (onephoto.ts), by detKey; the moments already measured; cleared when the frames change. */
+   *  (onephoto.ts), by detKey; the moments measured (this generation) and measured at least once.
+   *  Measured again when more photos of the visit come (kept meanwhile); cleared for a new plate. */
   let opDone = new Map<string, OnePhoto>();
   let opJobs = new Set<string>();
+  let opChecked = new Set<string>();
   let opGen = 0;
   /** The plate's ring limit and the Gaia stars its detections matched (rings.ts), for these frames and this measured layer. */
   let ringCal: { frames: Frame[]; meas: Measured | null; limit: number | null; matched: Set<string> } | null = null;
@@ -1643,7 +1681,8 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
 
     // This epoch's circles, as big as their sources look; pieces of a bright star stay off the plate.
     if (e) {
-      if (m.clock === "hours" && plan.circles.length && !opJobs.has(e.id)) checkOnePhoto(e);
+      if (m.clock === "hours" && plan.circles.length && !opJobs.has(e.id)) void checkOnePhoto(e);
+      if (m.clock === "hours") checkAllOnePhoto();
       const pxPerArcsec = vp.s / f.pixel_arcsec;
       const order = [...plan.circles].sort((a, b) => DRAW_ORDER.indexOf(ds[a.i].class) - DRAW_ORDER.indexOf(ds[b.i].class));
       for (const cc of order) {
@@ -1661,6 +1700,11 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
         const onTrack =
           d.class === "suspect" && !!trackAt && Math.hypot(cc.X - trackAt.X, cc.Y - trackAt.Y) <= Math.max(cc.r, 6 * pxPerArcsec);
         if (!onTrack) measuredMark(ctx, d.class, cc.X, cc.Y, cc.r, col, halo);
+        // Hours: circled in this photo only (onephoto.ts): a small "1" on the circle, and the other
+        // photos' answer in plain words under the plate.
+        const op = m.clock === "hours" ? opDone.get(detKey(d0)) : undefined;
+        const lone = !!op && !op.track;
+        if (lone && !onTrack) space.addDisc(onePhotoBadge(ctx, cc.X, cc.Y, cc.r, col, halo, fontFamily));
         // Its grade, upper right first as before, clear of the arrow and the arrow's "×20".
         if (d.class === "suspect" && d.grade)
           words.push({ text: d.grade, at: { X: cc.X, Y: cc.Y, r: cc.r }, color: col, font: `700 11px ${fontFamily}`, gap: 2, angles: GRADE_FIRST, prio: 0, onTrack });
@@ -1672,9 +1716,6 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
           notes.push(`Gaia DR3 ${cc.star}${gaiaOf.get(cc.star)?.g != null ? `, G ${gaiaOf.get(cc.star)!.g!.toFixed(1)}` : ""}${opts.viewer ? "" : " (not matched by the pipeline)"}`);
         const off = offsetWords(cc.offsetArcsec);
         if (off) notes.push(off);
-        // Hours: a dot in this photo only, measured at its place in the detector's other photos.
-        const op = m.clock === "hours" ? opDone.get(detKey(d0)) : undefined;
-        if (op && !op.track) notes.push(onePhotoWords(op, !opts.viewer));
         if (cc.bright) {
           const sat = (gaiaOf.get(cc.bright)?.g ?? 99) < SATURATED_G;
           notes.push(sat ? "a saturated star: the circle holds its whole blob" : "a bright star: the circle holds its whole glow");
@@ -1693,7 +1734,9 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
           X: cc.X,
           Y: cc.Y,
           r: cc.r + 4,
-          html: `<span class="bk-pos">${formatRaDec(d)}</span> <span class="bk-mtag" data-cls="${d.class}"${d.grade ? ` data-grade="${d.grade}"` : ""}>${esc(tag)}</span> <span class="bk-val">${esc(vals.join("; "))}</span>`,
+          html:
+            `<span class="bk-pos">${formatRaDec(d)}</span> <span class="bk-mtag" data-cls="${d.class}"${d.grade ? ` data-grade="${d.grade}"` : ""}>${esc(tag)}</span> <span class="bk-val">${esc(vals.join("; "))}</span>` +
+            (lone ? ` <span class="bk-one">${ONE_GLYPH}<span>${esc(onePhotoSay(op!, pagesLoading()))}</span></span>` : ""),
         });
       }
     }
@@ -1753,15 +1796,19 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
    * circle what it is. Each detector on its own frames (all wavelengths: each member photo against
    * its own detector's), from the frames already loaded; the circles' words follow when it is done.
    */
-  function checkOnePhoto(e: Epoch) {
+  function checkOnePhoto(e: Epoch): Promise<void> {
     opJobs.add(e.id);
     const gen = opGen;
     const v = view;
-    const resp = rawF;
-    if (!v || !resp || v.clock !== "hours") return;
-    const sources = waveGroups.size ? waveSources(v, resp, rawUrl) : [{ resp, url: rawUrl }];
+    if (!v || !rawF || v.clock !== "hours") return Promise.resolve();
+    // Against every photo of the visit loaded so far (pages.ts), not only those on show: more
+    // photos, a surer hint.
+    const whole = pg.on && !!pg.merged && pg.key === pagesKey(v);
+    const resp = whole ? pg.merged! : rawF;
+    const url = whole ? pg.base : rawUrl;
+    const sources = waveGroups.size ? waveSources(v, resp, url) : [{ resp, url }];
     const members = waveGroups.get(e.id)?.members ?? [e];
-    void (async () => {
+    return (async () => {
       const found = new Map<string, OnePhoto>();
       for (const mem of members) {
         const src = sources.find((x) => x.resp.epochs.some((q) => q.id === mem.id));
@@ -1784,13 +1831,63 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       }
       if (gen !== opGen || destroyed) return;
       for (const [k, val] of found) opDone.set(k, val);
+      opChecked.add(e.id);
       if (found.size) {
         draw();
         renderCaption();
       }
+      renderOnePanel();
     })().catch(() => {
       /* the circles keep their usual words */
     });
+  }
+  /** Hours, with SkyShift's circles on: every photo's hints, one photo after another in the
+   *  background, so the panel counts the whole visit and each "1" is there when its photo shows. */
+  let opQueue = -1;
+  function checkAllOnePhoto() {
+    if (opQueue === opGen || !overlays.measured || view?.clock !== "hours" || !meas) return;
+    const gen = (opQueue = opGen);
+    void (async () => {
+      let done = false;
+      try {
+        for (const f of [...frames]) {
+          if (gen !== opGen || destroyed || !overlays.measured) return;
+          if (!opJobs.has(f.epoch.id)) await checkOnePhoto(f.epoch);
+        }
+        done = true;
+      } finally {
+        if (!done && opQueue === gen) opQueue = -1;
+      }
+    })();
+  }
+  /** The panel's part on dots circled in one photo only: how many of each kind, and what each means. */
+  let oneShown = false;
+  function renderOnePanel() {
+    const counts = meas?.clock === "hours" && overlays.measured ? onePhotoCounts(opDone.values()) : new Map<OnePhotoKind, number>();
+    const total = [...counts.values()].reduce((a, b) => a + b, 0);
+    if (!!total !== oneShown) {
+      // the legend and the plain line name the "1" only while the plate has one
+      oneShown = !!total;
+      renderMeasured();
+      return;
+    }
+    mp.one.hidden = !total;
+    if (!total) return;
+    // Photos of the shown detector (All wavelengths: a moment the partner alone has is left out of
+    // the count, as from the line under the strip).
+    const mine = frames.filter((f) => !view || (waveGroups.get(f.epoch.id)?.members ?? [f.epoch]).some((m) => m.det === view!.det));
+    const n = mine.length;
+    const checked = mine.filter((f) => opChecked.has(f.epoch.id)).length;
+    mp.oneH.textContent =
+      `Circled in one photo only: ${total} (a small “1” on the circle)${checked < n ? `, in the ${checked} of ${n} photos checked so far` : ""}. ` +
+      "At each one's spot, SkyShift measured the light in the visit's other photos:";
+    mp.oneList.innerHTML = KIND_ORDER.filter((k) => counts.get(k))
+      .map((k) => `<li data-kind="${k}">${esc(KIND_WORDS[k](counts.get(k)!))}</li>`)
+      .join("");
+    const loaded = view ? photosOf(pg.on && pg.merged ? pg.merged : rawF, view.det) : n;
+    mp.oneNote.textContent =
+      `Point at a circle marked “1” for its own numbers. A hint from the ${loaded} photos of this visit loaded in your browser` +
+      `${pagesLoading() ? " (more are loading)" : ""}; NASA's own cosmic-ray marks aren't available here.`;
   }
 
   /**
@@ -2333,6 +2430,9 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
         : "") +
       (plateKey.glow
         ? `<li title="Where a bright star's light stays over 3 times the sky's noise. Its glow makes sources of its own: greyed circles inside may not be real.">${GLOW_GLYPH}<span>Dotted circle: a bright star's glow; grey circles inside may not be real</span></li>`
+        : "") +
+      (oneShown && m.clock === "hours"
+        ? `<li title="SkyShift circled it in this photo and in no other photo of the visit. It measured the light at that spot in the other photos: point at the circle to read what they say.">${ONE_GLYPH}<span>A small “1”: circled in this photo only (point at it: what the other photos show there)</span></li>`
         : "");
     return present;
   }
@@ -2343,6 +2443,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     mp.stackNote.hidden = true;
     const on = st.kind === "measured";
     for (const e of [mp.rest, mp.key, mp.how, mp.short, mp.items, mp.notes, mp.pro]) e.hidden = !on;
+    if (!on) mp.one.hidden = true;
 
     mp.stage.hidden = !on;
     $<HTMLButtonElement>(".bk-meas-toggle").hidden = !on;
@@ -2395,8 +2496,10 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
         (present.includes("other") ? " Grey circles: sources Gaia doesn't list." : "") +
         " Violet diamonds: known asteroids." +
         (arrows ? (m.clock === "hours" ? " Arrows: how something moved between photos." : " Arrows: how far something moved between visits.") : "") +
+        (oneShown && m.clock === "hours" ? " A small “1”: circled in this photo only; what the other photos show there is below." : "") +
         " Camera glitches are hidden."
-      : "Circles: what we measured. Blue rings: Gaia stars. Violet diamonds: known asteroids." + (arrows ? " Arrows: motion." : "");
+      : "Circles: what we measured. Blue rings: Gaia stars. Violet diamonds: known asteroids." + (arrows ? " Arrows: motion." : "") +
+        (oneShown && m.clock === "hours" ? " “1”: circled in this photo only." : "");
     mp.notes.textContent = s.notes.join(" ");
     const c: Partial<Record<MeasuredClass, number>> = m.counts ?? {};
     mp.pro.textContent =
@@ -2413,6 +2516,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
         e.hidden = true;
       }
     renderMeasuredList();
+    renderOnePanel();
   }
 
   function renderMeasuredList() {
@@ -2662,132 +2766,261 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     const key = waveKey(v);
     if (liveDets.key === key) return;
     liveDets = { key, got: new Map(), pending: true };
-    if (resp.epochs.some((e) => !!e.center)) return;
     const have = new Set(detectorsIn(resp));
-    if (!have.size) return;
     const want =
       v.clock === "months" ? DETS.filter((d) => !have.has(d)) : [...new Set([...have].map((d) => SAME_MOMENT[d] as Det))].filter((d) => !have.has(d));
-    if (!want.length) return;
+    if (resp.epochs.some((e) => !!e.center) || !have.size || !want.length) {
+      liveDets.pending = false;
+      return;
+    }
+    // Hours: the visit the plate shows (an object's find, a saved file's own photos), so the partner's
+    // photos are of the same moments; a plain live answer asks as before.
+    const src = v.clock === "hours" ? visitSource(resp, rawUrl, v.fov, v.det, pg.on ? mainMjd() : null) : null;
+    const at = src ? Number(new URL(src.url0).searchParams.get("mjd")) : NaN;
     void Promise.allSettled(
       want.map(async (d) => {
-        const r = await loadFrames({ ra: resp.center.ra, dec: resp.center.dec, clock: v.clock, fov: v.fov, det: d, slug: null });
+        const r = await loadFrames({ ra: resp.center.ra, dec: resp.center.dec, clock: v.clock, fov: v.fov, det: d, slug: null, ...(at > 0 ? { mjd: at } : {}) });
         if (!destroyed && liveDets.key === key && r.frames.clock === v.clock) liveDets.got.set(d, { resp: r.frames, url: r.jsonUrl });
       }),
     ).then(async () => {
       if (destroyed || liveDets.key !== key) return;
-      // The shown detector already has more pages of its visit: the partners catch up first.
-      if (pg.on && pg.done && view && waveKey(view) === key) await syncPartners(pg.gen, pg.done);
-      if (destroyed || liveDets.key !== key) return;
       liveDets.pending = false;
-      if (allWave && view && rawF && waveKey(view) === key && liveDets.got.size) void load(view, rawF, rawUrl);
+      // The visit's pages waited for the partner: now both go on together.
+      if (pg.on && view && waveKey(view) === key) pump(pg.gen);
+      // Joined without stopping the blink when the plate already shows this field.
+      if (allWave && view && rawF && waveKey(view) === key && liveDets.got.size) void load(view, rawF, rawUrl, frames.length ? "force" : false);
     });
   }
 
-  // ---- more photos of the visit (hours, live: contracts/api.md v3.23 `page`) -----------------
+  // ---- the whole visit (hours: contracts/api.md v3.23 `page`) ---------------------------------
   const pagesKey = (v: View) => `${waveKey(v)},${v.det}`;
-  /** Photos of the shown detector in the answer so far. */
-  const pagePhotos = () => (pg.merged && view ? epochsFor(pg.merged, view.det).length : 0);
+  /** Where a stream's pages are joined: the plate's own answer, or (part) a detector fetched live beside it. */
+  const holderOf = (s: Stream): FramesResponse | null => (s.part ? (liveDets.got.get(s.det)?.resp ?? null) : pg.merged);
+  const haveOf = (s: Stream) => photosOf(holderOf(s), s.det);
+  const mainOf = () => (view ? pg.streams.find((s) => !s.part && s.det === view!.det) : undefined);
+  /** Photos of the shown detector joined so far: the whole visit's, not only those on show. */
+  const pagePhotos = () => (view ? photosOf(pg.merged, view.det) : 0);
+  /** More photos of the visit are on their way to the plate (the one-photo hints may still change):
+   *  the shown detector's pages, or photos joined but not in the blink yet. The detector beside it
+   *  checking its own pages doesn't count once every photo of this one is on the plate. */
+  const pagesLoading = () => {
+    const main = pg.on ? mainOf() : undefined;
+    return !!main && (!streamDone(main, haveOf(main)) || pg.shown < pagePhotos());
+  };
+  /** What of the visit the plate shows (show()'s `filter`: an object to check shows the day of its find). */
+  const shownOf = (f: FramesResponse) => (pg.filter ? pg.filter(f) : f);
   function renderPages() {
-    const on = pg.on && !!view && view.clock === "hours" && pg.key === pagesKey(view) && (pg.total ?? 0) > 0;
-    pagesEl.hidden = !on;
-    if (!on) return;
-    const busyNow = pg.run !== 0 && pg.run === pg.gen;
-    pagesN.textContent = `${pagesText(pagePhotos(), pg.total)}${busyNow ? " · loading more…" : pg.failed ? " · more did not load" : ""}`;
-    pagesMore.hidden = !(pg.more && !busyNow);
+    const main = view && pg.on && view.clock === "hours" && pg.key === pagesKey(view) ? mainOf() : undefined;
+    pagesEl.hidden = !main;
+    if (!main) return;
+    pagesN.textContent = pagesText(pg.shown, main.total, pagesLoading(), main.failed) + (pg.switched ? `. ${pg.switched}` : "");
   }
-  /** A new plate: forget the pages (an older fetch is dropped when it lands). */
+  /** A new plate: forget its visit (an older page is dropped when it lands). */
   function pagesReset() {
     pg.gen++;
-    Object.assign(pg, { on: false, key: "", url0: "", merged: null, done: 0, more: false, total: null, failed: false });
+    Object.assign(pg, { on: false, key: "", src: "", base: "", merged: null, filter: null, streams: [], switched: "", dirty: false, shown: 0 });
     renderPages();
   }
-  function pagesStart(v: View, resp: FramesResponse, url: string) {
+  /** Load the rest of the visit behind the plate just shown (resp from url). `mjd`: a time inside
+   *  the visit the live API should show (an object's find), else one of the plate's own photos. */
+  function pagesStart(v: View, resp: FramesResponse, url: string, mjd: number | null): void {
+    const src = visitSource(resp, url, v.fov, v.det, mjd);
+    if (!src) return;
     pg.gen++;
-    Object.assign(pg, {
-      on: true, key: pagesKey(v), url0: url, merged: resp, done: 0, failed: false,
-      // An answer cached before v3.23 has no `more`: one try tells (an API without pages answers page 0 again).
-      more: resp.more !== false, total: resp.visit_exposures ?? null,
-    });
+    const main: Stream = { ...newStream(v.det, src), part: false, first: src.start === 1 ? idsOf(resp, v.det) : "", joined: new Set() };
+    Object.assign(pg, { on: true, key: pagesKey(v), src: url, base: url, merged: resp, streams: [main], switched: "", dirty: false, shown: photosOf(resp, v.det) });
     renderPages();
-    void pagesRun(AUTO_PHOTOS);
+    pump(pg.gen);
   }
-  /** Fetch pages one after another until the detector has `upto` photos or the visit is complete;
-   *  each is added to the blink in time order without stopping it. */
-  async function pagesRun(upto: number) {
-    if (pg.run === pg.gen) return;
-    const gen = pg.gen;
-    pg.run = gen;
-    pg.failed = false;
+  /** The same plate shown again (a layer, a panel, "Show all"): what is loaded stays, and loading goes on. */
+  function pagesRestart() {
+    pg.gen++;
+    for (const s of pg.streams) s.asking = new Set();
     renderPages();
+    pump(pg.gen);
+  }
+  const idsOf = (r: FramesResponse, det: Det) => r.epochs.filter((e) => e.det === det).map((e) => e.id).sort().join(",");
+  /** The time the main stream asks the live API at (its URL's `mjd`), so a partner shows the same visit. */
+  function mainMjd(): number | null {
+    const m = mainOf();
+    const t = m ? Number(new URL(m.url0).searchParams.get("mjd")) : NaN;
+    return t > 0 ? t : null;
+  }
+  /** All wavelengths on the hours clock: the detector exposed at the same moment gets the same pages,
+   *  from the plate's own answer (a static file of both) or from its live answer beside the plate. */
+  function ensurePartner() {
+    if (!view || !pg.on || !allWave || view.clock !== "hours") return;
+    const d = SAME_MOMENT[view.det] as Det;
+    if (pg.streams.some((s) => s.det === d) || !pg.merged) return;
+    const inMain = pg.merged.epochs.some((e) => e.det === d);
+    const part = !inMain && liveDets.key === waveKey(view) ? liveDets.got.get(d) : undefined;
+    if (!inMain && !(part && sameGrid(part.resp, pg.merged))) return;
+    const src = inMain ? visitSource(pg.merged, pg.base, view.fov, d, mainMjd()) : visitSource(part!.resp, part!.url, view.fov, d, mainMjd());
+    if (src) pg.streams.push({ ...newStream(d, src), part: !inMain, first: !inMain && src.start === 1 ? idsOf(part!.resp, d) : "", joined: new Set() });
+  }
+  /** Ask the next pages, a few page numbers at a time; every stream asks the same numbers together. */
+  function pump(gen: number) {
+    if (gen !== pg.gen || !pg.on || !view || destroyed) return;
+    // All wavelengths: the detector beside the plate is on its way (fetchOtherDets); its pages and
+    // these go together once it is here, so no moment shows one detector alone.
+    if (allWave && liveDets.key === waveKey(view) && liveDets.pending) return renderPages();
+    ensurePartner();
+    const cap = pg.streams.length > 1 ? PAGES_AT_ONCE_PAIRED : PAGES_AT_ONCE;
+    for (;;) {
+      const asking = new Set(pg.streams.flatMap((s) => [...s.asking]));
+      if (asking.size >= cap) break;
+      const want = pg.streams.map((s) => nextPage(s, haveOf(s)));
+      const k = want.reduce<number | null>((lo, n) => (n != null && (lo == null || n < lo) ? n : lo), null);
+      if (k == null) break;
+      pg.streams.forEach((s, i) => {
+        if (want[i] === k) void askPage(s, k, gen);
+      });
+    }
+    renderPages();
+  }
+  /** A page answer and whether it is partial (cutouts that came too late: X-SkyShift-Partial). */
+  async function getPage(url: string): Promise<{ page: FramesResponse; partial: boolean }> {
+    const res = await fetch(url);
+    if (!res.ok) {
+      let code = "internal";
+      try {
+        code = (await res.json())?.error?.code ?? code;
+      } catch {
+        /* not JSON */
+      }
+      throw new ApiFailure(`${res.status} for ${url}`, res.status, code);
+    }
+    const page = (await res.json()) as FramesResponse;
+    if ((page as { synthetic?: unknown }).synthetic === true) throw new ApiFailure("synthetic", 502, "upstream");
+    return { page, partial: !!res.headers.get("X-SkyShift-Partial") };
+  }
+  const later = () => new Promise((ok) => setTimeout(ok, PAGE_RETRY_MS));
+  /** Ask page k of stream s; a failed or partial answer is asked once more, a few seconds later. */
+  async function askPage(s: Stream, k: number, gen: number) {
+    s.asking.add(k);
+    const url = pageUrl(s.url0, k);
     try {
-      while (gen === pg.gen && pg.more && pg.merged && pagePhotos() < upto) {
-        const k = pg.done + 1;
-        const url = pageUrl(pg.url0, k);
-        let page: FramesResponse | null = null;
-        // A busy archive (503: "what arrived is kept") gets one more try a few seconds later.
-        for (let attempt = 0; attempt < 2 && !page; attempt++) {
-          try {
-            page = await getReal<FramesResponse>(url);
-          } catch (e) {
-            if (gen !== pg.gen) return;
-            if (e instanceof ApiFailure && e.status === 404) pg.more = false;
-            else if (attempt === 0 && e instanceof ApiFailure && e.status === 503) {
-              await new Promise((ok) => setTimeout(ok, PAGE_RETRY_MS));
-              if (gen !== pg.gen) return;
-              continue;
-            } else pg.failed = true;
-            break;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        let got: { page: FramesResponse; partial: boolean };
+        try {
+          got = await getPage(url);
+        } catch (e) {
+          if (gen !== pg.gen) return;
+          if (e instanceof ApiFailure && (e.status === 404 || e.status === 400)) {
+            // Past the visit's last page (or nothing the API can page here): nothing more to ask.
+            s.last = Math.min(s.last ?? k - 1, k - 1);
+            s.got.add(k);
+            return;
           }
+          if (attempt === 0) {
+            await later();
+            if (gen !== pg.gen) return;
+            continue;
+          }
+          s.failed++;
+          s.got.add(k);
+          return;
         }
-        if (!page) break;
         if (gen !== pg.gen) return;
-        const merged = mergePage(pg.merged, page, url);
-        pg.done = k;
-        if (page.visit_exposures != null) pg.total = page.visit_exposures;
-        if (!merged) {
-          pg.more = false;
-          break;
+        const { page, partial } = got;
+        if (page.visit_exposures != null) s.total = page.visit_exposures;
+        if (page.more !== true) s.last = Math.min(s.last ?? k, k);
+        // An API without pages answers page 0 again: there is nothing more to ask.
+        const ids = idsOf(page, s.det);
+        if (k === 0) s.first = ids;
+        else if (ids && ids === s.first) {
+          s.last = Math.min(s.last ?? k - 1, k - 1);
+          s.got.add(k);
+          return;
         }
-        pg.more = page.more === true;
-        pg.merged = merged;
-        if (allWave) await syncPartners(gen, k);
-        await pendingLoad;
-        if (gen !== pg.gen || !view || pagesKey(view) !== pg.key) return;
-        rawF = merged; // a load started meanwhile (another detector arriving, All switched) takes it too
-        opts.onFrames?.(merged);
-        await load(view, merged, pg.url0, true);
-        renderPages();
+        join(s, page, url);
+        s.joined.add(k);
+        if (pg.dirty && !pairPending()) schedule();
+        if (partial && attempt === 0) {
+          await later();
+          if (gen !== pg.gen) return;
+          continue;
+        }
+        s.got.add(k);
+        return;
       }
     } finally {
-      if (pg.run === gen) pg.run = 0;
-      if (gen === pg.gen) renderPages();
+      if (gen === pg.gen) {
+        s.asking.delete(k);
+        if (pg.dirty && !pairPending()) schedule();
+        pump(gen);
+      }
     }
   }
-  /** The partners of the shown detector (all wavelengths) get its pages too, so every moment
-   *  combines the same detectors. */
-  async function syncPartners(gen: number, upto: number) {
-    if (!view || liveDets.key !== waveKey(view)) return;
-    await Promise.allSettled([...liveDets.got.values()].map((p) => syncPartner(p, upto, gen)));
+  /** A page number one detector has joined while the other's same page is still on its way: its
+   *  moments would show one detector alone (a change of colour that blinks like motion). */
+  function pairPending(): boolean {
+    return pg.streams.length > 1 && pg.streams.some((s) => [...s.asking].some((k) => !s.joined.has(k) && pg.streams.some((o) => o !== s && o.joined.has(k))));
   }
-  function syncPartner(p: LivePart, upto: number, gen: number): Promise<void> {
-    p.chain = (p.chain ?? Promise.resolve()).then(async () => {
-      while ((p.pages ?? 0) < upto && !p.ended && gen === pg.gen) {
-        const k = (p.pages ?? 0) + 1;
-        const url = pageUrl(p.url, k);
-        try {
-          const page = await getReal<FramesResponse>(url);
-          const merged = mergePage(p.resp, page, url);
-          if (merged) p.resp = merged;
-          p.pages = k;
-          if (!merged || page.more !== true) p.ended = true;
-        } catch (e) {
-          // Past its last page: done. Busy (503) or slow: tried again with the shown detector's next page.
-          if (!(e instanceof ApiFailure) || e.status === 404 || e.status === 400) p.ended = true;
-          break;
-        }
+  function join(s: Stream, page: FramesResponse, url: string) {
+    if (s.part) {
+      const p = liveDets.got.get(s.det);
+      const j = p ? joinPage(p.resp, page, url) : null;
+      if (p && j?.added) {
+        p.resp = j.resp;
+        pg.dirty = true;
       }
-    });
-    return p.chain;
+      return;
+    }
+    if (!pg.merged) return;
+    const j = joinPage(pg.merged, page, url);
+    if (j) {
+      if (j.added) {
+        pg.merged = j.resp;
+        pg.dirty = true;
+      }
+      return;
+    }
+    // The live photos come on another grid than the saved ones: they can't be blinked together. The
+    // plate goes live for this visit (the whole visit is there, the saved photos among them), keeping
+    // its photo and playing on; the detector beside it starts again on the live grid.
+    if (s.start !== 0 || pg.switched || !view || s.det !== view.det) return;
+    pg.switched = `Showing SkyShift's live photos: ${gridWhy(pg.merged, page)}`;
+    pg.merged = absolute(page, url);
+    pg.base = url;
+    for (const o of pg.streams)
+      if (o !== s && !o.part) {
+        o.got = new Set();
+        o.joined = new Set();
+        o.first = "";
+      }
+    pg.dirty = true;
+  }
+  /** Put what the pages brought on the plate: one quiet load at a time, the blink playing on. */
+  let applyGen = -1;
+  let applyAgain = false;
+  function schedule() {
+    const gen = pg.gen;
+    if (applyGen === gen) {
+      applyAgain = true;
+      return;
+    }
+    applyGen = gen;
+    void (async () => {
+      try {
+        do {
+          applyAgain = false;
+          await pendingLoad;
+          if (gen !== pg.gen || !view || !pg.merged || pagesKey(view) !== pg.key) return;
+          if (pairPending()) return; // the page's partner lands soon and asks again
+          pg.dirty = false;
+          const shown = shownOf(pg.merged);
+          const photos = photosOf(pg.merged, view.det);
+          rawF = shown; // a load started meanwhile (another detector arriving, All switched) takes it too
+          opts.onFrames?.(pg.merged);
+          await load(view, shown, pg.base, "force");
+          if (gen === pg.gen) pg.shown = photos;
+          renderPages();
+        } while (applyAgain && gen === pg.gen);
+      } finally {
+        if (applyGen === gen) applyGen = -1;
+      }
+    })();
   }
 
   // ---- loading -----------------------------------------------------------------------------
@@ -2800,14 +3033,15 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     return before !== allWave;
   }
 
-  /** Show resp. quiet (more pages of the same view, pages.ts): the blink keeps playing and keeps its
-   *  place while the new frames download, then takes them all, in time order, at once. */
-  function load(next: View, resp: FramesResponse, url: string, quiet = false): Promise<void> {
-    const p = loadNow(next, resp, url, quiet);
+  /** Show resp. quiet (more photos of the same view, pages.ts): the blink keeps playing and keeps its
+   *  place while the new frames download, then takes them all, in time order, at once, when there are
+   *  more of them ("force": always, e.g. another detector joined the same moments). */
+  function load(next: View, resp: FramesResponse, url: string, quiet: boolean | "force" = false): Promise<void> {
+    const p = loadNow(next, resp, url, !!quiet, quiet === "force");
     if (!quiet) pendingLoad = p.catch(() => {});
     return p;
   }
-  async function loadNow(next: View, resp: FramesResponse, url: string, quiet: boolean): Promise<void> {
+  async function loadNow(next: View, resp: FramesResponse, url: string, quiet: boolean, force = false): Promise<void> {
     if (destroyed) return;
     const gen = ++loadCtl;
     const wasPlaying = playing || resumeOnVisible || firstShow;
@@ -2836,7 +3070,10 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       waveMembers = loadedMembers;
       jsonUrl = url;
       opGen++;
-      opDone = new Map();
+      if (!quiet) {
+        opDone = new Map();
+        opChecked = new Set();
+      }
       opJobs = new Set();
       prepareMeasured();
     };
@@ -2922,7 +3159,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     const shownId = cur()?.epoch.id;
     if (quiet) {
       // Nothing more to show changes nothing; else the blink goes on from the frame on show now.
-      if (loaded.length <= frames.length) return;
+      if (!loaded.length || (!force && loaded.length <= frames.length)) return;
       prevMjd = cur()?.epoch.mjd_mid;
       prevRefMjd = frames[ref]?.epoch.mjd_mid;
       take();
@@ -3020,10 +3257,6 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   }
 
   // ---- events ------------------------------------------------------------------------------
-  // One more page (up to 6 photos) of the visit, after the ones loaded by themselves.
-  pagesMore.addEventListener("click", () => {
-    if (pg.on && pg.more) void pagesRun(pagePhotos() + 1);
-  });
   root.addEventListener("click", (ev) => {
     const b = (ev.target as Element).closest<HTMLButtonElement>("button");
     if (!b || b.disabled || !view) return;
@@ -3386,21 +3619,25 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       if (trackM && !resp.epochs.some((e) => trackBy.has(e.id))) setTrack(null);
       setSingleDetector(options?.singleDetector ?? false);
       fillSrc = [];
-      // Hours, live (contracts/api.md v3.23): page 0 at once, more of the visit behind it.
-      const paged = !!options?.pages && pageable(resp, url);
-      if (paged && pg.on && pg.key === pagesKey(next) && pg.url0 === url && pg.merged) {
-        // The same plate again (a layer or panel changed): the pages already loaded stay.
-        const merged = pg.merged;
-        if (pg.done) opts.onFrames?.(merged);
-        await load(next, merged, url);
-        renderPages();
-        if (pg.more && pagePhotos() < AUTO_PHOTOS && !pg.failed) void pagesRun(AUTO_PHOTOS);
+      // Hours (contracts/api.md v3.23 `page`): what the plate was handed at once, the rest of its
+      // visit behind it.
+      const paged = !!options?.pages && next.clock === "hours";
+      const filter = options?.filter ?? null;
+      if (paged && pg.on && pg.key === pagesKey(next) && pg.src === url && pg.merged) {
+        // The same plate again (a layer, a panel, an object's "Show all"): the visit loaded so far stays.
+        pg.filter = filter;
+        if (pg.merged !== resp) opts.onFrames?.(pg.merged);
+        const shown = shownOf(pg.merged);
+        await load(next, shown, pg.base);
+        if (!destroyed && rawF === shown) pagesRestart();
         return;
       }
       pagesReset();
       const gen = pg.gen;
-      await load(next, resp, url);
-      if (paged && gen === pg.gen && !destroyed && rawF === resp) pagesStart(next, resp, url);
+      pg.filter = filter;
+      const shown = shownOf(resp);
+      await load(next, shown, url);
+      if (paged && gen === pg.gen && !destroyed && rawF === shown) pagesStart(next, resp, url, options?.visitMjd ?? null);
     },
     needsFill() {
       // A no-data part (past the detector's edge, not a burnt core) on more than 0.5% of the photo,

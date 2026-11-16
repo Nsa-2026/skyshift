@@ -5,7 +5,7 @@
 // what it is and how fast it moves, its grade, and its vote (change it or reset it).
 import { failedGates, gatesPhrase, nearSourceOf, votable } from "../api/grades";
 import { epochsFor } from "../api/client";
-import type { Candidate, Epoch, FramesResponse } from "../api/types";
+import type { Candidate, Det, Epoch, FramesResponse } from "../api/types";
 import type { TrackMarks, View } from "../app/modules";
 import { emptyCounts, shiftCounts, type Answer, type Counts } from "../vote/model";
 import { VOTED_EVENT, type VotedDetail } from "../vote/store";
@@ -111,23 +111,41 @@ export async function suspectFrames(
   c: Candidate,
   view: View,
   all: boolean,
-): Promise<{ frames: FramesResponse; jsonUrl: string; marks: TrackMarks | null; note: SuspectFramesNote; fill: FillSource[] }> {
+): Promise<{ frames: FramesResponse; whole: FramesResponse; jsonUrl: string; marks: TrackMarks | null; note: SuspectFramesNote; fill: FillSource[] }> {
   const loaded = await framesFor(c, view);
-  const f = focusFrames(loaded.frames, c, view.det);
-  const gap = findGap(loaded.frames, c, view.det);
-  const missingGap = gap !== null && gap > OWN_GAP_DAYS ? gap : null;
-  const frames = all ? loaded.frames : f.frames;
+  const s = suspectShown(c, loaded.frames, view.det, all);
   return {
-    frames,
+    ...s,
+    whole: loaded.frames,
     jsonUrl: loaded.jsonUrl,
-    // Always named, so the panel can say SkyShift didn't measure it here (and why) instead of "no movers".
-    marks: candidateMarks(c, frames, missingGap),
     // A few exposures of one session share one edge: the visit's others fill it (never blinked),
     // and so does the candidate's saved fill.json (contracts/api.md v3.20).
     fill: [
-      ...(!all && f.focused ? epochsFor(loaded.frames, view.det).map((epoch) => ({ epoch, url: loaded.jsonUrl })) : []),
+      ...(s.note.focused ? epochsFor(loaded.frames, view.det).map((epoch) => ({ epoch, url: loaded.jsonUrl })) : []),
       ...(await fillFor(loaded.jsonUrl, view)),
     ],
+  };
+}
+
+/**
+ * What the plate shows of a candidate's frames (`whole`: every exposure loaded so far, which grows as
+ * the rest of its visit loads): on the hours clock only the exposures within a day of the find unless
+ * `all`, the red track circles for them, and what the plate note says.
+ */
+export function suspectShown(
+  c: Candidate,
+  whole: FramesResponse,
+  det: Det,
+  all: boolean,
+): { frames: FramesResponse; marks: TrackMarks | null; note: SuspectFramesNote } {
+  const f = focusFrames(whole, c, det);
+  const gap = findGap(whole, c, det);
+  const missingGap = gap !== null && gap > OWN_GAP_DAYS ? gap : null;
+  const frames = all ? whole : f.frames;
+  return {
+    frames,
+    // Always named, so the panel can say SkyShift didn't measure it here (and why) instead of "no movers".
+    marks: candidateMarks(c, frames, missingGap),
     note: {
       focused: !all && f.focused,
       shown: f.shown,

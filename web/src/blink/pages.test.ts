@@ -1,7 +1,8 @@
-// More photos of one hours visit (contracts/api.md v3.23 `page`): which answers page, and how a page joins.
+// The whole visit on the hours clock (contracts/api.md v3.23 `page`): where a plate's visit continues,
+// how a page joins, which page to ask next, and the line under the strip.
 import { describe, expect, it } from "vitest";
 import type { Det, Epoch, FramesResponse, Measured } from "../api/types";
-import { mergePage, pageable, pageUrl, pagesText } from "./pages";
+import { joinPage, liveVisitUrl, newStream, nextPage, pageUrl, pagesText, photosOf, streamDone, visitMjd, visitSource } from "./pages";
 import { visitSpan } from "./strip";
 
 const ep = (id: string, mjd: number, det: Det = 2): Epoch => ({
@@ -30,45 +31,99 @@ const resp = (eps: Epoch[], more?: boolean, total?: number): FramesResponse => (
   ...(more === undefined ? {} : { more }), ...(total === undefined ? {} : { visit_exposures: total }),
 });
 const LIVE = "https://skyshift.test/api/frames?ra=10&dec=20&clock=hours&fov=20&det=2";
+const STATIC = "https://skyshift.test/data/barnard/frames_hours_20.json";
 
-describe("hours pages", () => {
-  it("pages only live raw hours answers", () => {
-    const r = resp([ep("d2-a", 61000)], true, 57);
-    expect(pageable(r, LIVE)).toBe(true);
-    expect(pageable(resp([ep("d2-a", 61000)]), LIVE)).toBe(true); // cached before v3.23: one try tells
-    expect(pageable({ ...r, more: false }, LIVE)).toBe(false);
-    expect(pageable(r, "https://skyshift.test/data/barnard/frames_hours_20.json")).toBe(false); // static
-    expect(pageable({ ...r, clock: "months" }, LIVE)).toBe(false);
-    expect(pageable(r, `${LIVE}&view=resid`)).toBe(false);
-    expect(pageable(r, `${LIVE}&page=2`)).toBe(false);
-    expect(pageable({ ...r, epochs: [{ ...ep("d2-a", 61000), center: { ra: 10, dec: 20 } }] }, LIVE)).toBe(false);
+describe("the whole hours visit", () => {
+  it("continues a live answer from page 1, and a saved one live at its own visit from page 0", () => {
+    const r = resp([ep("d2-a", 61000), ep("d2-b", 61002), ep("d2-c", 61010)], true, 57);
+    expect(visitSource(r, LIVE, 20, 2)).toEqual({ url0: LIVE, start: 1, total: 57, complete: false });
+    expect(visitSource({ ...r, more: false }, LIVE, 20, 2)).toMatchObject({ start: 1, complete: true });
+    // a static file (a featured target, an object's saved frames): the same grid and visit, live
+    const s = visitSource({ ...r, more: undefined, visit_exposures: undefined }, STATIC, 20, 2)!;
+    expect(s).toMatchObject({ start: 0, total: null, complete: false });
+    expect(s.url0).toBe(`${location.origin}/api/frames?ra=10&dec=20&clock=hours&fov=20&det=2&mjd=61002`); // the site's own API
+    // an object's find decides the visit
+    expect(visitSource(r, STATIC, 20, 2, 61010.5)!.url0).toContain("&mjd=61010.5");
+    // its partner detector in the same static file: its own request at the same time
+    expect(visitSource(resp([ep("d2-a", 61000), ep("d5-a", 61000, 5)]), STATIC, 20, 5, 61000)!.url0).toContain("det=5&mjd=61000");
+    // nothing to continue: months, a derived view, a page already, frames that follow a mover, no such detector
+    expect(visitSource({ ...r, clock: "months" }, LIVE, 20, 2)).toBeNull();
+    expect(visitSource(r, `${LIVE}&view=resid`, 20, 2)).toBeNull();
+    expect(visitSource(r, `${LIVE}&page=2`, 20, 2)).toBeNull();
+    expect(visitSource({ ...r, epochs: [{ ...ep("d2-a", 61000), center: { ra: 10, dec: 20 } }] }, LIVE, 20, 2)).toBeNull();
+    expect(visitSource(r, STATIC, 20, 4)).toBeNull();
+    expect(visitMjd(r, 2)).toBe(61002);
+    expect(liveVisitUrl(r, 60, 3, null)).toBe(`${location.origin}/api/frames?ra=10&dec=20&clock=hours&fov=60&det=3`);
     expect(pageUrl(`${LIVE}&mjd=61000.5`, 3)).toBe(`${LIVE}&mjd=61000.5&page=3`);
+    expect(pageUrl(`${LIVE}&page=3`, 0)).toBe(LIVE);
   });
 
-  it("adds a page's exposures in time order, with their known objects and dots", () => {
+  it("joins a page's new exposures in time order, keeps what was there, and refuses another grid", () => {
     const p0 = resp([ep("d2-a", 61000), ep("d2-c", 61010)], true, 9);
     const p1 = resp([ep("d2-b", 61005), ep("d2-a", 61000), ep("d2-d", 61020)], false, 9);
     const url = pageUrl(LIVE, 1);
-    const m = mergePage(p0, p1, url)!;
+    const j = joinPage(p0, p1, url)!;
+    const m = j.resp;
+    expect(j.added).toBe(2);
     expect(m.epochs.map((e) => e.id)).toEqual(["d2-a", "d2-b", "d2-c", "d2-d"]);
     expect(m.epochs.find((e) => e.id === "d2-b")!.data_url).toBe("https://skyshift.test/api/data/k0/frames/h20_d2_d2-b.bin");
-    expect(m.epochs.find((e) => e.id === "d2-a")).toBe(p0.epochs[0]); // page 0's stay as they were
+    expect(m.epochs.find((e) => e.id === "d2-a")).toBe(p0.epochs[0]); // what was there stays as it was
     expect(m.known.map((k) => k.epoch_id)).toEqual(["d2-a", "d2-c", "d2-b", "d2-d"]); // d2-a once
-    expect(m.more).toBe(false);
-    expect(m.visit_exposures).toBe(9);
-    expect(m.measured!.photos).toBe(5);
-    expect(m.measured!.tracks[0].dots.map((d) => d.epoch_id)).toHaveLength(5);
+    // the page's dots of exposures already here are not counted twice
+    expect(m.measured!.detections.map((d) => d.epoch_id).sort()).toEqual(["d2-a", "d2-b", "d2-c", "d2-d"]);
+    expect(m.measured!.tracks[0].dots.map((d) => d.epoch_id)).toHaveLength(4);
     expect(p0.epochs).toHaveLength(2); // pure
-    // nothing new (an API without pages answers page 0 again), or another grid: null
-    expect(mergePage(p0, p0, url)).toBeNull();
-    expect(mergePage(p0, { ...p1, center: { ra: 10.01, dec: 20 } }, url)).toBeNull();
-    expect(mergePage(p0, { ...p1, size: [300, 300] }, url)).toBeNull();
+    // nothing new (a static set that holds the page already): the same answer
+    expect(joinPage(m, p1, url)).toEqual({ resp: m, added: 0 });
+    // another grid: null
+    expect(joinPage(p0, { ...p1, center: { ra: 10.01, dec: 20 } }, url)).toBeNull();
+    expect(joinPage(p0, { ...p1, size: [300, 300] }, url)).toBeNull();
+    expect(photosOf(m, 2)).toBe(4);
+    expect(photosOf(m, 5)).toBe(0);
   });
 
-  it("counts the photos of the visit", () => {
-    expect(pagesText(6, 57)).toBe("6 of 57 photos of this visit");
-    expect(pagesText(1, null)).toBe("1 photo of this visit");
-    expect(pagesText(6, 4)).toBe("6 photos of this visit");
+  it("asks a few pages at once once the visit's size is known, and stops at its end", () => {
+    // a live page 0 of 6 photos, 18 in the visit: pages 1 and 2 at once (6 + 2 × 6 = 18)
+    const s = newStream(2, { url0: LIVE, start: 1, total: 18, complete: false });
+    expect(nextPage(s, 6)).toBe(1);
+    s.asking.add(1);
+    expect(nextPage(s, 6)).toBe(2);
+    s.asking.add(2);
+    expect(nextPage(s, 6)).toBeNull();
+    // page 1 brought only 4 (a short page): one more
+    s.asking.delete(1);
+    s.got.add(1);
+    expect(nextPage(s, 10)).toBe(3);
+    // page 2 said it was the last: done
+    s.asking.delete(2);
+    s.got.add(2);
+    s.last = 2;
+    expect(nextPage(s, 16)).toBeNull();
+    expect(streamDone(s, 16)).toBe(true);
+    // a static file: page 0 alone first (its answer says how many photos the visit has)
+    const t = newStream(2, { url0: LIVE, start: 0, total: null, complete: false });
+    expect(nextPage(t, 25)).toBe(0);
+    t.asking.add(0);
+    expect(nextPage(t, 25)).toBeNull();
+    // the saved file already holds the whole visit: nothing more to ask
+    t.asking.delete(0);
+    t.got.add(0);
+    t.total = 25;
+    expect(nextPage(t, 25)).toBeNull();
+    expect(streamDone(t, 25)).toBe(true);
+    // a live answer that is the whole visit already
+    expect(streamDone(newStream(2, { url0: LIVE, start: 1, total: 4, complete: true }), 4)).toBe(true);
+  });
+
+  it("says how much of the visit is loaded, and plainly what could not be", () => {
+    expect(pagesText(6, 57, true)).toBe("6 of 57 photos of this visit loaded · loading…");
+    expect(pagesText(25, null, true)).toBe("25 photos of this visit loaded · loading…");
+    expect(pagesText(57, 57, false)).toBe("57 of 57 photos of this visit");
+    expect(pagesText(51, 57, false, 1)).toBe(
+      "51 of 57 photos of this visit loaded; 6 could not be loaded (SkyShift's live service did not answer for them)",
+    );
+    expect(pagesText(1, null, false)).toBe("1 photo of this visit");
+    expect(pagesText(6, 4, false)).toBe("6 photos of this visit");
   });
 
   it("dates a months visit by its weeks", () => {
