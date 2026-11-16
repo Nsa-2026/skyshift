@@ -68,7 +68,9 @@ def test_submit_gate_catches_a_verdict_against_its_own_checks():
     assert A.contradiction({"verdict": "real_mover_unknown", "checks": []}, "high_pm")     # mover verdicts are for movers
     assert A.contradiction({"verdict": "real_mover_unknown", "checks": chk}, "mover", ["info", "packet"])  # session and stamps first
     assert A.contradiction({"verdict": "real_mover_unknown", "checks": chk}, "mover", ["packet", "session", "stamps"]) is None
-    assert A.contradiction({"verdict": "artifact", "checks": []}, "mover", ["packet"]) is None
+    assert A.contradiction({"verdict": "artifact", "checks": [], "junk_proof": "one_pixel_spike_no_psf"}, "mover", ["packet"]) is None
+    assert A.contradiction({"verdict": "artifact", "checks": [], "junk_proof": "none"}, "mover", ["packet"])  # a drop needs proof
+    assert A.contradiction({"verdict": "static_source", "checks": []}, "mover", ["packet"])
 
 
 def test_mark_pairs_are_rebuilt_from_a_flat_string():
@@ -78,9 +80,12 @@ def test_mark_pairs_are_rebuilt_from_a_flat_string():
 
 def test_tool_cache_key_ignores_the_output_folder_and_follows_the_blind_switch(tmp_path, monkeypatch):
     monkeypatch.setattr(A, "CACHE_DIR", str(tmp_path))
+    monkeypatch.delenv("SKYSHIFT_VET_HIDE_KNOWN", raising=False)
+    A._tools_version.cache_clear()
     a = A._cache_path(["packet", "x", "--out=/a/b"]); b = A._cache_path(["packet", "x", "--out=/c/d"])
     assert a == b and a != A._cache_path(["packet", "y", "--out=/a/b"])
     monkeypatch.setenv("SKYSHIFT_VET_HIDE_KNOWN", "1")
+    A._tools_version.cache_clear()  # read once per run
     assert A._cache_path(["packet", "x", "--out=/a/b"]) != a
     monkeypatch.setattr(A, "CACHE_DIR", None)
     assert A._cache_path(["packet", "x"]) is None
