@@ -85,11 +85,17 @@ def test_suspects_cut_faint_known_only_when_certain(monkeypatch):
     pred = pd.concat([_pred("2019 XY1", float(ra3), float(dec3), 60906.9, 108.0, 78.0, 23.5),
                       _pred("2020 AB", float(ra20), float(dec20), 60906.9, 30.0, 90.0, 23.5)], ignore_index=True)
     fixed = pd.DataFrame({"ra": [10.0], "dec": [10.0], "snr": [5.0]})
-    s, st = suspects.select(movers, fixed, pred)
+    s, st, w = suspects.select(movers, fixed, pred)
     assert len(s) == 1 and s["ra"].tolist() == [45.5]
     assert st["cut_known"] == 1 and st["cut_known_certain_only"] == 1
     assert np.isnan(s["nearest_known_arcsec"][0])  # the V 23.5 body is not reported as the nearest (V < MPC_V_MAX only)
-    # a bright body 20″ away still cuts by position alone (KNOWN_ARCSEC 30″), as before
+    assert w.codes[0] == []
+    # a bright body 20″ away moving elsewhere no longer cuts by position alone (16 Nov: only the certain is removed):
+    # kept with known_nearby; within SUSPECT_KNOWN_CERTAIN_ARCSEC (5″) its place alone cuts
     pred2 = pd.concat([pred, _pred("(5) Astraea", float(ra20), float(dec20), 60906.9, 30.0, 90.0, 12.0)], ignore_index=True)
-    s2, st2 = suspects.select(movers, fixed, pred2)
-    assert len(s2) == 0 and st2["cut_known"] == 2 and C.KNOWN_ARCSEC == 30.0
+    s2, st2, w2 = suspects.select(movers, fixed, pred2)
+    assert len(s2) == 1 and st2["cut_known"] == 1 and w2.codes[0] == ["known_nearby"] and C.KNOWN_ARCSEC == 30.0
+    ra4, dec4 = offset_radec(45.5, 21.0, 4.0, 0.0)
+    pred3 = pd.concat([pred, _pred("(5) Astraea", float(ra4), float(dec4), 60906.9, 30.0, 90.0, 12.0)], ignore_index=True)
+    s3, st3, _ = suspects.select(movers, fixed, pred3)
+    assert len(s3) == 0 and st3["cut_known"] == 2 and st3["cut_known_certain_only"] == 1

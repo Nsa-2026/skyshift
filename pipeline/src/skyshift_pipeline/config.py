@@ -456,14 +456,40 @@ G2_RECALL_MIN = 0.5
 V_BINS = (-99.0, 12.0, 14.0, 15.0, 16.0, 17.0, 18.0)
 
 # --- suspects ------------------------------------------------------------------------------
-KNOWN_ARCSEC = 30.0
-GAIA_ARCSEC = 6.0
-CATWISE_ARCSEC = 6.0
-BRIGHT_FIXED_ARCSEC = 30.0
+# 16 Nov: only what is certain is removed (a known body matching place and, where measured, rate and direction; a
+# planet, its moons or its glare). Every other former cut stays on the suspect as a warning: warn_codes (contracts/api.md
+# v3.23 check codes) and warn_values ({code: {name: number}}); the exporter turns them into `checks`.
+KNOWN_ARCSEC = 30.0            # a known object this close (same session) that isn't certainly it: warning `known_nearby`
+# removed as that known body: within SUSPECT_KNOWN_CERTAIN_ARCSEC at the mover's time (place alone), or within KNOWN_ARCSEC
+# with our measured motion at its rate (50% or 3σ) and direction (45° or 3σ). ecl04, 1,911 movers within 5″ of an MPC
+# prediction with our motion measured (2–6 exposures): rate ratio p1–p99 0.43–1.94, direction p95 30°, p99 59°; a
+# 20% / 15° test would have kept 32% of them (619) as suspects, 50% / 45° keeps 6%: motion alone never overrules place.
+SUSPECT_KNOWN_CERTAIN_ARCSEC = 5.0
+SUSPECT_KNOWN_RATE_TOL = 0.5
+SUSPECT_KNOWN_PA_TOL_DEG = 45.0
+SUSPECT_KNOWN_MOTION_SNR = 3.0  # our motion is measured: two exposures at motion_snr >= this, or a line through >= 3
+SUSPECT_HOT_PIXEL_PX = 1.0     # removed as a hot pixel: in one detector, dots of >= 2 exposures all this close (px) to
+SUSPECT_HOT_SKY_PX = 3.0       # their median pixel while the sky under them moved >= this many pixels (rate × Δt)
+GAIA_ARCSEC = 6.0              # catalogue_star (and reason `gaia`): a Gaia DR3 star (G < 20) this close
+CATWISE_ARCSEC = 6.0           # catalogue_star (and reason `catwise`): a CatWISE2020 source this close
+# a catalogue source within its radius is a vetting reason (gaia, catwise, allwise, 2mass: grade C) only when it is at
+# most this much fainter than the mover (AB, the catalogue's brightest band; unknown brightness counts as catalogued);
+# fainter, it is a chance neighbour: catalogue_star only. ecl04: real asteroids' sources p50 3.3 mag fainter, junk 1.1–1.6.
+SUSPECT_CATALOGUE_FAINTER_MAG = 2.0
+SUSPECT_VEGA_TO_AB = {"g_mag": 0.0, "w1_mag": 2.699, "w2_mag": 3.339, "j_mag": 0.91, "k_mag": 1.85}  # catalogue (Vega) -> AB
+BRIGHT_FIXED_ARCSEC = 30.0     # bright_star: a fixed source with snr >= BRIGHT_FIXED_SNR this close
 BRIGHT_FIXED_SNR = 100.0       # a fixed source this bright makes ghosts and halos around it
-SUSPECT_VETO_BITS = (1 << 22) | (1 << 23) | (1 << 24) | (1 << 20) | (1 << 28) | (1 << 26)
-# GHOST, GHOST_FPA, GHOST_EXT, CROSSTALK, HALO, BLOOM
-SOURCE_BIT = 1 << 21           # catalogue stars / compact galaxies to AB ~19; in flags_peak -> drop
+# GHOST, GHOST_FPA, GHOST_EXT, CROSSTALK, HALO, BLOOM in a dot's 3×3: warnings since 16 Nov, no longer a cut
+SUSPECT_FLAG_WARN = {"flag_bloom": 1 << 26, "flag_halo": 1 << 28, "flag_ghost": (1 << 22) | (1 << 23) | (1 << 24),
+                     "flag_crosstalk": 1 << 20}  # warn code -> record bits in any dot's 3×3 (`flags`)
+# the strong form of a warning is also a vetting reason (grade C, ranked last, never removed). Measured on every mover of
+# ecl04 / ecl11 (real = an MPC prediction within 5″; rest = no known body within 60″), share hit real vs rest:
+#   BLOOM in a dot's 3×3 0.0 / 0.5% vs 13.5 / 3.4%; at every dot's peak 0.0 / 0.0% vs 11.3 / 2.8%   -> reason `bloom`
+#   HALO in a dot's 3×3 20.4 / 22.1% vs 21.9 / 24.4% (no use); at every dot's peak 0 / 0% vs 5.2 / 5.9% -> reason `halo`
+#   bright fixed source within 30″ 1.0 / 2.9% vs 26.4 / 18.4%; within 15″ 0.2 / 0.3% vs 23.5 / 11.0%   -> `bright_star`
+SUSPECT_PEAK_ALL_GATES = {"bloom": 1 << 26, "halo": 1 << 28}  # reason -> bit at every dot's peak (flags_peak_all)
+SUSPECT_BRIGHT_GATE_ARCSEC = 15.0  # reason `bright_star`: the bright fixed source this close (the warning goes to 30″)
+SOURCE_BIT = 1 << 21           # catalogue stars / compact galaxies to AB ~19; at every dot's peak -> catalogue_star
 SOURCE_PHOTO_MAX_FRAC = 0.9    # a photo with SOURCE at the peak of more than this share of its dots
                                # (seen: 99.98% on 2025W42_2A_0111_1D1) carries no information: ignore it there
 CATALOG_BATCH = 50
@@ -893,13 +919,14 @@ FORCED_SKY_PAD_DEG = 0.05                          # extra radius when picking a
 FORCED_SKY_CACHE_PARTITIONS = 16                   # partitions kept in memory per dots worker (a photo reads ~10-14)
 
 # --- final pass (15 Nov): zones with a Gaia-only refcat (SKYSHIFT_REFCAT_CATALOGS=gaia) -----------
-# suspects: the WISE veto. refcat/<zone>.parquet without CatWISE rows (Gaia-only) -> AllWISE from IRSA's HEALPix
-# Parquet on AWS S3 (anonymous): only the order-5 partitions (nside 32, nested, 3.36 deg²) the remaining movers' 6″
-# circles touch, columns ra and dec only (each file is ONE row group, so row-group predicate pushdown skips nothing:
-# the saving is the partition choice and the column projection, ~1 MB of a ~22 MB file). CatWISE2020 is not on S3
+# suspects: the WISE catalogue (16 Nov: a reason and a warning, no longer a veto). refcat/<zone>.parquet without CatWISE
+# rows (Gaia-only) -> AllWISE from IRSA's HEALPix Parquet on AWS S3 (anonymous): only the order-5 partitions (nside 32,
+# nested, 3.36 deg²) the suspects' 6″ circles touch, columns ALLWISE_COLUMNS only (each file is ONE row group, so
+# row-group predicate pushdown skips nothing: the saving is the partition choice and the column projection, ~1 MB of
+# a ~22 MB file; 38–43 partitions for a 10° × 10° zone). CatWISE2020 is not on S3
 # (s3://nasa-irsa-wise/ has wise/{allsky,allwise,cryo-3band,neowiser,postcryo} and unwise/neo7, 14 Nov).
 # AllWISE positions are the non-moving fit at ~2010.5 (MJD ~55400), no proper motion applied: a source moving
-# > ~400 mas/yr has left the 6″ circle by 2025 (Gaia, moved by its own pm, still vetoes those down to G < 20).
+# > ~400 mas/yr has left the 6″ circle by 2025 (Gaia, moved by its own pm, still matches those down to G < 20).
 # "auto": AllWISE when the refcat has no CatWISE rows; "always": also instead of the TAP services when the refcat is
 # missing; "off": never (a Gaia-only refcat then leaves catwise_checked false).
 SUSPECTS_ALLWISE = os.environ.get("SKYSHIFT_SUSPECTS_ALLWISE", "auto")
@@ -909,10 +936,14 @@ ALLWISE_S3_PREFIX = "wise/allwise/catalogs/p3as_psd/healpix_k5/wise-allwise.parq
 ALLWISE_NSIDE = 32             # partition order k = 5, nested
 ALLWISE_ARCSEC = CATWISE_ARCSEC  # same veto radius as CatWISE
 ALLWISE_EPOCH_MJD = 55400.0    # ~2010.5: documentation only, positions are used as they are
-ALLWISE_COLUMNS = ("ra", "dec")
+ALLWISE_COLUMNS = ("ra", "dec", "w1mpro", "w2mpro")  # magnitudes for catalogue_star (16 Nov)
+# a partition cached before 16 Nov (ra, dec only: 1,752 files, 1.6 GB in the bucket) is read again from S3 for the
+# magnitudes (the catalogue reasons compare them with the mover's); SKYSHIFT_ALLWISE_REREAD_MAGS=0 uses it as it is
+# (magnitudes NaN: every AllWISE source within 6″ is then a reason, as before 16 Nov)
+ALLWISE_REREAD_MAGS = os.environ.get("SKYSHIFT_ALLWISE_REREAD_MAGS", "1") == "1"
 ALLWISE_WORKERS = 8            # partitions read in parallel
 ALLWISE_TIMEOUT_S = 120.0      # per S3 request
-ALLWISE_CACHE_DIR = "cache/allwise/k5"  # p<pixel:05d>.parquet (ra, dec) at the store root: neighbouring zones and reruns reuse it
+ALLWISE_CACHE_DIR = "cache/allwise/k5"  # p<pixel:05d>.parquet (ALLWISE_COLUMNS) at the store root: neighbouring zones and reruns reuse it
 ALLWISE_CACHE = os.environ.get("SKYSHIFT_ALLWISE_CACHE", "1") != "0"
 
 # calib: instrument-level terms borrowed from a reference zone's calib.json when the zone can't fit them itself.
@@ -964,9 +995,10 @@ TILE_DISK_RESERVE_GB = 3.0     # the slim mirror is made only when the work dir'
                                # slim dots + 1.9 GB forced on a 30 GB boot disk
 
 # --- vetting: gates, grades and reasons on the suspects (vet.py, suspects.py) ---------------------
-# Run on the suspects only (after the MPC/flag/bright/SOURCE cuts and the Gaia/WISE vetoes), never before link's pairing,
-# so known-asteroid recall (score) is untouched. A suspect that fails a gate stays in suspects.json with grade C and its
-# reasons. Hunt zone (14 Nov, 228 suspects): recurring detector pixels 94, within 6 px of the edge 70, sharp/poor PSF 22,
+# Run on the suspects only (every mover but the certain removals: a known body, a planet, a hot pixel; 16 Nov), never
+# before link's pairing, so known-asteroid recall (score) is untouched. A suspect that fails a gate stays in
+# suspects.json with grade C and its reasons. Until 16 Nov the flag bits, a bright source within 30″, SOURCE at every
+# peak and Gaia/WISE within 6″ removed movers first. Hunt zone (14 Nov, 228 suspects): recurring detector pixels 94, within 6 px of the edge 70, sharp/poor PSF 22,
 # masked bit at the peak 13, one D6 column 2; ~4 unexplained. link carries each mover's dots as lists (dot_obs, dot_det,
 # dot_x, dot_y, dot_mjd, dot_flux, dot_snr, dot_size, dot_chi2, dot_fpk, dot_row) and writes freedots.parquet (every
 # free dot: obs_id, detector, x, y, ra, dec) for the zone-level hot-pixel and column maps.
@@ -978,6 +1010,10 @@ VET_HOT_MIN_EXP_FREE = 5       # ... or its free dots in >= 5 (hunt: 133k free d
                                # hit 3.4% of real dots by chance, >= 5 0.01%; the five worst pixels made 10–14 suspects each)
 VET_COLUMN_PX = 0.5            # bad column: free dots of one exposure and detector within ±0.5 px in x ...
 VET_COLUMN_MIN_DOTS = 3        # ... at least this many (hunt: ~216 free dots per photo, 0.1 per column: 0.5% by chance)
+# ... and more than chance gives at the photo's free-dot density: Poisson tail <= this (16 Nov). Ecliptic photos hold
+# p50 65–94, p90 680–780 free dots: >= 3 alone hit 12.5% / 11.9% of the real asteroids (MPC within 5″) of ecl04 / ecl11
+# and 10.2% / 19.5% of the rest; with the tail <= 0.1% 0.3% / 0.4% vs 0.3% / 9.3%. At the hunt's ~216 it needs 4.
+VET_COLUMN_CHANCE_P = 1e-3
 # sharp: √(a·b) below VET_SHARP_FRAC[det] × the detector's stellar √(a·b) at that S/N, with OUTLIER (19) at the peak.
 # OUTLIER alone is set at the peak of 52–69% of MPC-matched movers' dots, so it never vetoes on its own. 150 MPC-matched
 # hunt movers (643 dots): ratio p1 0.69, p5 0.78; with OUTLIER, 10 dots at 0.62–0.69, all in D1–D3, none below 0.6. The
@@ -1004,19 +1040,24 @@ VET_PEAK_BITS = 0x0A02CEC7 & ~0x00008002
 VET_FLUX_RATIO_MAX = 4.0       # brightest / faintest dot within one detector (cosmic ray + a 5–20× fainter partner)
 VET_QA_NAME = "qa_photos.parquet"  # results/<zone>/qa_photos.parquet (qa.py): obs_id, detector, grade green|amber|red, reasons
 VET_CATALOG_ARCSEC = 6.0       # a 2MASS PSC source (refcat) within this: catalogued (`2mass`), grade C
-# AllWISE within 6″ (`allwise`, grade C) where CatWISE2020 was the zone's WISE veto (where AllWISE was the veto they are
-# gone already): hunt, 5 of the 28 suspects that pass every gate have one. Read from S3 as suspects' AllWISE veto does
-# (cache/allwise/k5 at the root); a failure only skips the reason (stats `allwise`). SKYSHIFT_VET_ALLWISE=0: off.
+# AllWISE within 6″ (`allwise`, grade C) also where CatWISE2020 is the zone's WISE catalogue: hunt, 5 of the 28
+# suspects that passed every gate on 14 Nov had one. Read from S3 as for a Gaia-only refcat (cache/allwise/k5 at the
+# root); a failure only skips the reason (stats `allwise`). SKYSHIFT_VET_ALLWISE=0: off.
 VET_ALLWISE = os.environ.get("SKYSHIFT_VET_ALLWISE", "1") != "0"
-VET_NEAR_SOURCE_ARCSEC = 10.0  # nearest refcat (Gaia/CatWISE/2MASS) or fixed source within this, beyond the 6″ vetoes:
+VET_NEAR_SOURCE_ARCSEC = 10.0  # nearest refcat (Gaia/CatWISE/2MASS) or fixed source within this:
                                # near_source_arcsec, a blend/wing warning (not a gate)
 VET_MOTION_SIGMA = 5.0         # grade A: B and on a tracklets track with rate_snr >= this (tracklets.parquet) ...
 VET_A_MIN_SESSIONS = 2         # ... and movers in >= this many sessions (tracks need TRACK_MIN_SESSIONS = 3 anyway)
+# ... and a track faster than this needs more than its movers' own dots: a recovered dot (tracklet_dots.parquet, not
+# one inside a star's group: `in_fixed`) or a suspect of the track with a detector partner (paired_exposures >= 1).
+# Fast tracks (> 150″/h, 2 sessions; tracklets TRACK_FAST_*, PR #367) link single-detector artefacts too: in hunt the
+# one fast track was a D6-only artefact (exposures 1, 2, 4, one direction, brightness falling 12–22×). Else it stays B.
+VET_A_FAST_ARCSEC_H = 400.0
 VET_GRADE_RANK = {"A": 0, "B": 1, "C": 2}
 # reasons are listed in this order; not_vetted = the movers table has no dot lists (link before 14 Nov evening)
 VET_GATES = ("not_vetted", "hot_pixel", "bad_column", "edge", "masked_peak", "sharp_outlier", "very_sharp", "flux_ratio",
-             "red_photo", "2mass", "allwise")
-VET_CATALOGS = ("2mass", "allwise")  # the catalogue reasons among VET_GATES
+             "red_photo", "bloom", "halo", "bright_star", "gaia", "catwise", "2mass", "allwise")
+VET_CATALOGS = ("gaia", "catwise", "2mass", "allwise")  # the catalogue reasons among VET_GATES
 
 # --- qa: a grade per photo (qa.py; results/<zone>/qa_photos.parquet, qa.json) ------------------------------------
 # NASA's header QA passes every photo (FINAST 0, L1/L2DQAFLG "Pass" on the bad ones too), so qa grades each photo against
