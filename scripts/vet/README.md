@@ -22,6 +22,9 @@ Run everything from `pipeline/` (its environment has all that is needed):
     python3 ../scripts/vet/triage.py <round dir> --runs RUN ...   # piles: likely real / open / likely junk (nothing deleted)
     uv run python ../scripts/vet/calibrate_warnings.py            # how often each packet warning fires on real movers
     uv run --with scikit-learn python ../scripts/vet/rb_score.py  # a learned real-or-bogus score from the tables (prototype)
+    uv run python ../scripts/vet/rb_train.py prepare --work DIR   # the exporter's rb_score model: as-if-unknown suspects
+    uv run --with scikit-learn python ../scripts/vet/rb_train.py train --work DIR --report R.json   # + MPC labels, then
+                                                                  # held-out numbers and pipeline/.../rb_model.json
     uv run python ../scripts/vet/route.py <round dir> --scores scores.parquet   # easy or hard, before any model runs;
                                                                   # then api_round.py --routes <round>/routes.json --hard-effort high
     uv run --with anthropic pytest ../scripts/vet/tests
@@ -66,6 +69,17 @@ Run everything from `pipeline/` (its environment has all that is needed):
   dropped, 18 of 18 junk removed). On the junk-heavy mix of the To check list (56 of 64 easy) routed costs about $0.041
   a mover against $0.076 for high everywhere. Sonnet high alone is the best single checker measured (better than Opus
   medium: 39/5/0 against 35/9/0).
+
+## rb_score in the exporter (ranking only)
+
+`rb_train.py` rebuilds `pipeline/src/skyshift_pipeline/rb_model.json` (120 boosted trees, 8 leaves each, as plain JSON)
+from local tables only: the suspects step with no known predictions on hunt, ecl04, ecl05, ecl08, ecl10, ecl11, ecl17,
+labels from MPC (+ Horizons) predictions (real = within 5″, rest = none within 60″), the 54 blind-round ids left out.
+Features are the suspects row only (skyshift_pipeline.rb_score.FEATURES): no known-body column, rate or motion
+significance. Leave-one-zone-out, movers not exempt (16 Nov): AUC 0.985-0.997 per zone (existing score 0.949-0.980),
+inside grade B 0.963 (0.805), grade C 0.984 (0.614); top 50 of each zone's grade C 350 of 350 real (241 by the existing
+score). Slow movers (rate < 10″/h, motion under 3σ, or no rate from >= 2 exposures) and wide ones get rb_score null
+and keep their place. The exporter orders open movers by it inside each tier (rb_score.reorder); nothing is removed.
 
 ## Publishing the verdicts on the site
 

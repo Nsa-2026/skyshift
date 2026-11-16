@@ -19,7 +19,7 @@ from skyshift_pipeline.store import Store, dots_rel, photolist_rel, results_rel
 TYPES = {"id": str, "kind": str, "ra": float, "dec": float, "mjd": float, "clock": str, "det": int, "zone": str,
          "zones": list, "gaia_match": bool, "catwise_match": bool, "galactic_b": float, "labels": list, "reasons": list,
          "why": str, "flags": list, "status": str, "checks": list}
-NULLABLE = {"score": float, "snr": float, "flux_ujy": float, "rate_arcsec_h": float, "pm_mas_yr": float,
+NULLABLE = {"score": float, "rb_score": float, "snr": float, "flux_ujy": float, "rate_arcsec_h": float, "pm_mas_yr": float,
             "pm_err_mas_yr": float, "pa_deg": float, "nearest_known_arcsec": float, "frames_url": str, "known_name": str}
 
 

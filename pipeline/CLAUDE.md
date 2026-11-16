@@ -90,6 +90,13 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   more files 9,154 C 24.4 MB (1.6 MB gzip); one full export of all 62 zones reads ~16 GB (was ~20 GB of columns,
   ~50 GB at a 16 KiB block, several hundred GB at gcsfs' default), of which sources' spectra 8.2 GB (flux_ujy/err_ujy
   whole: the candidates' rows touch ~80% of their pages), members ~2.3, dot flags ~2.4, refcat 1.7, classes 0.9.
+- rb_score (16 Nov, rb_score.py, model rb_model.json from scripts/vet/rb_train.py on local tables, no bucket reads):
+  a learned real-or-bogus score per mover from its suspects row only (no known-body column, rate or motion
+  significance); null for slow movers (rate < 10″/h, motion under 3σ, or no rate from >= 2 exposures) and wide ones
+  (comet haze or blend). The exporter's last step (build and --merge-only) gives each tier of open movers (status,
+  grade, strong check, motion_not_significant) its own scores back in rb_score order; exempt movers keep their score.
+  Ranking only. Leave-one-zone-out on 7 zones: AUC 0.985-0.997 (existing score 0.949-0.980); grade C top 50 per zone
+  350/350 real vs 241. Rebuild the model when the suspects columns or vet gates change.
 - Changes in known stars (16 Nov; changes.py, changes_step.py, changes_export.py; not a CLI step, not in `all`;
   docs/watch-changes.md): `uv run python -m skyshift_pipeline.changes_step --zones a,b|all [--skip-done] [--drop-points]
   --root gs://nasa-glazing-data [--out-root <dir>] --cache <dir>` reads a finished zone's lightcurves (11 of its columns,
