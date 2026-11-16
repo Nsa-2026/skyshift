@@ -661,6 +661,20 @@
 .sp-nav {
   padding: 0;
 }
+/* What this object did and what could make it an artefact: under the kind, above the pipeline's why. */
+.sp-about {
+  display: grid;
+  gap: var(--s2);
+  max-width: 46ch;
+  line-height: 1.45;
+}
+.sp-about p {
+  margin: 0;
+}
+.sp-about-watch {
+  color: var(--ink-2);
+  font-size: var(--step--1);
+}
 /* ---- Review queue ---------------------------------------------------------------------------- */
 .rq-head {
   display: flex;

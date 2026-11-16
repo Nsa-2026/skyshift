@@ -15,7 +15,7 @@ import { mountLearn } from "../learn";
 import { mountTools } from "../tools";
 import { mountLive } from "../live";
 import { mountDetailsSwitch } from "../prefs/details";
-import { candidateView, mountReview, mountSuspect, suspectFrames } from "../review";
+import { candidateView, mountReview, mountSuspect, suspectFrames, suspectWave } from "../review";
 import { mountAbout, mountCommunity } from "../community";
 import { mountWorkbench, targetFor, type Layer } from "../product/workbench";
 import {MODES, workspaceHref, type WorkspaceState} from "../product/workspace-state";
@@ -208,10 +208,13 @@ export function startApp(root: HTMLElement): void {
   const filters = mountFilters($("#blink"));
   // Kept as a variable: while it shows, the card holds it (CardHandle.lead), outside the side column.
   const suspectEl = $<HTMLElement>("#suspect");
+  // An object to check opens on its own detector, not All; leaving it restores the person's choice.
+  const suspectDet = suspectWave(blink);
   const suspect = mountSuspect(suspectEl, {
     open(c) {
       suspectCand = c;
       suspectAll = false;
+      suspectDet.open();
       const next = candidateView(c);
       void go(next, { push: false });
       writeView(next, true);
@@ -537,6 +540,8 @@ export function startApp(root: HTMLElement): void {
     if (resolveCtl) { cancelResolve(); say(''); }
     const { page, param, screen, workspace, candidate } = parseRoute();
     const practicing=page==='explore' && workspace?.tab==='play';
+    // Back on the object the plate still shows (#/c/<id> after the list): its own detector again.
+    if (page === 'explore' && candidate && !practicing && suspectCand && suspectEl.hidden) suspectDet.open();
     if(page==='explore')blink.singleDetector?.(practicing || layer !== 'raw');
     filters.active(layer === 'raw'); // guided practice keeps the Viewer's filters
     if (current && current !== page) pages.get(current)?.hide?.();
@@ -567,6 +572,7 @@ export function startApp(root: HTMLElement): void {
       notes.show(candidate);
     } else if (!suspectEl.hidden || suspectCand) {
       suspectEl.hidden = true;
+      suspectDet.leave();
       notes.hide();
       card.lead?.(null);
       suspect.hide();

@@ -16,6 +16,7 @@ import { listFor, queryNeedsCounts } from "./list";
 import { lastDiscoverHash, lastDiscoverQuery, trackDiscover } from "./nav";
 import { SAMPLE_NOTE, castVote, fillNearSource, gradeHtml, headHtml, motionHtml, visible } from "./parts";
 import { candidateMarks } from "./track";
+import { aboutCandidate } from "./about";
 import { KIND_TEXT, SITE, esc, kindName } from "./text";
 
 const html = String.raw;
@@ -52,6 +53,41 @@ export function noVoteHtml(c: Candidate): string {
     <p class="rv-novote-text">The pipeline graded it C: it fails a check${why}, so it is most likely an artefact or a catalogued source. Votes go to grade A and B objects.</p>
     <p class="rv-soft">You can still blink it.</p>
   </section>`;
+}
+
+/** What this object did, in which detector, and what could make it an artefact (src/review/about). */
+export function aboutHtml(c: Candidate, frames?: FramesResponse | null): string {
+  const a = aboutCandidate(c, frames);
+  return html`<div class="sp-about">
+    <p class="sp-about-said">${esc(a.said.join(" "))}</p>
+    ${a.watch ? html`<p class="sp-about-watch">${esc(a.watch)}</p>` : ""}
+  </div>`;
+}
+
+/** The part of the plate (BlinkHandle) the object's detector choice needs. */
+export interface WavePlate {
+  /** Set the plate's All-wavelengths preference (applied at its next show); returns the one before. */
+  preferAllWave?(on: boolean): boolean;
+}
+
+/**
+ * Each object to check opens on its own detector (candidateView: c.det) alone, not "All": open()
+ * sets the plate's preference before the candidate's frames are shown. The person can still press
+ * All. leave() puts back the preference the person had before the first object.
+ */
+export function suspectWave(plate: WavePlate): { open(): void; leave(): void } {
+  let saved: boolean | null = null;
+  return {
+    open() {
+      const before = plate.preferAllWave?.(false);
+      if (saved === null && typeof before === "boolean") saved = before;
+    },
+    leave() {
+      if (saved === null) return;
+      plate.preferAllWave?.(saved);
+      saved = null;
+    },
+  };
 }
 
 /** What the plate note says about the frames shown for a candidate. */
@@ -235,7 +271,7 @@ export function mountSuspect(el: HTMLElement, opts: SuspectOptions): SuspectHand
     const id = html`Object <span class="rv-nowrap">${esc(c.id)}</span>${c.zone ? ` from the ${esc(c.zone)} zone` : ""}. ${esc(KIND_TEXT[c.kind]?.could ?? "")}`;
     const open = votable(c);
     bodyEl.innerHTML = html`
-      ${headHtml(c, "h2", id)}
+      ${headHtml(c, "h2", id, aboutHtml(c))}
       ${motionHtml(c)}
       ${gradeHtml(c, true)}
       <div class="cd-ballot">${open ? "" : noVoteHtml(c)}</div>
@@ -243,6 +279,15 @@ export function mountSuspect(el: HTMLElement, opts: SuspectOptions): SuspectHand
     // Grade C is never put to a vote: no ballot, so keys 1–4 do nothing here either.
     ballot = open ? new Ballot(bodyEl.querySelector(".cd-ballot")!, { onVote: vote, onReset: () => vote(null), full: true, kind: c.kind }) : null;
     renderBallot();
+    // Its own frames (the plate's: framesFor shares them) make the description precise.
+    framesFor(c)
+      .then((loaded) => {
+        const about = bodyEl.querySelector(".sp-about");
+        if (cand === c && about) about.outerHTML = aboutHtml(c, loaded.frames);
+      })
+      .catch(() => {
+        /* the description stays as the candidate's own fields give it */
+      });
     if (c.kind === "mover")
       suspectFor(c.id).then((s) => {
         if (cand === c) fillNearSource(bodyEl, nearSourceOf(s));

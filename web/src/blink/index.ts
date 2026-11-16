@@ -3163,6 +3163,11 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       if (setSingleDetector(locked) && view && rawF) void load(view, rawF, rawUrl);
       else renderRow();
     },
+    preferAllWave(on) {
+      const before = preferredAllWave;
+      preferredAllWave = on;
+      return before;
+    },
     status(kind, message) {
       appStatus =
         kind === "idle" ? null : { kind, message: message ?? (kind === "loading" ? "Loading frames…" : "Something went wrong.") };

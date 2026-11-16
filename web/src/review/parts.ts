@@ -10,11 +10,12 @@ import { KIND_ICON, abMag, esc, kindName, motion, ujy } from "./text";
 
 const html = String.raw;
 
-/** Kind line (icon + plain name) as the page heading, then the why sentence, large. */
-export function headHtml(c: Candidate, level: "h1" | "h2" | "h3", idLine: string): string {
+/** Kind line (icon + plain name) as the page heading, then `lead` (HTML, optional), then the why sentence, large. */
+export function headHtml(c: Candidate, level: "h1" | "h2" | "h3", idLine: string, lead = ""): string {
   return html`
     <header class="rv-head">
       <${level} class="rv-kind"><span class="rv-icon">${KIND_ICON[c.kind] ?? ""}</span>${esc(kindName(c.kind))}</${level}>
+      ${lead}
       <p class="rv-why">${esc(c.why || "The pipeline flagged this spot for a look.")}</p>
       ${idLine ? html`<p class="rv-id">${idLine}</p>` : ""}
     </header>

@@ -255,6 +255,30 @@ describe("blink player", () => {
     h.destroy();
   });
 
+  it("opens an object to check on its own detector, lets All back in, and restores the preference", async () => {
+    const h = mountBlink(el, { onViewChange: vi.fn(), onPick: vi.fn() });
+    const pressed = (d: string) => el.querySelector(`[data-det='${d}']`)!.getAttribute("aria-pressed");
+    const label = () => el.querySelector(".bk-det-label")!.textContent;
+    // The suspect panel sets the preference before its frames are shown: D2 alone, not All.
+    expect(h.preferAllWave!(false)).toBe(true);
+    await h.show(view, frames, "https://example.test/data/cand/x/frames.json", { singleDetector: false });
+    expect(pressed("2")).toBe("true");
+    expect(pressed("all")).toBe("false");
+    expect(label()).toContain("D2");
+    // All stays available (not locked as in practice).
+    const all = el.querySelector<HTMLButtonElement>("[data-det='all']")!;
+    expect(all.disabled).toBe(false);
+    all.click();
+    expect(pressed("all")).toBe("true");
+    await vi.waitFor(() => expect(label()).toContain("All wavelengths"));
+    // Leaving the object puts the person's choice back; the next view opens with it.
+    expect(h.preferAllWave!(false)).toBe(true);
+    h.preferAllWave!(true);
+    await h.show({ ...view, ra: 270 }, frames, "https://example.test/data/x/frames.json");
+    expect(pressed("all")).toBe("true");
+    h.destroy();
+  });
+
   it("keeps every detector requestable after a live answer, which holds only the one asked for", async () => {
     // /api/frames?det=2 returns D2 epochs only; D6 at this spot is one more request away (#57).
     const onViewChange = vi.fn();
