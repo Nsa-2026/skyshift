@@ -33,9 +33,10 @@ so it can be repeated.
 6. **No step finds anything fainter than one exposure today, at any rate.** The distant-planet route (orphans) works
    on single-exposure dots (5σ at AB 17.3 in D1); matched filter + session coadds would deepen it by ~1.5 mag in SWIR,
    a visit-long shift-and-stack along physical orbits by a further ~1.3 mag after paying for its trials.
-7. **Recommendation for the one combined rerun (extraction v2):** (1) matched-filter detection on every photo, (2) a
-   MWIR dark-hole mask, (3) session coadds per detector with per-photo forced measurement, (4) store per-session
-   matched-filter maps for the hunt zone, so shift-and-stack can run later without re-reading photos. Details in §6.
+7. **Recommendation for the one combined rerun (extraction v2, docs/extraction-v2.md):** (1) keep v2's matched-filter
+   pass (already there, #370) but set its threshold per detector (D1 has ~10× D2's noise peaks), (2) a MWIR dark-hole
+   mask, (3) session coadds per detector with per-photo forced measurement, (4) store per-session matched-filter maps
+   for the hunt zone, so shift-and-stack can run later without re-reading photos. Details in §6.
 
 ## How it was measured
 
@@ -352,14 +353,15 @@ No VM was started for this; the cloud rows are estimates from the measured per-p
 
 In order of gain per cost:
 
-1. **Matched-filter (ePSF) detection on every single photo**, in addition to or instead of sep's thresh-2 +
-   aperture S/N cut. Gaia G50 +0.85 (D1) to +1.47 (D2) over the sky run's dots at S/N 5 (+0.71 in D1 at equal
-   false alarms), ~0.5 s per photo, no new reads. Keep sep's
-   deblending/shape columns for the dots it finds; add matched-filter-only detections as dots with their own flag
-   (`det_mf`), positions from the ePSF fit the extraction already does. Threshold against the map's own robust σ:
-   5σ in D2/D3 (0–3 negatives per deg²), 5.6σ in D1 (10 per deg²), higher in MWIR until the dark holes are masked;
-   the extraction should set it per photo from that photo's own negative peaks. Expect ~3–4× more dots per photo
-   (7,300–9,400 vs 1,900–2,300 per deg² in SWIR, mostly real faint sources and blends).
+1. **Matched-filter (ePSF) detection on every single photo.** Extraction v2 (#370, behind `SKYSHIFT_DOTS_V2`) already
+   adds it: a matched-filter pass on the residual, `MF_PASS_SNR` 5, new dots flagged `sep_flag` 0x400 with `snr_mf`.
+   These strips agree with its gain independently: Gaia G50 +0.85 (D1) to +1.47 (D2) over the sky run's dots at S/N 5
+   (+0.71 in D1 at equal false alarms), ~0.5 s per photo, no new reads. What they add for v2: a fixed 5σ is right
+   for D2/D3 (0–3 negatives per deg², as v2's 28–31 per D2 photo) but D1 has ~21 per deg² at 5σ (~250 per photo);
+   5.6σ gives 10 per deg². Set the threshold per detector, or per photo from that photo's own negative peaks, and
+   higher in MWIR until the dark holes are masked. On these sparse strips the matched-filter map has ~3–4× the sky
+   run's sources at ≥ 5σ (7,300–9,400 vs 1,900–2,300 per deg² in SWIR); v2 measured +40% dots on a crowded D2 photo,
+   after its finer sep passes. Plan dot storage for somewhere in between.
 2. **Mask MWIR dark holes** (unflagged pixels far below the sky next to PERSIST (17) / OUTLIER (19) pixels: 70–330
    holes deeper than −20σ per MWIR photo). Without it neither the matched filter nor any coadd has a usable false-alarm control in D4–D6.
 3. **Session coadds per detector** (2–5 exposures of one session, one worker holds the session's photos):
@@ -371,8 +373,8 @@ In order of gain per cost:
 4. **Write each session's matched-filter num/den maps** (float16, native grid) for the hunt zone (24 GB; 12 GB SWIR
    only) — and for the sky only if digital tracking is going to be run (3.2 TB). This is what makes shift-and-stack
    possible later without re-reading 28 TB.
-5. **Pairs: no detection image.** Keep (and add, as the pixel agent asked) the partner's forced flux per dot: it is the
-   glitch test, and the partner photo is in memory anyway when the six detectors of an exposure are processed together.
+5. **Pairs: no detection image.** The partner's forced flux per dot (v2's `partner_flux_ujy`, partners processed
+   together) is enough: it is the glitch test.
 6. **After the rerun, not in it:** shift-and-stack over each hunt visit for 150–1000 AU (3 core-h; then 70–1000 AU,
    61 core-h, a few hours on the lead's PC), with the controls of section 4, feeding orphans' pair step with
    (d, own motion) per candidate. The prototype functions (`coadd.distance_trials`, `parallax_offsets`,

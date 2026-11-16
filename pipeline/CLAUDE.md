@@ -43,8 +43,8 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
 - coadd (coadd.py, 16 Nov; a prototype, not a CLI step, used by no step): session coadds, simultaneous-pair maps
   (sum, positive χ²) and shift-and-stack trial grids (physical: distance + own motion, parallax from Earth + SPHEREx)
   on stack.py's matched-filter maps. Measured on 12 hunt strips (docs/session-stacks.md): N = 2/3/4 exposures
-  +0.40/+0.60/+0.73 mag (√N); the matched filter on one photo +0.7–0.95 mag over the sky run's sep at equal false
-  alarms; pairs add ~nothing for star colours; MWIR photos carry ~190 unflagged dark holes each.
+  +0.40/+0.60/+0.73 mag (√N); the matched filter on one photo Gaia G50 +0.85 (D1) / +1.47 (D2) over the sky run's
+  dots; pairs add ~nothing for star colours; MWIR photos carry 70–330 unflagged dark holes each.
 - Candidates for the site (contracts/api.md, candidates.json): `uv run skyshift-candidates [--zones hunt,pilot]
   [--cache <dir>]` reads results/ of every finished zone (largest first) and writes ../web/public/data/candidates.json;
   then `cd ../server && uv run python ../scripts/candidates/frames.py` adds static frames for the top ones.
