@@ -4,7 +4,7 @@ import {describe,expect,it} from 'vitest';
 import type {Analysis,Candidate} from '../api/science-client';
 import type {GaiaStar,KnownPrediction} from '../api/catalogues';
 import {candidateRows} from './evidence';
-import {category,checkSummary,gaiaAt,signalTrack,vetSignal,type Catalogues,type ScienceFrame,type Track} from './vetting';
+import {category,checkSummary,gaiaAt,precomputedVerdict,signalTrack,vetSignal,type Catalogues,type ScienceFrame,type Track,type Verdict} from './vetting';
 
 const read=<T,>(slug:string,file:string)=>JSON.parse(readFileSync(join(__dirname,`../../public/science-data/${slug}/${file}.json`),'utf8')) as T;
 const none=():Catalogues=>({gaia:{state:'ok',rows:[]},catwise:{state:'ok',rows:[]},mpc:{state:'ok',rows:[]}});
@@ -170,6 +170,45 @@ describe('honest answers',()=>{
     expect(v.untimed).toBe(true);
     expect(v.checks[0].text).toMatch(/^Not checked against catalogues: the times of its observations did not load/);
     expect(checkSummary([v],answered()).text).toContain('1 signal could not be checked');
+  });
+});
+
+describe('checks written before the list was published',()=>{
+  const eps=read<Analysis>('epsindib','analysis'),f=read<{frames:ScienceFrame[]}>('epsindib','science').frames;
+  const epsIndiB:GaiaStar={id:'6412596012146801152',ra:331.07645259656397,dec:-56.79381206688221,pmra:3981.977,pmdec:-2466.832,parallax:270.658,g:18.031};
+  const still:Track={sightings:[{mjd:61000,ra:10,dec:0}],motion:null,still:true};
+  const t=fastTrack();
+  // Every kind of answer the browser gives, written as a file holds it, reads back as the same answer.
+  const cases:[string,Verdict][]=[
+    ['body',vetSignal('fast',t,answered({mpc:{state:'ok',rows:along(t)}}),2)],
+    ['star',vetSignal('slow',signalTrack('slow',eps.slow_movers[0],f,2),answered({gaia:{state:'ok',rows:[epsIndiB,far.gaia]}}),2)],
+    ['near',vetSignal('fast',t,answered({mpc:{state:'ok',rows:along(t,'(265513)',{east:20,north:0}).slice(1,2)}}),2)],
+    ['gaia',vetSignal('cold',still,answered({gaia:{state:'ok',rows:[{...far.gaia,ra:10,dec:0,pmra:0,pmdec:0}]}}),6)],
+    ['catwise',vetSignal('cold',still,answered({catwise:{state:'ok',rows:[{...far.catwise,ra:10,dec:0}]}}),6)],
+    ['clear',vetSignal('cold',still,answered(),6)],
+    ['partial',vetSignal('cold',still,answered({catwise:{state:'ok',rows:[]}}),6)],
+  ];
+  it.each(cases)('reads back a %s answer',(want,v)=>{
+    expect(category(v)).toBe(want);
+    const c={ra:10,dec:0,status:'unvetted',p_false:null,check_status:v.status,known_name:v.known_name,checks:JSON.parse(JSON.stringify(v.checks))} as Candidate;
+    const back=precomputedVerdict(c)!;
+    expect(category(back)).toBe(want);
+    expect(back).toMatchObject({status:v.status,known_name:v.known_name,known_kind:v.known_kind,checks:v.checks,found:v.found,pending:[],failed:[]});
+  });
+  it('is none for a candidate without checks, and keeps only well-formed ones, sorted',()=>{
+    expect(precomputedVerdict({ra:1,dec:1,status:'unvetted',p_false:null})).toBeNull();
+    const v=precomputedVerdict({ra:1,dec:1,status:'unvetted',p_false:null,check_status:'open',checks:[
+      {code:'catalogues_checked',level:'ok',text:'Gaia DR3 checked: nothing',look:'',values:null},{code:'x',level:'??',text:'bad'},null,
+      {code:'catalogue_star',level:'warn',text:'A star',look:'Look here',values:{catalogue:'catwise'}}]} as Candidate)!;
+    expect(v.checks.map(c=>c.code)).toEqual(['catalogue_star','catalogues_checked']);
+    expect(category(v)).toBe('catwise');
+    // Only `known` is listed apart; any other status reads as open.
+    expect(precomputedVerdict({ra:1,dec:1,status:'x',p_false:null,check_status:'flaw',checks:[]} as Candidate)!.status).toBe('open');
+  });
+  it('the summary says the checks were done before publishing',()=>{
+    const v=precomputedVerdict({ra:1,dec:1,status:'x',p_false:null,check_status:'known',known_name:'Gaia DR3 1',checks:[{code:'known_star',level:'strong',text:'t',look:'',values:null}]} as Candidate)!;
+    expect(v.known_kind).toBe('star');
+    expect(checkSummary([v],answered(),{},'Checked before this list was published').text).toBe('Checked before this list was published: 1 signal is a known star.');
   });
 });
 

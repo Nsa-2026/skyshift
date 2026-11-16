@@ -7,7 +7,8 @@ Why: around a saturated or very bright star the wings and halo stay above the sk
 
 What it does, per photo (or block):
 1. bright_stars: the stars to model. A saturated star = a connected bad-pixel blob holding OVERFLOW/NONLINEAR
-   pixels (its masked core; Barnard's is ~9 px wide: SUR_ERROR/TRANSIENT around 3 OVERFLOW pixels); an unsaturated
+   pixels (its masked core; Barnard's is ~9 px wide: SUR_ERROR/TRANSIENT around 3 OVERFLOW pixels; only masked
+   pixels within GLOW_CORE_REACH_PX of a saturated one count, so a streak through it is no core); an unsaturated
    one = a local maximum whose peak is >= GLOW_MIN_PEAK_SNR x the pixel noise. Brightest first, at most GLOW_MAX_STARS.
 2. Per star, on the background-subtracted image minus the brighter stars' models:
    a. ePSF (the photo's EPSF HDU, evaluated at pixel centres, never integrated): flux and centre from the unmasked
@@ -63,6 +64,8 @@ GLOW_K_STOP = 1.05          # the noise factor ends at the first ring whose k is
 GLOW_AP_R_PX = 2.0          # the dots' aperture: z is measured in it
 GLOW_ITER = 2               # model, background again, model again
 GLOW_SAT_GROW_PX = 1        # pixels around saturated ones left out of the ePSF fit
+GLOW_CORE_REACH_PX = 6      # a saturated core's blob = OVERFLOW/NONLINEAR pixels + masked pixels within this many px
+                            # (square) of them: a STREAK or bad column touching one saturated pixel is not a 135 px core
 GLOW_EPSF_HALF = 3          # ePSF stamp half size (the ePSF is 0 beyond +-3.2 px)
 GLOW_EPSF_MIN_PX = 6        # unmasked pixels with ePSF >= 1e-3 needed to fit the ePSF part
 
@@ -180,7 +183,10 @@ def bright_stars(
     if flags is not None:
         sat = (np.asarray(flags).astype(np.int64) & SAT_BITS) != 0
         if sat.any():
-            blob = m | sat
+            # only masked pixels near saturated ones: a long masked streak/column touching a saturated pixel made a
+            # "core" of r 135 px whose every detection within ~840" became a piece (Galatea, S/N 137, lost)
+            near = ndimage.binary_dilation(sat, structure=np.ones((3, 3), bool), iterations=GLOW_CORE_REACH_PX)
+            blob = (m | sat) & near
             lab, n = ndimage.label(blob, structure=np.ones((3, 3), bool))
             ids = np.unique(lab[sat])
             ids = ids[ids > 0]

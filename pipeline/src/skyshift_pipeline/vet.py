@@ -1,13 +1,16 @@
 """Vetting of the suspects: gates, grades and reasons (thresholds: config VET_*).
 
-Runs in `suspects` on the movers that are left after the MPC, flag, bright-source, SOURCE-bit and Gaia/WISE cuts, never
-before link's pairing, so known-asteroid recall is untouched. Each gate looks at the suspect's own dots (link's dot
-lists in movers.parquet) or at zone-level maps:
+Runs in `suspects` on the movers left after the certain removals (a known body, a planet, a hot pixel that stayed on one
+pixel while the sky moved), never before link's pairing, so known-asteroid recall is untouched. A gate never removes:
+it grades C (kept, ranked last, with its reasons). Each gate looks at the suspect's own dots (link's dot lists in
+movers.parquet) or at zone-level maps:
 
 - hot_pixel     a dot on a detector pixel (±1 px) where the zone's movers have dots in >= 3 exposures, or its free dots
                 (freedots.parquet: every dot movers are paired from) in >= 5. Hot pixels NASA's HOT bit misses pair up
                 with another such pixel one to three exposure steps (~115 px in y) away and make "movers".
-- bad_column    a dot on a column (±0.5 px in x) holding >= 3 free dots of the same exposure and detector.
+- bad_column    a dot on a column (±0.5 px in x) holding >= 3 free dots of the same exposure and detector, and more
+                than chance gives at that photo's free-dot density (Poisson tail <= 0.1%; ecliptic photos hold up to
+                ~800 free dots: >= 3 then caught 12% of the real asteroids, now 0.3%).
 - edge          a dot within 6 px of the detector edge (hunt's former #1 candidate sat at x 0.6–0.7, half off the frame).
 - masked_peak   a mask bit (contracts/flags.md, saturation aside) at a dot's peak: TRANSIENT, PERSIST, SUR_ERROR, ...
 - sharp_outlier a dot sharper than a star (√(a·b) < 0.7 × (D1–D3: 0.6 ×) the detector's stellar size at its S/N) with
@@ -15,12 +18,17 @@ lists in movers.parquet) or at zone-level maps:
 - very_sharp    a dot under 0.4 × the stellar size at S/N >= 15, with or without OUTLIER: no point source is that sharp.
 - flux_ratio    the brightest dot > 4× the faintest within one detector (a hit with a faint partner).
 - red_photo     every dot from a photo that qa.py graded red (results/<zone>/qa_photos.parquet; skipped without it).
-- 2mass         a 2MASS PSC source within 6″ (refcat): catalogued after all.
-- allwise       an AllWISE source within 6″ (S3), where CatWISE2020 was the zone's WISE veto.
+- bloom, halo   NASA's BLOOM / HALO bit at every dot's peak (suspects.flag_warnings; in a dot's 3×3 only a warning).
+- bright_star   a fixed source with S/N >= 100 within 15″ (to 30″ only a warning).
+- gaia, catwise, 2mass, allwise   a catalogue source within 6″ at most 2 mag fainter than the suspect (AB; a fainter
+                one is a chance neighbour: the catalogue_star warning only). AllWISE (S3) where CatWISE2020 is the zone's
+                WISE catalogue too, or instead of it in a Gaia-only refcat.
 
 Grades: C = fails a gate or is catalogued (kept, with its reasons); B = passes everything, motion not shown (most suspects
 are 2 dots of one session: at S/N 7–9 the centroid error exceeds the motion between exposures); A = B plus motion
->= 5σ over >= 2 sessions: on a `tracklets` track (suspects.track_grades, after vet; vet itself gives only B and C).
+>= 5σ over >= 2 sessions: on a `tracklets` track (suspects.track_grades, after vet; vet itself gives only B and C); a
+track faster than VET_A_FAST_ARCSEC_H (400″/h) also needs a recovered dot (not inside a star's group) or a detector
+partner (D1+D4, D2+D5, D3+D6 in one exposure), else it stays B: fast 2-session tracks link single-detector artefacts.
 `near_source_arcsec` (a refcat or fixed source 6–10″ away: a possible blend or PSF wing) is a warning, not a gate.
 """
 
@@ -112,6 +120,21 @@ def column_dots(q: pd.DataFrame, free: pd.DataFrame, r_px: float = C.VET_COLUMN_
     return out
 
 
+def column_need(q: pd.DataFrame, free: pd.DataFrame, r_px: float = C.VET_COLUMN_PX) -> np.ndarray:
+    """For each query dot: the free dots (itself included) a bad column needs in its photo: at least VET_COLUMN_MIN_DOTS,
+    and more where the photo's free dots are so dense that chance alone fills a column: the smallest count whose
+    Poisson tail at that photo's density (free dots × 2·r_px / detector width) is <= VET_COLUMN_CHANCE_P."""
+    from scipy.stats import poisson
+    need = np.full(len(q), C.VET_COLUMN_MIN_DOTS, np.int64)
+    if len(q) == 0 or len(free) == 0:
+        return need
+    nfree = free.groupby([free["obs"].astype(str), free["det"].astype(np.int64)]).size()
+    n = pd.Series(list(zip(q["obs"].astype(str), q["det"].astype(np.int64)))).map(nfree).fillna(0).to_numpy(np.float64)
+    lam = np.maximum(n - 1.0, 0.0) * (2.0 * r_px) / C.VET_DETECTOR_PX  # other free dots expected in the column
+    others = poisson.isf(C.VET_COLUMN_CHANCE_P, lam) + 1.0  # P(N >= others) <= VET_COLUMN_CHANCE_P
+    return np.maximum(need, np.nan_to_num(others, nan=0.0).astype(np.int64) + 1)
+
+
 def load_free(store: Store, zone: C.Zone) -> pd.DataFrame | None:
     """freedots.parquet as obs, det, x, y (None if link didn't write it)."""
     from .link import FREEDOTS_NAME
@@ -146,7 +169,7 @@ def dot_gates(d: pd.DataFrame, movers_dots: pd.DataFrame, free: pd.DataFrame | N
     hot = pixel_exposures(d, movers_dots) >= C.VET_HOT_MIN_EXP_MOVERS
     if free is not None:
         hot |= pixel_exposures(d, free) >= C.VET_HOT_MIN_EXP_FREE
-        g["bad_column"] = column_dots(d, free) >= C.VET_COLUMN_MIN_DOTS
+        g["bad_column"] = column_dots(d, free) >= column_need(d, free)
     else:
         g["bad_column"] = False
     g["hot_pixel"] = hot
@@ -159,6 +182,37 @@ def dot_gates(d: pd.DataFrame, movers_dots: pd.DataFrame, free: pd.DataFrame | N
     g["red"] = (np.array([(o, int(k)) in red for o, k in zip(d["obs"], d["det"])], bool)
                 if red is not None and len(d) else np.zeros(len(d), bool))
     return g
+
+
+PERSIST_BIT = 1 << 17
+
+
+def dot_numbers(s: pd.DataFrame) -> pd.DataFrame:
+    """The numbers behind some gates, per suspect (row of s, NaN without dot lists): edge_px (the smallest distance of
+    a dot to the detector edge, px), persist_dots (dots with PERSIST at the peak: a bright star's leftover image),
+    size_ratio (the smallest dot √(a·b) / the detector's stellar value at its S/N), flux_ratio (brightest / faintest
+    dot within one detector, the largest)."""
+    n = len(s)
+    out = pd.DataFrame({"edge_px": np.full(n, np.nan), "persist_dots": np.zeros(n, np.int64),
+                        "size_ratio": np.full(n, np.nan), "flux_ratio": np.full(n, np.nan)})
+    if n == 0 or not has_dot_lists(s):
+        return out
+    d = explode(s.reset_index(drop=True))
+    if len(d) == 0:
+        return out
+    i = d["i"].to_numpy()
+    x, y = d["x"].to_numpy(np.float64), d["y"].to_numpy(np.float64)
+    hi = C.VET_DETECTOR_PX - 1
+    e = np.minimum(np.minimum(x, y), np.minimum(hi - x, hi - y))
+    out["edge_px"] = pd.Series(e).groupby(i).min().reindex(range(n)).to_numpy()
+    out["persist_dots"] = pd.Series((d["fpk"].to_numpy(np.int64) & PERSIST_BIT) != 0).groupby(i).sum().reindex(
+        range(n)).fillna(0).astype(np.int64).to_numpy()
+    ratio = d["size"].to_numpy(np.float64) / star_size(d["det"].to_numpy(), d["snr"].to_numpy())
+    out["size_ratio"] = pd.Series(ratio).groupby(i).min().reindex(range(n)).to_numpy()
+    f = d.groupby(["i", "det"])["flux"].agg(["max", "min"])
+    fr = (f["max"] / f["min"].where(f["min"] > 0)).groupby(level="i").max()
+    out["flux_ratio"] = fr.reindex(range(n)).to_numpy()
+    return out
 
 
 def flux_ratio_fail(d: pd.DataFrame) -> pd.Series:
@@ -174,8 +228,9 @@ def vet(s: pd.DataFrame, movers: pd.DataFrame, free: pd.DataFrame | None, red: s
         catalogued: dict[str, np.ndarray] | None = None) -> tuple[pd.DataFrame, dict]:
     """Gates on the suspects s (rows of movers with the dot lists). Returns s with grade, reasons (list of gate names in
     VET_GATES order) and one boolean column per gate (gate_<name>), and stats: per gate the suspects failing it, the
-    suspects whose first reason it is, and the grade counts. catalogued: per catalogue reason (VET_CATALOGS: "2mass",
-    "allwise"), per suspect, a source within 6″; a catalogue left out was not checked."""
+    suspects whose first reason it is, and the grade counts. catalogued: the reasons decided outside, per suspect: the
+    catalogues (VET_CATALOGS: a source within 6″ at most 2 mag fainter; a catalogue left out was not checked) and the
+    strong warnings (bloom, halo, bright_star)."""
     s = s.copy().reset_index(drop=True)
     n = len(s)
     fail = {k: np.zeros(n, bool) for k in C.VET_GATES}

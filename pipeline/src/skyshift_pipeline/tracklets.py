@@ -48,7 +48,7 @@ from scipy.spatial import cKDTree
 from . import config as C
 from . import log
 from .link import NONFIXED_DOTS_NAME
-from .sky import chord, radec_to_xyz
+from .sky import chord, offset_radec, radec_to_xyz
 from .store import Store, photolist_rel, results_rel
 
 L = log.get("tracklets")
@@ -57,7 +57,7 @@ TRACK_COLUMNS = ["mover_id", "session", "visit", "mjd", "ra", "dec", "cell", "tr
                  "n_recovered_sessions", "span_h", "rate_arcsec_h", "pa_deg", "rate_sigma", "rate_snr", "vra_arcsec_h",
                  "vdec_arcsec_h", "fit_chi2_nu", "track_chi2_nu", "resid_arcsec", "fit_degree"]
 DOT_COLUMNS = ["tracklet_id", "visit", "session", "obs_id", "detector", "dot_row", "ra", "dec", "mjd", "snr", "flux_ujy",
-               "flags", "flags_peak", "sep_arcsec", "r_arcsec", "pred_ra", "pred_dec"]
+               "flags", "flags_peak", "sep_arcsec", "r_arcsec", "pred_ra", "pred_dec", "in_fixed"]
 FREE_DOTS = NONFIXED_DOTS_NAME  # link's table of the dots in no fixed group
 
 
@@ -361,19 +361,79 @@ class Track:
             self.drop(q)
 
 
+def fast_tracks(t: np.ndarray, ra: np.ndarray, dec: np.ndarray, sess: np.ndarray, own: np.ndarray | None,
+                used: np.ndarray) -> list[np.ndarray]:
+    """Tracks of fast movers (TRACK_RATE_MAX_ARCSEC_H .. TRACK_FAST_RATE_MAX_ARCSEC_H), which the main pass can't link:
+    they rarely give 3 sessions, and a seed search at those rates would pair everything. A fast mover shows its own motion
+    within its session (14″ per 2.1 min at 400″/h against ~1″ errors), so two movers of sessions <= TRACK_SEED_MAX_GAP_H
+    apart link when the chord between them agrees with BOTH their own velocities (own: vx, vy, σ ″/h per mover, NaN where
+    unknown; within TRACK_FAST_VEL_FRAC of the speed or TRACK_FAST_VEL_NSIGMA σ, whichever is larger; own speed >=
+    TRACK_FAST_OWN_MIN_ARCSEC_H at >= TRACK_FAST_OWN_SNR σ). Linked pairs chain; one mover per session (the best
+    agreement); a track needs >= TRACK_FAST_MIN_SESSIONS sessions. Returns the member indices of each track."""
+    if own is None or C.TRACK_FAST_RATE_MAX_ARCSEC_H is None:
+        return []
+    vx, vy, sv = own[:, 0], own[:, 1], own[:, 2]
+    sp = np.hypot(vx, vy)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        ok = ~used & np.isfinite(sp) & (sp >= C.TRACK_FAST_OWN_MIN_ARCSEC_H) & (sp / sv >= C.TRACK_FAST_OWN_SNR)
+    idx = np.flatnonzero(ok)
+    if idx.size < 2:
+        return []
+    a, b = np.triu_indices(idx.size, 1)
+    a, b = idx[a], idx[b]
+    swap = t[b] < t[a]
+    a, b = np.where(swap, b, a), np.where(swap, a, b)
+    dt = t[b] - t[a]
+    keep = (sess[a] != sess[b]) & (dt > 0) & (dt <= C.TRACK_SEED_MAX_GAP_H)
+    a, b, dt = a[keep], b[keep], dt[keep]
+    if not a.size:
+        return []
+    x, y = tan_xy(ra[a], dec[a], ra[b], dec[b])
+    cx, cy = x / dt, y / dt
+    rate = np.hypot(cx, cy)
+    good = (rate > C.TRACK_RATE_MAX_ARCSEC_H) & (rate <= C.TRACK_FAST_RATE_MAX_ARCSEC_H)
+    mis = np.zeros(a.size)
+    for m in (a, b):
+        d = np.hypot(cx - vx[m], cy - vy[m])
+        tol = np.maximum(C.TRACK_FAST_VEL_FRAC * sp[m], C.TRACK_FAST_VEL_NSIGMA * sv[m])
+        good &= d <= tol
+        mis = np.maximum(mis, d / tol)
+    a, b, mis = a[good], b[good], mis[good]
+    if not a.size:
+        return []
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+    nodes, inv = np.unique(np.r_[a, b], return_inverse=True)
+    g = coo_matrix((np.ones(a.size), (inv[:a.size], inv[a.size:])), shape=(nodes.size, nodes.size))
+    _, comp = connected_components(g, directed=False)
+    # each mover's best agreement over its links, to keep one mover per session
+    best = pd.Series(np.r_[mis, mis]).groupby(np.r_[a, b]).min()
+    out = []
+    for c in np.unique(comp):
+        mem = nodes[comp == c]
+        mem = mem[np.lexsort((best.reindex(mem).to_numpy(), sess[mem]))]
+        mem = mem[np.r_[True, np.diff(sess[mem]) != 0]]
+        if np.unique(sess[mem]).size >= C.TRACK_FAST_MIN_SESSIONS:
+            out.append(np.sort(mem))
+    return out
+
+
 def link_visit(t: np.ndarray, ra: np.ndarray, dec: np.ndarray, sig: np.ndarray, sess: np.ndarray,
-               acc: Accel = Accel()) -> tuple[np.ndarray, dict]:
-    """Track label per mover of one visit (-1: on no track; labels 0.. in order of acceptance) and counts."""
+               acc: Accel = Accel(), own: np.ndarray | None = None) -> tuple[np.ndarray, dict]:
+    """Track label per mover of one visit (-1: on no track; labels 0.. in order of acceptance) and counts.
+    own: the movers' own velocities (vx, vy, σ ″/h; NaN unknown) for fast_tracks; None = no fast pass."""
     lab = np.full(t.size, -1, np.int64)
-    st = {"seeds": 0, "seeds_with_third": 0, "tracks": 0}
-    if t.size < C.TRACK_MIN_SESSIONS:
+    st = {"seeds": 0, "seeds_with_third": 0, "tracks": 0, "fast_tracks": 0}
+    if t.size < min(C.TRACK_MIN_SESSIONS, C.TRACK_FAST_MIN_SESSIONS):
         return lab, st
+    if t.size < C.TRACK_MIN_SESSIONS:
+        return _fast_pass(t, ra, dec, sess, own, lab, st, 0)
     V = _Visit(t, ra, dec, sig, sess, acc)
     a, b = V.seeds()
     st["seeds"] = int(a.size)
     s, m, z = V.triplets(a, b)
     if s.size == 0:
-        return lab, st
+        return _fast_pass(t, ra, dec, sess, own, lab, st, 0)
     cnt = np.bincount(s, minlength=a.size)
     zsum = np.bincount(s, weights=z, minlength=a.size)
     cand = np.flatnonzero(cnt >= max(1, C.TRACK_MIN_SESSIONS - 2))
@@ -409,6 +469,16 @@ def link_visit(t: np.ndarray, ra: np.ndarray, dec: np.ndarray, sig: np.ndarray, 
         used[idx] = True
         lab[idx] = n
         n += 1
+    st["tracks"] = n
+    return _fast_pass(t, ra, dec, sess, own, lab, st, n)
+
+
+def _fast_pass(t, ra, dec, sess, own, lab: np.ndarray, st: dict, n: int) -> tuple[np.ndarray, dict]:
+    """fast_tracks on the movers left free, labelled from n on; st["tracks"] counts them too."""
+    for mem in fast_tracks(t, ra, dec, sess, own, lab >= 0):
+        lab[mem] = n
+        n += 1
+        st["fast_tracks"] += 1
     st["tracks"] = n
     return lab, st
 
@@ -468,6 +538,8 @@ def load_free_dots(store: Store, zone: C.Zone) -> pd.DataFrame | None:
     fd = store.read_parquet(rel)
     if not C.TRACK_RECOVER_NEAR_FIXED and "near_fixed" in fd:
         fd = fd[~fd["near_fixed"].to_numpy(bool)]
+    if not C.TRACK_RECOVER_IN_FIXED and "in_fixed" in fd:
+        fd = fd[~fd["in_fixed"].to_numpy(bool)]
     if "elong" in fd:
         fd = fd[~(fd["elong"].to_numpy(np.float64) > C.MOVER_MAX_ELONG)]
     return fd.reset_index(drop=True)
@@ -476,7 +548,7 @@ def load_free_dots(store: Store, zone: C.Zone) -> pd.DataFrame | None:
 def recover(tracks: list[dict], fd: pd.DataFrame, sessions: pd.DataFrame) -> pd.DataFrame:
     """Unpaired dots at each track's predicted positions in the other sessions of its visit.
     tracks: {id, visit, t (h), ra, dec, sig, sess, acc} per track; fd needs `_t` (h); sessions: session, visit, t, half (h)."""
-    empty = pd.DataFrame({c: pd.Series(dtype="float64") for c in DOT_COLUMNS})
+    empty = pd.DataFrame({c: pd.Series(dtype="bool" if c == "in_fixed" else "float64") for c in DOT_COLUMNS})
     if not tracks or fd is None or not len(fd):
         return empty
     t_fd = fd["_t"].to_numpy(np.float64)
@@ -490,7 +562,7 @@ def recover(tracks: list[dict], fd: pd.DataFrame, sessions: pd.DataFrame) -> pd.
     s_vis = sessions["visit"].to_numpy(np.int64)
     s_t, s_half, s_id = sessions["t"].to_numpy(np.float64), sessions["half"].to_numpy(np.float64), sessions["session"].to_numpy(np.int64)
     keep_cols = [k for k in ("session", "obs_id", "detector", "dot_row", "ra", "dec", "mjd", "snr", "flux_ujy", "flags",
-                             "flags_peak") if k in fd]
+                             "flags_peak", "in_fixed") if k in fd]
     hits: list[tuple] = []
     for tr in tracks:
         t, sig, acc = tr["t"], tr["sig"], tr["acc"]
@@ -533,7 +605,7 @@ def recover(tracks: list[dict], fd: pd.DataFrame, sessions: pd.DataFrame) -> pd.
     out["pred_dec"] = np.concatenate([h[6] for h in hits])
     for c in DOT_COLUMNS:
         if c not in out:
-            out[c] = np.nan
+            out[c] = False if c == "in_fixed" else np.nan
     return out[DOT_COLUMNS].sort_values(["tracklet_id", "mjd", "ra", "dec"], kind="stable").reset_index(drop=True)
 
 
@@ -556,12 +628,34 @@ def control_positions(movers: pd.DataFrame, seed: int) -> tuple[np.ndarray, np.n
     return (ra + o[:, 0] / np.cos(np.deg2rad(dec))) % 360.0, dec
 
 
+def own_velocity(movers: pd.DataFrame) -> np.ndarray | None:
+    """Each mover's own motion within its session (vx, vy east and north ″/h from link's rate_arcsec_h, pa_deg) and its
+    1σ: √2 × the per-exposure position σ (dot_sigma_arcsec at the mover's S/N, over √(dots per exposure)) / the time
+    between its first and last dot (dot_mjd; else 2.1 min × (n_exposures − 1)). NaN where link measured no rate (one
+    exposure); None when the table has no rates (old movers)."""
+    if not len(movers) or "rate_arcsec_h" not in movers or "pa_deg" not in movers:
+        return None
+    from .link import dot_sigma_arcsec
+    r = movers["rate_arcsec_h"].to_numpy(np.float64)
+    pa = np.deg2rad(movers["pa_deg"].to_numpy(np.float64))
+    nexp = movers["n_exposures"].to_numpy(np.float64) if "n_exposures" in movers else np.full(len(movers), 2.0)
+    span = np.maximum(nexp - 1.0, 0.0) * 2.1 / 60.0
+    if "dot_mjd" in movers:
+        span = np.array([(np.max(m) - np.min(m)) * 24.0 if m is not None and len(m) else s_
+                         for m, s_ in zip(movers["dot_mjd"], span)], np.float64)
+    ndots = movers["n_dots"].to_numpy(np.float64) if "n_dots" in movers else nexp
+    per_exp = dot_sigma_arcsec(movers["snr"].to_numpy(np.float64)) / np.sqrt(np.maximum(ndots / np.maximum(nexp, 1.0), 1.0))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        sv = np.where(span > 0, np.sqrt(2.0) * per_exp / span, np.nan)
+    return np.column_stack([r * np.sin(pa), r * np.cos(pa), sv])
+
+
 def link_all(movers: pd.DataFrame, t0: float, seed: int | None = None,
              accels: dict[int, Accel] | None = None) -> tuple[np.ndarray, dict, dict[int, Accel]]:
     """Track label per mover over all visits (zone-unique, -1 = none), counts, and each visit's acceleration model.
     Two passes per visit (Accel() → visit_accel) unless `accels` gives the model. seed: the control (control_positions)."""
     lab = np.full(len(movers), -1, np.int64)
-    st: dict = {"seeds": 0, "seeds_with_third": 0, "tracks": 0, "visits": {}}
+    st: dict = {"seeds": 0, "seeds_with_third": 0, "tracks": 0, "fast_tracks": 0, "visits": {}}
     acc_out: dict[int, Accel] = {}
     if not len(movers):
         return lab, st, acc_out
@@ -572,6 +666,7 @@ def link_all(movers: pd.DataFrame, t0: float, seed: int | None = None,
     sess = movers["session"].to_numpy(np.int64)
     sig = mover_sigma(movers["snr"].to_numpy(np.float64), movers["n_dots"].to_numpy(np.float64))
     vis = movers["visit"].to_numpy(np.int64)
+    own = own_velocity(movers)
     base = 0
     for v in np.unique(vis):
         i = np.flatnonzero(vis == v)
@@ -581,12 +676,12 @@ def link_all(movers: pd.DataFrame, t0: float, seed: int | None = None,
             lv, _ = link_visit(t[i], ra[i], dec[i], sig[i], sess[i], Accel())
             acc, ast = visit_accel(t[i], ra[i], dec[i], sig[i], lv)
         acc_out[int(v)] = acc
-        lv, s = link_visit(t[i], ra[i], dec[i], sig[i], sess[i], acc)
+        lv, s = link_visit(t[i], ra[i], dec[i], sig[i], sess[i], acc, None if own is None else own[i])
         lab[i] = np.where(lv >= 0, lv + base, -1)
         base += s["tracks"]
         st["visits"][str(int(v))] = {**s, **ast}
-        for k in ("seeds", "seeds_with_third", "tracks"):
-            st[k] += s[k]
+        for k in ("seeds", "seeds_with_third", "tracks", "fast_tracks"):
+            st[k] += s.get(k, 0)
     return lab, st, acc_out
 
 
@@ -640,26 +735,41 @@ def build(movers: pd.DataFrame, photos: pd.DataFrame, zone: C.Zone, fd: pd.DataF
         out[c] = F[c].astype(np.float32)
     out["fit_degree"] = deg
     # recovery
-    rec = pd.DataFrame({c: pd.Series(dtype="float64") for c in DOT_COLUMNS})
+    rec = pd.DataFrame({c: pd.Series(dtype="bool" if c == "in_fixed" else "float64") for c in DOT_COLUMNS})
+    crec = None
     if C.TRACK_RECOVER and fd is not None and tracks:
         g = photos.groupby("session")
         sessions = pd.DataFrame({"visit": g["visit"].first(), "t": (g["mjd"].mean() - t0) * 24.0,
                                  "half": (g["mjd"].max() - g["mjd"].min()) * 12.0}).reset_index()
-        rec = recover(tracks, fd.assign(_t=(fd["mjd"].to_numpy(np.float64) - t0) * 24.0), sessions)
+        fdt = fd.assign(_t=(fd["mjd"].to_numpy(np.float64) - t0) * 24.0)
+        rec = recover(tracks, fdt, sessions)
         if len(rec):
             nrs = rec.groupby("tracklet_id")["session"].nunique()
             out["n_recovered_sessions"] = np.where(lab >= 0, nrs.reindex(lab).fillna(0).to_numpy(), 0).astype(np.int16)
+        if control:  # the chance level: every track moved CONTROL_OFFSET_ARCSEC in its own random direction
+            rng = np.random.default_rng(C.CONTROL_SEED)
+            moved = []
+            for tr in tracks:
+                ang = rng.uniform(0.0, 2 * np.pi)
+                r2, d2 = offset_radec(tr["ra"], tr["dec"], C.CONTROL_OFFSET_ARCSEC * np.sin(ang), C.CONTROL_OFFSET_ARCSEC * np.cos(ang))
+                moved.append({**tr, "ra": r2, "dec": d2})
+            crec = recover(moved, fdt, sessions)
     per = out[lab >= 0].groupby("tracklet_id")["n_sessions"].first()
     st.update({"movers": int(n), "movers_on_tracklets": int((lab >= 0).sum()),
                "tracklets_by_sessions": {str(k): int(v) for k, v in per.value_counts().sort_index().items()},
                "nonfixed_dots": None if fd is None else int(len(fd)), "recovered_dots": int(len(rec)),
                "recovered_sessions": int(rec.groupby(["tracklet_id", "session"]).ngroups) if len(rec) else 0,
-               "tracklets_with_recovery": int(rec["tracklet_id"].nunique()) if len(rec) else 0})
+               "tracklets_with_recovery": int(rec["tracklet_id"].nunique()) if len(rec) else 0,
+               "recovered_in_fixed": int(rec["in_fixed"].fillna(False).astype(bool).sum()) if len(rec) else 0})
     if control and n:
         cl, cs, _ = link_all(movers, t0, seed=C.CONTROL_SEED, accels=accels)
         ns = pd.Series(sess[cl >= 0]).groupby(cl[cl >= 0]).nunique()
-        st["control"] = {"tracks": int(cs["tracks"]), "movers_on_tracks": int((cl >= 0).sum()),
+        st["control"] = {"tracks": int(cs["tracks"]), "fast_tracks": int(cs.get("fast_tracks", 0)),
+                         "movers_on_tracks": int((cl >= 0).sum()),
                          "by_sessions": {str(k): int(v) for k, v in ns.value_counts().sort_index().items()}}
+        if crec is not None:
+            st["control"].update(recovered_dots=int(len(crec)),
+                                 recovered_in_fixed=int(crec["in_fixed"].fillna(False).astype(bool).sum()) if len(crec) else 0)
     return out[TRACK_COLUMNS], rec, st
 
 
@@ -677,7 +787,7 @@ def run(store: Store, zone: C.Zone) -> dict:
     except Exception as e:  # noqa: BLE001
         L.exception("tracklets %s failed; empty tables written, the zone's run goes on", zone.name)
         tr = pd.DataFrame({c: pd.Series(dtype="float64") for c in TRACK_COLUMNS})
-        rec = pd.DataFrame({c: pd.Series(dtype="float64") for c in DOT_COLUMNS})
+        rec = pd.DataFrame({c: pd.Series(dtype="bool" if c == "in_fixed" else "float64") for c in DOT_COLUMNS})
         st = {"error": repr(e)[:300]}
     store.write_parquet(results_rel(zone.name, "tracklets.parquet"), tr)
     store.write_parquet(results_rel(zone.name, "tracklet_dots.parquet"), rec)

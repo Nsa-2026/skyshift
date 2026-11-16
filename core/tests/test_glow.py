@@ -9,7 +9,7 @@ import pytest
 from scipy import ndimage
 
 from skyshift_core import detect
-from skyshift_core.flags import OVERFLOW, SUR_ERROR
+from skyshift_core.flags import OVERFLOW, STREAK, SUR_ERROR
 from skyshift_core.glow import STAR_DTYPE, Glow, aperture_z, bright_stars, fit_glow, noise_factor
 from skyshift_core.level2 import EPSF
 
@@ -121,6 +121,22 @@ def test_bright_stars_finds_the_saturated_core_and_a_bright_peak():
     fl = np.zeros((60, 60), np.int32)
     fl[30, 30] = OVERFLOW
     assert len(bright_stars(calm, fl, np.full((60, 60), NOISE))) == 0
+
+
+def test_a_masked_streak_through_a_saturated_pixel_is_not_a_huge_core():
+    """Real case (2025W43_2A_0389_2D6): a STREAK-masked satellite trail with one OVERFLOW pixel was one 1,085 px blob,
+    r_core 135 px, and Galatea (S/N 137) 43 px away became a 'piece' of it and was dropped."""
+    img, flags, var, _, _ = scene(with_halo=False)
+    img = img + gaussian_image((N, N), [120.2], [60.4], [300.0], SIGMA_PSF).astype(np.float32)  # the bright asteroid
+    flags[:, 88:91] |= STREAK                       # a trail along the whole frame ...
+    img[:, 88:91] += 50.0
+    flags[100, 89] |= OVERFLOW                      # ... saturated in one pixel
+    st = bright_stars(img, flags, np.sqrt(var), min_peak_snr=1e9)
+    sat = st[st["saturated"]]
+    assert len(sat) <= 1 and (len(sat) == 0 or sat[0]["r_core"] <= 8)
+    if len(sat):
+        g = Glow(model=np.zeros((N, N)), k=np.ones((N, N)), stars=sat)
+        assert g.near([120.2], [60.4], 2.0)[0] == -1   # 50 px away: not a piece of it
 
 
 def test_glow_model_follows_the_lopsided_halo_and_leaves_the_field_alone():

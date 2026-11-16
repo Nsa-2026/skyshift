@@ -77,3 +77,17 @@ def test_warnings_gap_between_detections():
             {"mjd": 61000.0045, "det": 6, "dot": dots[1], "snr": 18.0, "px": (100.4, 155.1)}]
     W = " ".join(V.warnings_for(None, dots, rows, {"ref": [0, 1]}, None))
     assert "GAP BETWEEN DETECTIONS" in W and "NO TELESCOPE STEP" not in W
+
+
+def test_rb_score_features_are_numbers_and_ignore_known_columns():
+    import pandas as pd
+    import rb_score
+    mv = pd.DataFrame([{"id": "z-1-2", "snr": 20.0, "flux_ujy": 800.0, "n_dots": 3, "n_exposures": 3, "evidence": "two_exposures",
+                        "dot_size": [3.5, 3.8, 3.6], "dot_chi2": [1.0, 2.0, 1.5], "dot_snr": [9.0, 12.0, 10.0], "dot_x": [100.3, 100.9, 500.0],
+                        "dot_y": [200.2, 315.4, 430.1], "dot_det": [3, 3, 6], "fixed_sep": 25.0, "gaia_sep": float("nan"), "gaia_g": float("nan"),
+                        "rate_arcsec_h": 30.0, "known_sep": 0.4, "known_name": "Ceres"}])
+    fd = pd.DataFrame({"detector": [3, 3, 3, 1], "x": [100.2, 100.4, 99.9, 5.0], "y": [200.0, 200.3, 199.8, 5.0]})
+    f = rb_score.mover_features(mv, fd)
+    assert not any(c.startswith("known") for c in f.columns) and f.notna().all().all()
+    r = f.iloc[0]
+    assert r.pix_hist_max == 3 and r.pix_hist_min == 0 and r.has_pair == 1 and r.only_long == 0 and r.gaia_sep == 60 and r.motion_snr == -1

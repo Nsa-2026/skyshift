@@ -178,6 +178,32 @@ export function label(ctx: Ctx, text: string, x: number, y: number, color: strin
   ctx.restore();
 }
 
+/** A dot circled in this photo only (onephoto.ts): a small "1" badge on its circle's upper left, in the
+ *  circle's colour on the plate's halo. Returns the badge's disc, so words keep off it. */
+export function onePhotoBadge(ctx: Ctx, x: number, y: number, r: number, color: string, halo: string, font: string): { X: number; Y: number; r: number } {
+  const br = 5.5;
+  const a = (-3 * Math.PI) / 4;
+  const X = x + Math.cos(a) * (r + br * 0.55);
+  const Y = y + Math.sin(a) * (r + br * 0.55);
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(X, Y, br, 0, Math.PI * 2);
+  ctx.globalAlpha = 0.92;
+  ctx.fillStyle = halo;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = 1.2;
+  ctx.strokeStyle = color;
+  ctx.stroke();
+  ctx.fillStyle = color;
+  ctx.font = `700 8.5px ${font}`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("1", X, Y + 0.5);
+  ctx.restore();
+  return { X, Y, r: br };
+}
+
 /** Scale bar: a line with end ticks, its length printed above. (x0, y0) is the left end. */
 export function scaleBar(ctx: Ctx, x0: number, y0: number, len: number): void {
   ctx.beginPath();

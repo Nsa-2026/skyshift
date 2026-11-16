@@ -207,6 +207,19 @@
 .bk-val {
   font-variation-settings: "wdth" 88;
 }
+/* A dot circled in one photo only: what the other photos say, in plain words (onephoto.ts). */
+.bk-one {
+  display: block;
+  margin-top: 2px;
+  color: var(--ink);
+}
+.bk-one .bk-mg {
+  width: 14px;
+  height: 14px;
+  margin-right: 4px;
+  vertical-align: -2px;
+  color: var(--m-other);
+}
 .bk-key {
   flex: none;
   display: inline-flex;
@@ -442,7 +455,7 @@
 }
 
 /* ---- primary controls: one row under the strip ---------------------------------------- */
-/* Hours, live: how many photos of the visit are in the blink, and a button for more (pages.ts). */
+/* Hours: how much of the visit is loaded; the rest loads by itself (pages.ts). */
 .bk-pages {
   display: flex;
   flex-wrap: wrap;
@@ -455,11 +468,6 @@
 }
 .bk-pages[hidden] {
   display: none;
-}
-.bk .bk-pages-more {
-  min-height: 28px;
-  padding: 0 var(--s3);
-  font-size: 12px;
 }
 .bk-row {
   display: flex;
@@ -956,6 +964,32 @@ details.bk-meas > :not(summary) + :not(summary) {
 .bk-meas-how,
 .bk-meas-notes,
 .bk-meas-pro {
+  color: var(--ink-3);
+}
+/* Dots circled in one photo only: how many of each kind, and what each means. */
+.bk-meas-one {
+  margin: var(--s3) 0 0;
+  padding: var(--s2) var(--s3);
+  border-left: 2px solid var(--m-other);
+}
+.bk-meas-one[hidden] {
+  display: none;
+}
+.bk-meas-one-h {
+  margin: 0;
+  color: var(--ink);
+  font-weight: 550;
+}
+.bk-meas-one-list {
+  margin: var(--s1) 0 0;
+  padding-left: 1.1em;
+  color: var(--ink-2);
+}
+.bk-meas-one-list li + li {
+  margin-top: 2px;
+}
+.bk-meas-one-note {
+  margin: var(--s1) 0 0;
   color: var(--ink-3);
 }
 

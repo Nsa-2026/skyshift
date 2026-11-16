@@ -41,6 +41,27 @@ def _offline_deep_gaia(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _offline_catalogues(monkeypatch):
+    """suspects' catalogue lookups never go online in tests (AllWISE on S3 hung the suite): AllWISE is off
+    (SUSPECTS_ALLWISE "off", VET_ALLWISE False) and its S3 reader, the Gaia and CatWISE TAP services fail at once.
+    A test that wants AllWISE turns it on and gives its own reader; one that wants the services stubs gaia_seps /
+    catwise_seps. SKYSHIFT_NETWORK=1 leaves everything as configured."""
+    if os.environ.get("SKYSHIFT_NETWORK") == "1":
+        return
+
+    def offline(*a, **k):
+        raise ConnectionError("offline test: no catalogue service")
+
+    from skyshift_pipeline import config as C
+    from skyshift_pipeline import suspects as S
+    monkeypatch.setattr(C, "SUSPECTS_ALLWISE", "off")
+    monkeypatch.setattr(C, "VET_ALLWISE", False)
+    monkeypatch.setattr(S, "_allwise_s3_read", offline)
+    monkeypatch.setattr(S, "gaia_seps", lambda ra, dec: (np.full(len(ra), np.inf), ""))
+    monkeypatch.setattr(S, "catwise_seps", lambda ra, dec: (np.full(len(ra), np.inf), ""))
+
+
+@pytest.fixture(autouse=True)
 def _dots_dir_env(monkeypatch):
     """The CLI and candidates set the dot-file folder in the environment (store.use_dots_dir): every test starts on
     dots/ and nothing a test sets leaks into the next."""

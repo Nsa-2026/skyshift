@@ -27,7 +27,8 @@ Shared science code, imported by server/ and pipeline/. No web or cloud code her
   + 3 sigma of each other (or of the predicted motion). Reasons: not_found, not_detected, edge,
   different_sources.
 - glow (16 Nov): a bright star's glow modelled before detection. bright_stars (saturated cores: masked blobs with
-  OVERFLOW/NONLINEAR; unsaturated peaks >= GLOW_MIN_PEAK_SNR), fit_glow -> Glow (model, k, stars): per star its ePSF
+  OVERFLOW/NONLINEAR, only mask pixels within GLOW_CORE_REACH_PX 6 of a saturated one: a STREAK through one saturated
+  pixel once made a 135 px core that ate every dot within 840″; unsaturated peaks >= GLOW_MIN_PEAK_SNR), fit_glow -> Glow (model, k, stars): per star its ePSF
   (pixel centres, wing pixels) + radial profile (narrow-ring medians) x angular modulation (wide-ring sector medians)
   to the last ring >= 0.15 x pixel noise; k = robust scatter of r = 2 px aperture sums of the residual in polar bins over
   the frame's (noise_factor, aperture_z). Glow.outside (model, k with each star's own pixels left: r_keep, saturated
@@ -40,6 +41,13 @@ Shared science code, imported by server/ and pipeline/. No web or cloud code her
   (POS_ERR_SCALE 1.6 on raw pos_err, VISIT_FLOOR_ARCSEC, UNSTEADY_CHI2_NU), fit_motion (one source) -> MotionFit.
   The pipeline's astrometry step uses the same pieces in its batched fit.
 - photometry: pixel_solid_angle_sr, ujy_per_mjysr (from the WCS, ~889.7), aperture_photometry -> uJy.
+- pixelcheck (16 Nov): pixel checks of a candidate mover on cutouts the caller reads. forced_flux (r = 2 px, annulus
+  median 4-7 px, x 1.033, EMPIRICAL error = 1.4826 x MAD of random apertures: VARIANCE is 2-3x too small), moment_shape
+  (the pipeline's dot size and elongation), size_ratio (against stars of similar S/N), partner_colour (D1+D4, D2+D5, D3+D6
+  against KNOWN_RATIO of real asteroids; never a cut), same_pixel (the v3.23 hot-pixel `flaw` rule), one_photo (a dot in
+  one photo: steady / neighbour / cosmic_ray / moved / flash / unclear / too_few; the rule the Viewer may mirror in
+  TypeScript; NASA's TRANSIENT next to a dot is reported, never decisive: it sits beside 12% of real asteroids' dots),
+  path_summary, persistence, transient_pixels, saturated_near. Producer: scripts/candidates/pixel_check.py.
 - known_index: known asteroids and comets near (ra, dec, r) at given MJDs, fast (live API). load_index(npz) is
   numpy only; candidates() = two-body coarse cut with per-object margins; known_near() = kete n-body on the
   candidates -> api `known[]` entries (source "mpc"). build_index / `python -m skyshift_core.known_index` makes the

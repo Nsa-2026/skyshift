@@ -137,6 +137,11 @@ def test_load_free_dots_options(tmp_path, monkeypatch):
     assert T.load_free_dots(store, ZONE)["ra"].tolist() == [1.0, 2.0]  # elongated: never
     monkeypatch.setattr(C, "TRACK_RECOVER_NEAR_FIXED", False)
     assert T.load_free_dots(store, ZONE)["ra"].tolist() == [2.0]
+    monkeypatch.setattr(C, "TRACK_RECOVER_NEAR_FIXED", True)
+    store.write_parquet(results_rel(ZONE.name, T.FREE_DOTS), fd.assign(in_fixed=[True, False, False]))
+    assert T.load_free_dots(store, ZONE)["ra"].tolist() == [1.0, 2.0]
+    monkeypatch.setattr(C, "TRACK_RECOVER_IN_FIXED", False)
+    assert T.load_free_dots(store, ZONE)["ra"].tolist() == [2.0]  # off-star member dots left out
 
 
 def test_run_writes_tables_and_score_counts_recovered(tmp_path):
@@ -206,3 +211,48 @@ def test_failure_leaves_empty_tables(tmp_path, monkeypatch):
     assert "boom" in st["error"]
     assert len(store.read_parquet(results_rel(ZONE.name, "tracklet_dots.parquet"))) == 0
     assert list(store.read_parquet(results_rel(ZONE.name, "tracklets.parquet")).columns) == T.TRACK_COLUMNS
+
+
+def test_fast_movers_of_two_sessions_link_when_their_own_motions_agree(monkeypatch):
+    """fast_tracks: two 400″/h movers of sessions 4 and 5 whose chord agrees with both own velocities (link's rate and PA
+    within the session) make a 2-session track; a fast mover on that line in session 6 moving the other way doesn't join;
+    the slow asteroids keep their tracks; the control (sessions moved apart) has no fast track."""
+    m, photos, ts = scene(noise_per_session=10)
+    m = m.assign(rate_arcsec_h=np.nan, pa_deg=np.nan, n_exposures=2)
+    rows = []
+    th = {s: ts[s - 1] + 2.1 / 60 for s in (4, 5, 6)}
+    for s, pa, truth in ((4, 90.0, 10), (5, 90.0, 10), (6, 270.0, 11)):
+        ra, dec = T.tan_radec(122.5, 18.5, np.array([400.0 * (th[s] - th[4])]), np.array([0.0]))
+        rows.append({"ra": float(ra[0]), "dec": float(dec[0]), "mjd": T0 + th[s] / 24, "session": s, "visit": 1, "n_dots": 3,
+                     "snr": 20.0, "truth": truth, "rate_arcsec_h": 400.0, "pa_deg": pa, "n_exposures": 3})
+    f = pd.DataFrame(rows)
+    f["cell"] = cell_of(f["ra"].to_numpy(), f["dec"].to_numpy())
+    m = pd.concat([m, f.astype({"session": np.int32, "visit": np.int16})], ignore_index=True)
+    tr, _, st = T.build(m.drop(columns="truth"), photos, ZONE, None)
+    truth = m.sort_values(["visit", "session", "mjd", "ra", "dec"], kind="stable")["truth"].to_numpy()
+    lab = tr["tracklet_id"].to_numpy()
+    on = lab[truth == 10]
+    assert (on >= 0).all() and np.unique(on).size == 1 and set(truth[lab == on[0]]) == {10}
+    r = tr[lab == on[0]]
+    assert (r["n_sessions"] == 2).all() and np.allclose(r["rate_arcsec_h"], 400.0, rtol=0.01)
+    assert (lab[truth == 11] < 0).all() and st["fast_tracks"] == 1 and st["control"]["fast_tracks"] == 0
+    assert st["tracklets_by_sessions"]["22"] == len(ASTEROIDS)
+    monkeypatch.setattr(C, "TRACK_FAST_RATE_MAX_ARCSEC_H", None)
+    tr, _, st = T.build(m.drop(columns="truth"), photos, ZONE, None, control=False)
+    assert (tr["tracklet_id"].to_numpy()[truth == 10] < 0).all() and st["fast_tracks"] == 0
+
+
+def test_recovery_marks_dots_from_inside_a_fixed_group():
+    """A dot that link left in a star's group but flagged off its star (nonfixed_dots `in_fixed`) is recovered on a
+    track's path like any free dot, and counted apart."""
+    m, photos, ts = scene(drop={2: [10]})
+    th = ts[9] + 2.1 / 60
+    ra, dec = position(2, np.array([th]))
+    fd = pd.DataFrame({
+        "ra": [ra[0] + 0.6 / 3600, 122.9], "dec": [dec[0] - 0.5 / 3600, 19.0], "mjd": [T0 + th / 24] * 2,
+        "session": np.int32(10), "visit": np.int16(1), "obs_id": ["S10E1"] * 2, "detector": np.int8(1),
+        "dot_row": np.arange(2, dtype=np.int32), "snr": np.float32(7.0), "flux_ujy": np.float32(50.0), "flags": np.int32(0),
+        "flags_peak": np.int32(0), "elong": np.float32(1.1), "near_fixed": [True, False], "in_fixed": [True, False]})
+    _, rec, st = T.build(m.drop(columns="truth"), photos, ZONE, fd)
+    assert len(rec) == 1 and bool(rec["in_fixed"].iloc[0]) and st["recovered_in_fixed"] == 1
+    assert st["control"]["recovered_in_fixed"] == 0

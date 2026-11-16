@@ -5,7 +5,7 @@ import {loadValidation} from '../api/client';
 import {fetchCatalogue,failureText,type AsteroidsAnswer,type CatwiseAnswer,type GaiaAnswer} from '../api/catalogues';
 import type {Epoch} from '../api/types';
 import {falseAlarm,quality,candidateRows,nextChecks,dateLabel,escapeHtml as esc} from './evidence';
-import {checkSummary,signalTrack,vetSignal,BODY_CERTAIN,BODY_NEAR,PA_TOLERANCE,RATE_TOLERANCE,SERVICES,SERVICE_NAME,STAR_RADIUS,
+import {checkSummary,precomputedVerdict,signalTrack,vetSignal,BODY_CERTAIN,BODY_NEAR,PA_TOLERANCE,RATE_TOLERANCE,SERVICES,SERVICE_NAME,STAR_RADIUS,
   type Catalogues,type Check,type Level,type ScienceFrame,type Service,type Track,type Verdict} from './vetting';
 
 /** The words in front of each check, as on the To check list (PR #364): strong, warn, ok. */
@@ -40,44 +40,76 @@ const RULES=`<details class="wb-limits sgc-rules"><summary>What the catalogue ch
 <li>Not covered: planets and their moons, asteroids fainter than V 21, and comets missing from the MPC comet list this service reads (306P/LINEAR is one; a fix is under way).</li>
 </ul></details>`;
 
-/** The Signals list, then catalogue checks of every signal (Gaia, CatWISE, MPC orbits), which run by
- *  themselves and fill in as each catalogue answers. Resolves when every check has answered or failed. */
+type CheckedAnalysis=Analysis&{catalogue_checks?:{made?:string;sources?:Partial<Record<Service,string>>}};
+/** What the checks written before publishing compared (scripts/precompute/signal_checks.py). */
+function preRules(a:CheckedAnalysis){
+  const made=a.catalogue_checks?.made,sources=a.catalogue_checks?.sources??{};
+  const used=SERVICES.filter(s=>typeof sources[s]==='string').map(s=>`<li>${esc(SERVICE_NAME[s])}: ${esc(sources[s])}.</li>`).join('');
+  return `<details class="wb-limits sgc-rules"><summary>What the catalogue checks compared</summary><ul>
+<li>Every signal was checked before this list was published${made?` (${esc(made.slice(0,10))})`:''}, at its own times and places: every exposure of a mover, every visit of a slow mover, the mean place of a cold source.</li>
+<li>Gaia DR3 stars, moved from their 2016.0 positions with their proper motion to the signal's time; a star within ${STAR_RADIUS}″ can't be ruled out.</li>
+<li>CatWISE2020 sources (positions of 2015.4), moved with their catalogued motion and also taken where they were then; within ${STAR_RADIUS}″ can't be ruled out.</li>
+<li>Known asteroids and comets: Minor Planet Center orbits of every asteroid at any brightness and every comet the MPC lists (306P/LINEAR included), computed with kete for each sighting's own time and seen from SPHEREx itself; planets and their moons from JPL Horizons. Predicted within ${BODY_CERTAIN}″ at every sighting, with its rate within ${RATE_TOLERANCE*100}% and its direction within ${PA_TOLERANCE}° of ours, it is that body; within ${BODY_NEAR}″ it can't be ruled out.</li>
+<li>A slow mover that sits on a Gaia or CatWISE star at every visit and moves the same way (rate within ${RATE_TOLERANCE*100}%, direction within ${PA_TOLERANCE}°) is that star.</li>
+<li>Not covered: bodies discovered after the MPC orbit list was copied, and sources missing from both catalogues.</li>
+</ul>${used?`<p class="source">Sources</p><ul class="source">${used}</ul>`:''}</details>`;
+}
+
+/** The Signals list with the catalogue checks of every signal (Gaia, CatWISE, MPC orbits). A published field's
+ *  file holds them already (checked before the list was published): they show at once, and certain matches start in
+ *  "Explained by a catalogue". Signals without them (live coordinates, older files) are checked here: the checks run
+ *  by themselves and fill in as each catalogue answers. Resolves when every check has answered or failed. */
 export function renderFindings(host:HTMLElement,a:Analysis,locate:(c:Candidate)=>void,opts:{target?:{slug:string|null;ra:number;dec:number};signal?:AbortSignal}={}):Promise<void>{
   const rows=candidateRows(a),excluded=a.cold_candidates.length-rows.filter(r=>r.kind==='cold').length;
-  const checking=Boolean(opts.target&&rows.length);
-  // The analysis's own warning that no catalogue veto ran is answered by the checks below.
-  const warnings=(a.warnings??[]).filter(w=>!(checking&&/vetoes have not been run/i.test(w)));
+  const pre=rows.map(r=>precomputedVerdict(r.c as Candidate));
+  const prechecked=rows.length>0&&pre.every(Boolean);
+  // Live checks only for signals the file doesn't answer.
+  const checking=Boolean(opts.target&&rows.length&&!prechecked);
+  // The analysis's own warning that no catalogue veto ran is answered by the checks.
+  const warnings=(a.warnings??[]).filter(w=>!((checking||prechecked)&&/vetoes have not been run/i.test(w)));
   const countText=(known:number)=>rows.length?`${rows.length-known} signal${rows.length-known===1?'':'s'} to check${known?` · ${known} explained by a catalogue`:''}`:'No moving or cold-source signals passed these checks';
-  host.innerHTML=`<div class="search-summary"><strong class="finding-count">${countText(0)}</strong><p>The cached analysis checked ${a.source.n_frames} exposures across all bands, covering ${a.source.n_visits} visits and about ${a.source.coverage_arcmin}′ of sky. Motion checks use D${a.detector}.</p><p>${excluded} colour signal${excluded===1?'':'s'} did not meet the requirement to repeat in at least two visits. ${rows.length?'Each signal below says what the catalogues found at its place.':'This does not mean the field is empty: faint, fast-moving or saturated objects and limited coverage can cause missed detections. Check same-band light curves for variability.'}</p>${rows.length?`<p class="sgc-summary" role="status" aria-live="polite">${checking?`Checking catalogues… still waiting for ${names([...SERVICES])}.`:'Catalogue checks were not run for this list.'}</p>${checking?RULES:''}`:''}${warnings.length?`<details class="wb-limits"><summary>Limits of this analysis (${warnings.length})</summary><ul>${warnings.map(w=>`<li>${esc(w)}</li>`).join('')}</ul></details>`:''}</div><label class="finding-filter">Show <select aria-label="Signal filter"><option value="all">All signals (${rows.length})</option><option value="slow">Motion between visits</option><option value="fast">Motion between exposures</option><option value="cold">Cold-source colours</option><option value="good">Background false alarms &lt; 2%</option></select></label><div class="finding-list"><div class="finding-open"></div><p class="finding-empty" hidden>No signals match this filter. Adjust the filter or inspect the sensitivity and light curves below.</p><section class="finding-known" hidden><h4>Explained by a catalogue (<span class="finding-known-count">0</span>)</h4><p>Certain matches are listed apart and kept, never deleted: a known asteroid or comet predicted at every sighting with its rate and direction, or a catalogued star moving the same way.</p><div class="finding-known-list"></div></section></div>`;
+  const allAnswered:Catalogues={gaia:{state:'ok',rows:[]},catwise:{state:'ok',rows:[]},mpc:{state:'ok',rows:[]}};
+  const made=(a as CheckedAnalysis).catalogue_checks?.made;
+  const lead=`Checked before this list was published${made?` (${made.slice(0,10)})`:''} against Gaia DR3, CatWISE2020 and MPC orbits (every asteroid at any brightness and every comet, seen from SPHEREx)`;
+  const firstSummary=prechecked?checkSummary(pre as Verdict[],allAnswered,{},lead).text:checking?`Checking catalogues… still waiting for ${names([...SERVICES])}.`:'Catalogue checks were not run for this list.';
+  host.innerHTML=`<div class="search-summary"><strong class="finding-count">${countText(0)}</strong><p>The cached analysis checked ${a.source.n_frames} exposures across all bands, covering ${a.source.n_visits} visits and about ${a.source.coverage_arcmin}′ of sky. Motion checks use D${a.detector}.</p><p>${excluded} colour signal${excluded===1?'':'s'} did not meet the requirement to repeat in at least two visits. ${rows.length?'Each signal below says what the catalogues found at its place.':'This does not mean the field is empty: faint, fast-moving or saturated objects and limited coverage can cause missed detections. Check same-band light curves for variability.'}</p>${rows.length?`<p class="sgc-summary" role="status" aria-live="polite">${esc(firstSummary)}</p>${prechecked?preRules(a as CheckedAnalysis):checking?RULES:''}`:''}${warnings.length?`<details class="wb-limits"><summary>Limits of this analysis (${warnings.length})</summary><ul>${warnings.map(w=>`<li>${esc(w)}</li>`).join('')}</ul></details>`:''}</div><label class="finding-filter">Show <select aria-label="Signal filter"><option value="all">All signals (${rows.length})</option><option value="slow">Motion between visits</option><option value="fast">Motion between exposures</option><option value="cold">Cold-source colours</option><option value="good">Background false alarms &lt; 2%</option></select></label><div class="finding-list"><div class="finding-open"></div><p class="finding-empty" hidden>No signals match this filter. Adjust the filter or inspect the sensitivity and light curves below.</p><section class="finding-known" hidden><h4>Explained by a catalogue (<span class="finding-known-count">0</span>)</h4><p>Certain matches are listed apart and kept, never deleted: a known asteroid or comet predicted at every sighting with its rate and direction, or a catalogued star moving the same way.</p><div class="finding-known-list"></div></section></div>`;
   const $=<T extends HTMLElement=HTMLElement>(s:string)=>host.querySelector<T>(s)!;
   const open=$('.finding-open'),knownList=$('.finding-known-list'),select=$<HTMLSelectElement>('select');
   const cards=rows.map(({c,kind,label,value},i)=>{const state=falseAlarm(c.p_false),row=document.createElement('article');row.className='candidate';row.dataset.index=String(i);row.dataset.kind=kind;
-    row.innerHTML=`<div class="candidate-heading"><h4>${label}</h4><span class="evidence ${state.tone}">${esc(state.label)}</span></div><div class="sgc-status-slot"></div><p>${esc(value)} <span class="expert-only">· ICRS ${c.ra.toFixed(5)}°, ${c.dec.toFixed(5)}°</span></p><p>${esc(state.explanation)}</p><div class="sgc-slot">${checking?'<p class="sgc-pending">Checking Gaia DR3, CatWISE2020 and MPC orbits…</p>':''}</div><details><summary>Next checks</summary><ol>${nextChecks(c,kind,Boolean(a.source.flags_complete)).map(s=>`<li>${esc(s)}</li>`).join('')}</ol></details><p class="expert-only source">Status: ${esc(c.status)} · Background trials ${c.n_slides??(kind==='cold'?'uncalibrated':a.n_slides)} · p = ${c.p_false??'null'}</p><button type="button">Locate on image</button>`;
+    row.innerHTML=`<div class="candidate-heading"><h4>${label}</h4><span class="evidence ${state.tone}">${esc(state.label)}</span></div><div class="sgc-status-slot"></div><p>${esc(value)} <span class="expert-only">· ICRS ${c.ra.toFixed(5)}°, ${c.dec.toFixed(5)}°</span></p><p>${esc(state.explanation)}</p><div class="sgc-slot">${checking&&!pre[i]?'<p class="sgc-pending">Checking Gaia DR3, CatWISE2020 and MPC orbits…</p>':''}</div><details><summary>Next checks</summary><ol>${nextChecks(c,kind,Boolean(a.source.flags_complete),Boolean(pre[i])).map(s=>`<li>${esc(s)}</li>`).join('')}</ol></details><p class="expert-only source">Status: ${esc(c.status)} · Background trials ${c.n_slides??(kind==='cold'?'uncalibrated':a.n_slides)} · p = ${c.p_false??'null'}</p><button type="button">Locate on image</button>`;
     row.querySelector('button')!.onclick=()=>locate(c);open.append(row);return row});
   // The filter hides rows in both groups; the explained group shows only when one of its rows is shown.
   const filter=()=>{let shown=0;rows.forEach((r,i)=>{const on=select.value==='all'||select.value===r.kind||(select.value==='good'&&falseAlarm(r.c.p_false).tone==='good');cards[i].hidden=!on;if(on)shown++});$('.finding-empty').hidden=shown>0;$('.finding-known').hidden=!knownList.querySelector('.candidate:not([hidden])')};
+  /** Show one signal's verdict and put it in its group (certain matches apart), keeping the list's order. */
+  const place=(v:Verdict,i:number)=>{
+    const card=cards[i],waiting=v.pending.length&&!v.untimed?`<p class="sgc-pending">Still checking ${names(v.pending)}…</p>`:'';
+    card.querySelector('.sgc-slot')!.innerHTML=checksHtml(v.checks)+waiting;
+    card.querySelector('.sgc-status-slot')!.innerHTML=statusHtml(v);
+    card.dataset.catalogue=v.status;
+    const home=v.status==='known'?knownList:open;
+    if(card.parentElement!==home){const after=[...home.children].find(el=>Number((el as HTMLElement).dataset.index)>i);home.insertBefore(card,after??null)}
+  };
+  const counts=(verdicts:(Verdict|null)[])=>{
+    const known=verdicts.filter(v=>v?.status==='known').length;
+    $('.finding-known-count').textContent=String(known);filter();
+    $('.finding-count').textContent=countText(known);
+  };
+  // Checks the file already holds: shown in the first paint, nothing to wait for.
+  pre.forEach((v,i)=>{if(v)place(v,i)});
+  counts(pre);
   select.onchange=filter;filter();
   if(!checking)return Promise.resolve();
 
-  // ---- the catalogue checks, all at once, filled in as each answers --------------------------------
+  // ---- the catalogue checks of signals without them, all at once, filled in as each answers ----------
   const target=opts.target!,signal=opts.signal;
   const cats:Catalogues={gaia:{state:'pending'},catwise:{state:'pending'},mpc:{state:'pending'}};
   const failures:Partial<Record<Service,string>>={};
   let tracks:(Track|null)[]|undefined;
   const update=()=>{
     if(signal?.aborted||!tracks)return;
-    const verdicts=rows.map((r,i)=>vetSignal(r.kind,tracks![i],cats,a.detector));
-    verdicts.forEach((v,i)=>{
-      const card=cards[i],waiting=v.pending.length&&!v.untimed?`<p class="sgc-pending">Still checking ${names(v.pending)}…</p>`:'';
-      card.querySelector('.sgc-slot')!.innerHTML=checksHtml(v.checks)+waiting;
-      card.querySelector('.sgc-status-slot')!.innerHTML=statusHtml(v);
-      card.dataset.catalogue=v.status;
-      const home=v.status==='known'?knownList:open;
-      if(card.parentElement!==home){const after=[...home.children].find(el=>Number((el as HTMLElement).dataset.index)>i);home.insertBefore(card,after??null)}
-    });
-    const known=verdicts.filter(v=>v.status==='known').length;
-    $('.finding-known-count').textContent=String(known);filter();
-    $('.finding-count').textContent=countText(known);
+    const verdicts=rows.map((r,i)=>pre[i]??vetSignal(r.kind,tracks![i],cats,a.detector));
+    verdicts.forEach((v,i)=>{if(!pre[i])place(v,i)});
+    counts(verdicts);
     $('.sgc-summary').textContent=checkSummary(verdicts,cats,failures).text;
     host.querySelectorAll('.candidate button').forEach(b=>b.classList.add('btn'));
   };

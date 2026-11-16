@@ -122,13 +122,16 @@ def test_refresh_orbits_adds_a_newer_snapshot_that_known_then_uses(tmp_path, mon
     store.write_parquet(f"{C.MPC_ORBITS_DIR}/cometels_2000-01-01.parquet", pd.DataFrame({"desig": ["2P "]}))
     calls = []
 
-    def fake(prefix, desig):
+    def fake(prefix, desig, merged=False):
         def fetch():
             calls.append(prefix)
-            return pd.DataFrame({"desig": pd.Series(desig, dtype=object), "epoch": 2461200.5})
+            t = pd.DataFrame({"desig": pd.Series(desig, dtype=object), "epoch": 2461200.5})
+            if merged:  # _fetch_comets gives cometels + allcometels, marked
+                t[known_mpc.ORBIT_FILE] = "cometels"
+            return t
         return fetch
 
-    fetchers = {"mpcorb": fake("mpcorb", [1, 2, "2021 AU1"]), "cometels": fake("cometels", ["2P ", "C/2025 N1 "])}
+    fetchers = {"mpcorb": fake("mpcorb", [1, 2, "2021 AU1"]), "cometels": fake("cometels", ["2P ", "C/2025 N1 "], True)}
     out = known_mpc.refresh_orbits(store, fetchers=fetchers)
     assert calls == ["mpcorb", "cometels"]
     assert out["mpcorb"]["fetched"] and out["mpcorb"]["objects"] == 3 and out["cometels"]["objects"] == 2
@@ -138,6 +141,7 @@ def test_refresh_orbits_adds_a_newer_snapshot_that_known_then_uses(tmp_path, mon
     # known's orbit_table now reads the new snapshots and never fetches
     monkeypatch.setattr(known_mpc, "_fetch_asteroids", _no_network)
     monkeypatch.setattr(known_mpc, "_fetch_comets", _no_network)
+    monkeypatch.setattr(known_mpc, "_fetch_all_comets", _no_network)
     tab, names = known_mpc.orbit_table(store)
     assert names == f"{new} + {out['cometels']['snapshot']}" and tab["desig"].tolist() == ["1", "2", "2021 AU1", "2P ", "C/2025 N1 "]
     # today's snapshot is kept unless force
@@ -152,7 +156,7 @@ def test_cli_mpc_orbits_is_a_laptop_tool_outside_all(tmp_path, monkeypatch):
 
     assert "mpc-orbits" not in cli.STEPS  # `all` runs STEPS only
     monkeypatch.setattr(known_mpc, "_fetch_asteroids", lambda: pd.DataFrame({"desig": pd.Series([1], dtype=object)}))
-    monkeypatch.setattr(known_mpc, "_fetch_comets", lambda: pd.DataFrame({"desig": ["2P "]}))
+    monkeypatch.setattr(known_mpc, "_fetch_comets", lambda: pd.DataFrame({"desig": ["2P "], known_mpc.ORBIT_FILE: ["cometels"]}))
     assert cli.main(["mpc-orbits", "--root", str(tmp_path)]) == 0
     names = sorted(Store(str(tmp_path)).listdir(C.MPC_ORBITS_DIR))
     assert [n.split("_")[0] for n in names] == ["cometels", "mpcorb"]
@@ -202,6 +206,72 @@ def test_session_record_with_nothing_seen():
     empty = pd.DataFrame(columns=["obs_id", "detector", "row", "ra", "dec", "dra_arcsec_h", "ddec_arcsec_h", "v"])
     rec = known_mpc.session_record(ZONE, _photos(), empty, objs, {"A_1": (None, {}, "geocentre"), "B_1": (None, {}, "geocentre")}, {})
     assert rec["n"] == 0 and rec["objects"]["name"] == [] and rec["per_photo"]["obs_id"] == []
+
+
+# ---------------------------------------------------------------- comets: cometels + allcometels (16 Nov)
+
+def _rec(name, num=None, peri=(2025, 8, 1.647), epoch=(2025, 11, 21), q=1.272986):
+    r = {"Orbit_type": "P" if num else "C", "Year_of_perihelion": peri[0], "Month_of_perihelion": peri[1],
+         "Day_of_perihelion": peri[2], "Perihelion_dist": q, "e": 0.59251, "Peri": 0.9146, "Node": 341.339, "i": 8.3017,
+         "Designation_and_name": name, "H": 19.0, "G": 4.0}
+    if num:
+        r["Comet_num"] = num
+    if epoch:
+        r["Epoch_year"], r["Epoch_month"], r["Epoch_day"] = epoch
+    return r
+
+
+def test_comet_table_is_kete_s_table_and_merge_adds_comets_cometels_lacks():
+    pytest.importorskip("kete")
+    current = known_mpc.comet_table([_rec("2P/Encke", 2, epoch=(2026, 11, 15)), _rec("C/2025 N1 (ATLAS)", epoch=(2026, 11, 15))])
+    every = known_mpc.comet_table([
+        _rec("2P/Encke", 2, epoch=(2025, 11, 21), q=0.33),  # in both: cometels' row (the current epoch) wins
+        _rec("306P/LINEAR", 306),                           # last seen Nov 2025: only in allcometels
+        _rec("C/1999 X1 (Old)", peri=(1999, 1, 1.0), epoch=(1999, 1, 1)),  # epoch before MPC_ALLCOMETS_MIN_JD
+        _rec("C/2005 S1 (SOHO)", peri=(2005, 9, 1.0), epoch=None),          # no epoch: its perihelion date counts
+    ])
+    assert list(current.columns) == list(known_mpc.COMET_COLS)
+    assert current["desig"].tolist() == ["2P/Encke", "C/2025 N1 "]
+    m = known_mpc.merge_comets(current, every)
+    assert m["desig"].tolist() == ["2P/Encke", "C/2025 N1 ", "306P/LINEAR"]
+    assert m[known_mpc.ORBIT_FILE].tolist() == ["cometels", "cometels", "allcometels"]
+    assert m["peri_dist"].tolist()[0] == pytest.approx(1.272986)  # not allcometels' 0.33
+    r = m.iloc[2]
+    assert r["epoch"] == pytest.approx(2461000.5, abs=1e-6)  # 2025-11-21 (TT; kete keeps TDB, 2 ms off)
+    assert r["peri_time"] == pytest.approx(2460889.147, abs=1e-6)
+    # object_table names it as the MPC does, so a mover matched to it is `306P/LINEAR`
+    assert known_mpc.object_table(m)["name"].tolist()[2] == "306P/LINEAR"
+
+
+def test_an_old_cometels_snapshot_is_completed_once(tmp_path, monkeypatch):
+    store = Store(str(tmp_path))
+    store.write_parquet(f"{C.MPC_ORBITS_DIR}/mpcorb_2000-01-01.parquet", pd.DataFrame({"desig": ["1"], "epoch": [2460000.5]}))
+    store.write_parquet(f"{C.MPC_ORBITS_DIR}/cometels_2000-01-01.parquet",
+                        pd.DataFrame({"desig": ["2P/Encke"], "epoch": [2461357.5]}))
+    calls = []
+
+    def every():
+        calls.append(1)
+        return pd.DataFrame({"desig": ["2P/Encke", "306P/LINEAR"], "epoch": [2461000.5, 2461000.5]})
+
+    monkeypatch.setattr(known_mpc, "_fetch_all_comets", every)
+    st = {}
+    tab, names = known_mpc.orbit_table(store, st)
+    assert tab["desig"].tolist() == ["1", "2P/Encke", "306P/LINEAR"] and st == {"comets_complete": True, "comets": 2}
+    assert names.split(" + ")[1] > "cometels_2000-01-01.parquet" and calls == [1]
+    known_mpc.orbit_table(store)  # the completed snapshot is the newest now: no second fetch
+    assert calls == [1]
+
+
+def test_without_the_mpc_an_old_comet_snapshot_is_used_and_said(tmp_path, monkeypatch):
+    store = Store(str(tmp_path))
+    store.write_parquet(f"{C.MPC_ORBITS_DIR}/mpcorb_2000-01-01.parquet", pd.DataFrame({"desig": ["1"], "epoch": [2460000.5]}))
+    store.write_parquet(f"{C.MPC_ORBITS_DIR}/cometels_2000-01-01.parquet", pd.DataFrame({"desig": ["2P/Encke"]}))
+    monkeypatch.setattr(known_mpc, "_fetch_all_comets", _no_network)
+    st = {}
+    tab, names = known_mpc.orbit_table(store, st)
+    assert tab["desig"].tolist() == ["1", "2P/Encke"] and st["comets_complete"] is False
+    assert names == "mpcorb_2000-01-01.parquet + cometels_2000-01-01.parquet"
 
 
 # ---------------------------------------------------------------- kete, live (network)
