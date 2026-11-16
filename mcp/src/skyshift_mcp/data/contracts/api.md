@@ -1,4 +1,4 @@
-# contracts/api.md: endpoints, static twins, visits, Firestore (v3.24)
+# contracts/api.md: endpoints, static twins, visits, Firestore (v3.25)
 
 Owner: P1. Implemented by server/ and scripts/precompute/ (P2). Read by web/src/api (P3) and
 web/src/blink, web/src/vote (P4). Version 3, 14 Nov 2026 (changes from v2 at the end; v3: P1's answers to the P2 engine PR:
@@ -28,7 +28,10 @@ v3.23: candidates' `status`, `known_name` and `checks` (what can't be ruled out,
 v3.24: the 16 Nov fix round: checks set the score (× 0.3 strong, × 0.95 warn) in place of the old mover factors, every
 check code's levels and `values`, check producers' side files, the certain-known rule and every MPC comet (`known_body`),
 the science workspace's analysis grid and its signals checked before publishing; suspects removed only when certain, the rest kept with `warn_codes` and `warn_values`; grade C
-movers in `/data/candidates-more/<zone>.json`, listed in candidates.json `more`).
+movers in `/data/candidates-more/<zone>.json`, listed in candidates.json `more`;
+v3.25: the exporter's follow-up: a mover's `rate_arcsec_h` and `pa_deg` are its in-session motion; check `values` keys
+mean one thing (`body_rate_arcsec_h`, `max_sep_arcsec`, `ks_mag`); checks `seen_again` and `fast_held`; a failed gate's
+check outranks a weaker producer check).
 
 Static first: the site reads `/data/<slug>/` before it calls `/api/`. The static files have the
 same shapes as the API, so if front and back don't meet, the static format is the contract.
@@ -642,9 +645,9 @@ Each candidate: every field is present; a missing value is `null`, never omitted
 | score | float 0–1 | How promising: **higher = more promising**, in 0..1, sorted descending. Defined per kind below; where the pipeline's own score is lower-is-better (high_pm) the exporter inverts it (e^(−s/0.2)). Never null in the export (the type allows it) |
 | snr | float or null | mover: its highest dot S/N. high_pm, spectral, shape: S/N of the spectrum in `det` (its 17 channels' S/N added in quadrature) |
 | flux_ujy | float µJy or null | mover: median of its dots. high_pm, spectral, shape: median of the spectrum's 17 channels in `det` |
-| rate_arcsec_h | float ″/h or null | mover: apparent rate from a weighted straight-line fit of its dots' positions against time (dot positions re-read from dots/). null for `two_detectors` (one moment) and other kinds |
+| rate_arcsec_h | float ″/h or null | mover (v3.25): its own motion within its session: link's (suspects.parquet `session_rate_arcsec_h`; tables without it: link's rule on its dots, one mean position per exposure and an unweighted straight line through them). Never a track's chord (that is in the `seen_again` check). Before v3.25: a weighted straight-line fit of its dots' positions against time (dot positions re-read from dots/). null for `two_detectors` (one moment) and other kinds |
 | pm_mas_yr, pm_err_mas_yr | float mas/yr or null | high_pm only: total proper motion and its 1σ error (the pipeline's `pm`, `pm_err`) |
-| pa_deg | float deg or null | Direction of motion, east of north, 0–360: high_pm from (pmra, pmdec); mover from its dots (null without a rate). null for spectral. shape: not a motion but the axis of the stretch on the sky, east of north, **0–180** (where the second object would sit, on either side) |
+| pa_deg | float deg or null | Direction of motion, east of north, 0–360: high_pm from (pmra, pmdec); mover (v3.25) from link's in-session motion (`session_pa_deg`), as `rate_arcsec_h` (null without a rate). null for spectral. shape: not a motion but the axis of the stretch on the sky, east of north, **0–180** (where the second object would sit, on either side) |
 | nearest_known_arcsec | float ″ or null | mover only: as suspects.json, the nearest known body predicted in the same session, moved to `mjd`: an asteroid or comet (MPC orbits) or, from v3.17, a planet or large moon (JPL Horizons); **null = none within 600″**; v3.24: of the bodies brighter than V 21 or without V, as suspects.json (fainter ones: the `known` check producer's `known_nearby`). Always null for high_pm and spectral (not checked) |
 | gaia_match | bool | A Gaia DR3 source sits here (its motion may still disagree: see `reasons`). mover: v3.24 true when the suspects' reason `gaia` is set (a Gaia DR3 star within 6″ at most 2 mag fainter); a fainter one is the check `catalogue_star`; before v3.24 false (suspects had no Gaia star within 6″; see `gaia_unchecked`). high_pm: the pipeline's `status` is `gaia` (either side matched). spectral: classify's Gaia match. shape: a Gaia DR3 star within 6″ is the one listed object |
 | catwise_match | bool | A CatWISE2020 source sits here. mover: v3.24 true when the suspects' reason `catwise` is set (as `gaia_match`); before v3.24 false (none within 6″). high_pm: a CatWISE counterpart on either side. spectral: crossids has one. shape: a CatWISE2020 source within 6″ (the listed object, or its infrared entry) |
@@ -692,10 +695,10 @@ The suspects' `warn_codes` (v3.24, suspects.json) become `warn` checks of the sa
 
 | code | kind | by | levels: rule | values |
 |---|---|---|---|---|
-| known_nearby | mover | exporter | `warn`: a known body (V < 21 or no V) predicted within 2′ | `sep_arcsec` (and the suspects' `known_rate_arcsec_h`, `known_pa_deg`, `known_v_mag`, `rate_arcsec_h`, `pa_deg`) |
+| known_nearby | mover | exporter | `warn`: a known body (V < 21 or no V) predicted within 2′ | `name`, `v`, `sep_arcsec`, `body_rate_arcsec_h`, `body_pa_deg` (the body's), `rate_arcsec_h`, `pa_deg` (ours, in session), `rate_ratio` (ours ÷ the body's), `dpa_deg`; all but `sep_arcsec` and `name` only when the suspects carried `known_nearby` |
 | known_body | mover | known | `strong` with `status` known and `known_name`: certain by the `status` rule, any brightness, seen from SPHEREx at each dot's time (MPC asteroids at any V, every MPC comet, Horizons planets and moons). v3.24: the one name for a certain known body, here and in the analysis files; files written before it say `known_nearby` `strong` with `status` known: read that as `known_body` | as `known_nearby` (known) |
-| known_nearby | mover | known | Not certain. `strong`, status open: a body within 2″ at every one of ≥ 2 dot times whose motion misses the rule (two dots 2 minutes apart measure a motion only to about ±30″/h). `warn`: the nearest body within 2′. `ok`: none within 2′ | `name`, `body` (`asteroid`, `comet`, `planet`, `moon`), `v`, `sep_arcsec` (nearest at any dot time), `sep_max_arcsec` (farthest), `rate_arcsec_h`, `pa_deg` (the body's), `rate_ratio`, `dpa_deg`, `our_rate_arcsec_h`, `our_pa_deg`, `times`, `from_dots` |
-| known_nearby | high_pm | known | `warn`: a slow distant body (perihelion > 8 AU, < 1″/h) within 10″ at `mjd`. Never `known`: a fixed source is not a moving body | as above |
+| known_nearby | mover | known | Not certain. `strong`, status open: a body within 2″ at every one of ≥ 2 dot times whose motion misses the rule (two dots 2 minutes apart measure a motion only to about ±30″/h). `warn`: the nearest body within 2′. `ok`: none within 2′ | `name`, `body` (`asteroid`, `comet`, `planet`, `moon`), `v`, `sep_arcsec` (nearest at any dot time), `max_sep_arcsec` (farthest), `body_rate_arcsec_h`, `body_pa_deg` (the body's), `rate_arcsec_h`, `pa_deg` (ours), `rate_ratio`, `dpa_deg`, `times`, `from_dots` |
+| known_nearby | high_pm | known | `warn`: a slow distant body (perihelion > 8 AU, < 1″/h) within 10″ at `mjd`. Never `known`: a fixed source is not a moving body | `name`, `body`, `v`, `sep_arcsec`, `body_rate_arcsec_h` |
 | flag_outlier | mover | exporter | `ok`: OUTLIER at the peak of a dot (68% of known asteroids, 28% of the list): a sign it moved, never a doubt | `dots_peak`, `dots`, `known_share` |
 | flag_crosstalk, flag_ghost, flag_bloom, flag_halo | mover | exporter | `warn`: the bit (GHOST: any of GHOST, GHOST_FPA, GHOST_EXT) in a dot's 3×3 or at a peak. `strong`: at every dot's peak (the suspects' reasons `bloom`, `halo`) | `dots_flagged`, `dots_peak`, `dots`, `known_share` (the suspects' `dots_at_peak`, `n_dots`) |
 | one_detector | mover | exporter | Seen in one detector, never with its simultaneous partner. D4 alone `strong` (known 0.3%, the list 35%), `warn` when no D1 photo of that moment covers the spot; D3, D5 or D6 alone `warn`; D1 or D2 alone no check (12% of known asteroids are D2-only) | `detector`, `partner`, `exposures`, `partner_photos`, `known_share`, `list_share` |
@@ -703,7 +706,9 @@ The suspects' `warn_codes` (v3.24, suspects.json) become `warn` checks of the sa
 | partner_seen | mover | exporter, pixel | `ok`. exporter: both detectors of a pair have a dot at the same moment. pixel: both dots, or the partner's forced flux ≥ 3σ at its place, with the colour against the known-asteroid range (never a cut: 306P is D6-only and very red) | exporter `exposures_both`, `exposures`; pixel `ratio`, `photos`, `known_lo`, `known_hi`, `partner_flux_ujy`, `partner_err_ujy`, `flux_ujy` |
 | two_photos | mover | exporter | `warn`: seen in 2 exposures and on no track, or `two_detectors` in one exposure (no straight-line check) | `exposures`, `minutes` |
 | may_not_move | mover | exporter | `warn`: its own motion under 3σ | `rate_arcsec_h`, `rate_err_arcsec_h`, `sigma` |
-| chance_tracks | mover | exporter | On a track: `ok` when the zone's shuffled control made no track (summary.json `steps.tracklets.control`), else `warn` | `sessions`, `rate_arcsec_h`, `control_tracks` |
+| chance_tracks | mover | exporter | On a track: `ok` when the zone's shuffled control made no track (summary.json `steps.tracklets.control`), else `warn` | `sessions`, `rate_arcsec_h` (the track's), `control_tracks` |
+| seen_again | mover | exporter | v3.25. `ok`: on a track (contracts/dots.md `tracklets`): found again in other sessions of its visit, the strongest sign for a real mover; the text compares the zone's controls | `tracklet_id`, `sessions`, `n_movers`, `n_recovered_sessions`, `span_h`, `track_rate_arcsec_h`, `track_pa_deg`, `rate_snr`, `session_rate_arcsec_h`, `session_pa_deg`, `control_tracks`; when summary.json has them `zone_tracks`, `zone_recovered_dots`, `zone_movers`, `control_fast_tracks`, `control_movers_on_tracks`, `control_recovered_dots`, `link_control_movers`, `link_control_two_exposures`, `link_control_fast` |
+| fast_held | mover | exporter | v3.25. `warn`: grade B held from A: on a track of ≥ 2 sessions at ≥ 5σ, faster than 400″/h, with no recovered dot and no detector partner (suspects.json `grade`'s rule; summary.json `steps.suspects.vetting.tracklets.fast_held` counts them) | `sessions`, `rate_arcsec_h` (the track's), `limit_arcsec_h` |
 | fast | mover | exporter | `warn`: faster than 99% of the visit's known asteroids on tracks (≥ 30 of them, else the zone's) | `rate_arcsec_h`, `rate_err_arcsec_h`, `known_quantile_arcsec_h`, `known_n`, `known_faster` |
 | odd_direction | mover | exporter | Over 45° from the visit's median known-asteroid direction: `strong` when also `fast`, no known asteroid moves like it and it is on no track; else `warn` | `pa_deg`, `dpa_deg`, `visit_pa_deg`, `known_n`, `known_like_it` |
 | flux_jump | mover | exporter | Brightest / faintest dot in one detector > 2.2 (98.4% of known asteroids below): `warn`; > 4 or the gate `flux_ratio`: `strong` | `ratio`, `detector`, `known_max_ratio` |
@@ -738,20 +743,27 @@ The suspects' `warn_codes` (v3.24, suspects.json) become `warn` checks of the sa
 | galaxy | shape | exporter, catalogue | exporter `warn`: our classifier calls it extended. catalogue: 2MASS XSC within 10″ `strong`, WISE extended or a Gaia galaxy candidate `warn`, else `ok` | |
 | status_conflict | any | merge | `warn`: two producers disagree (known vs flaw, or two names) | `names`; or `known_name`, `flaw` |
 
-Code clashes to know (v3.24): `hot_pixel` means the vetting gate (exporter) or a pixel measurement; a producer's
-`hot_pixel` or `sharp` replaces the exporter's gate check of the same code, so a grade C gate can show as the pixel
-measurement's level. `known_nearby` `rate_arcsec_h` and `pa_deg` are the body's in the `known` producer's values and
-ours in the suspects' (the body's there: `known_rate_arcsec_h`, `known_pa_deg`). 2MASS Ks is `ks_mag` in the
-`catalogue` producer's values and `tmass_k_mag` in the suspects'. Same-pixel hot pixels are `hot_pixel_proven` from the exporter and `hot_pixel` `strong` with status
-`flaw` from the pixel producer: either way the candidate is a `flaw`.
+**Values keys** (v3.25): one meaning in every candidates.json check. `rate_arcsec_h` and `pa_deg` are ours (in session;
+in `chance_tracks` and `fast_held` the track's, as their rows say); a known body's are `body_rate_arcsec_h` and
+`body_pa_deg`; `sep_arcsec` is the nearest, `max_sep_arcsec` the farthest; 2MASS Ks is `ks_mag` (`tmass_ks_mag` with a
+catalogue prefix). suspects.json `warn_values` keep their names; candidates.json writes `known_rate_arcsec_h`,
+`known_pa_deg`, `known_v_mag`, `tmass_k_mag` as `body_rate_arcsec_h`, `body_pa_deg`, `v`, `tmass_ks_mag`. `hot_pixel`
+means the vetting gate (exporter) or a pixel measurement. A producer's check replaces the exporter's of the same code,
+but the check of one of a mover's own failed vetting gates (its `reasons` as codes: `hot_pixel`, `sharp`, `edge`,
+`catalogue_star`, `bright_star`, `flag_bloom`, …) stays when the producer's is weaker, so a failed gate stays `strong`.
+Same-pixel hot pixels are `hot_pixel_proven` from the exporter and `hot_pixel` `strong` with status `flaw` from the pixel
+producer: either way the candidate is a `flaw`. The analysis files (Science workspace, #375) do not follow these keys
+yet: there `known_body` `sep_arcsec` is the farthest and `known_body`, `known_nearby` `rate_arcsec_h`, `pa_deg` are the
+body's (**proposal** for P2 and P3: the keys above).
 
 **Side files** (v3.24). A check producer writes `<dir>/<source>.json`:
 `{ source, made (ISO 8601 UTC), candidates_file, candidates:{ <id>:{ checks:[…], status:"known"|"flaw"|null,
 known_name|null } } }`, only the ids it measured, `status` only when certain by the `status` rule. The exporter merges
 every `*.json` in the folder: `skyshift-candidates --checks-dir DIR` during the export, or `--merge-only IN.json
 --checks-dir DIR --out OUT.json` into an existing file (reads no zone). Per candidate: a producer's check replaces the
-exporter's of the same code (v3.24: a producer's `known_body` also replaces the exporter's `known_nearby`; between
-producers the stronger level wins, then the first source by name); status known > flaw > open, and a `strong` check whose code ends in `_proven` makes it `flaw` unless a producer says `known`; a known
+exporter's of the same code (v3.24: a producer's `known_body` also replaces the exporter's `known_nearby`; v3.25: the
+check of one of a mover's own failed gates stays when the producer's is weaker; between producers the stronger level
+wins, then the first source by name); status known > flaw > open, and a `strong` check whose code ends in `_proven` makes it `flaw` unless a producer says `known`; a known
 vs flaw disagreement, or two names, adds `status_conflict` (`warn`); then the score is re-weighed by the checks' factor
 and the list re-sorted. Ids change when the list changes: the producers run again on the final export. A side file of
 ids not in the file is skipped (counted). v3.24: a side file may name ids of candidates.json or of its `more` files;
@@ -1476,3 +1488,27 @@ safely when absent.
   opened. Producers `known` and `catalogue` may run on these files, `pixel` on grade A and B movers only (section
   Less likely movers).
 - fixtures/api/ is unchanged: no fixture holds candidate checks, `more` or suspects' warnings (as in v3.23).
+
+## Changes in v3.25 (16 Nov 2026): the exporter's follow-up
+
+From the exporter's PR (#369, its "Contract follow-up"; checked against its code). candidates.json only; no field is
+added or removed at the top level.
+
+- A mover's `rate_arcsec_h` and `pa_deg` are its own in-session motion: link's (suspects.parquet
+  `session_rate_arcsec_h`, `session_pa_deg`), else link's rule on its dots. Never a track's chord: the track is in
+  `seen_again`. The `known` producer compares known bodies with this motion.
+- Check `values` keys mean one thing (section Values keys): ours `rate_arcsec_h`, `pa_deg`; the body's
+  `body_rate_arcsec_h`, `body_pa_deg`; `sep_arcsec` nearest, `max_sep_arcsec` farthest; 2MASS Ks `ks_mag`. The `known`
+  producer renames `our_rate_arcsec_h`, `our_pa_deg` → `rate_arcsec_h`, `pa_deg`, its body's `rate_arcsec_h`, `pa_deg`
+  → `body_rate_arcsec_h`, `body_pa_deg`, `sep_max_arcsec` → `max_sep_arcsec`; the exporter writes the suspects'
+  `known_rate_arcsec_h`, `known_pa_deg`, `known_v_mag`, `tmass_k_mag` as `body_rate_arcsec_h`, `body_pa_deg`, `v`,
+  `tmass_ks_mag`.
+- New mover checks: `seen_again` (`ok`, on a track, with the zone's controls) and `fast_held` (`warn`, a fast track
+  held at B).
+- Merge: a mover's own failed-gate check stays when a producer's check of that code is weaker.
+- Score: unchanged (the exemption of `known_nearby` and `known_body` is v3.24's).
+- Older files read as: a mover's `rate_arcsec_h`, `pa_deg` from the weighted fit of its dots; in a `known_nearby` or
+  `known_body` check from the `known` producer, `rate_arcsec_h`, `pa_deg` are the body's and ours is
+  `our_rate_arcsec_h`, `our_pa_deg`, the farthest is `sep_max_arcsec`; the exporter's `known_nearby` carries the
+  suspects' `known_*` names and catalogue_star `tmass_k_mag`; no `seen_again` or `fast_held`.
+- fixtures/api/ is unchanged: no fixture holds candidate checks.
