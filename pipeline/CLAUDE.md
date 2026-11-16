@@ -106,7 +106,12 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   sources, fragments, refcat, orphans and photolist →
   results/<zone>/changes.parquet + changes_report.json (brightness, colour, vanished/appeared, each with text, look,
   checks; halves-null false-alarm rate). Gaia variability, and bright neighbours outside refcat's box, from ESA's
-  archive by source_id only (cached in --cache; down → variability unknown, `neighbours_unchecked`). Then
+  archive by source_id only (cached in --cache; down → variability unknown, `neighbours_unchecked`). Known bodies
+  (16 Nov): the `known` step's session files (cache/mpc, cache/planets under `--known-root`, default --root; remote
+  files kept in --cache/known; `--no-known` skips) give every asteroid, comet, moon within 15″ (2 × FWHM, at its
+  closest in an exposure; a planet: its glare reach) of a listed star; the listing rule again without those sessions:
+  gone → not listed, counted in changes_report.json `dropped_known_body`; stays → check `known_body_passed` (warn).
+  Featured sample: 1 warned (t_rwaur, (17051) Oflynn 9″), 0 dropped. Then
   `uv run python -m skyshift_pipeline.changes_export --root gs://nasa-glazing-data --out ../web/public/data/changes.json`
   merges every zone that has one into changes.json and the Atom feed changes.atom (next to it).
 - Shape candidates (kind `shape`, "one object or two?"; shape.py, not a CLI step): `uv run python -m skyshift_pipeline.shape
