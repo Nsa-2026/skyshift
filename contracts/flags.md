@@ -13,7 +13,7 @@ FLAGS is a tile-compressed int32 HDU: let astropy decode it.
 | Policy | Bits | Mask value | Why |
 |---|---|---|---|
 | **Mask** for detection and photometry | TRANSIENT 0, OVERFLOW 1, SUR_ERROR 2, NONFUNC 6, DICHROIC 7, MISSING_DATA 9, HOT 10, COLD 11, PHANMISS 14, NONLINEAR 15, PERSIST 17, STREAK 25, SNOWBALL 27 | `0x0A02CEC7` | Cosmic rays, hot and dead pixels, saturation, persistence, streaks. A dot on these pixels can't be trusted. |
-| **Record** on the dot, don't mask | OUTLIER 19, CROSSTALK 20, GHOST 22, GHOST_FPA 23, GHOST_EXT 24, BLOOM 26, HALO 28 | `0x15D80000` | Useful for vetting, but masking could hide real objects. OUTLIER stays here until we've checked it isn't set on a known asteroid. |
+| **Record** on the dot, don't mask | OUTLIER 19, CROSSTALK 20, GHOST 22, GHOST_FPA 23, GHOST_EXT 24, BLOOM 26, HALO 28 | `0x15D80000` | Useful for vetting, but masking could hide real objects. OUTLIER is set on moving objects: at a dot's peak on 68% of known asteroids (16 Nov), so it stays recorded and is never masked |
 | **Never mask** | FULLSAMPLE 12, SOURCE 21 | `0x00201000` | SOURCE is set on about 99% of pixels (99.37% on the first file). Masking it would remove almost everything. FULLSAMPLE is information only. |
 | **Saturated** | OVERFLOW or NONLINEAR in a source's core | `0x00008002` | Sets `saturated` in the spectrum and counts towards `sat_frac` on the frame. Centroid on the wings. |
 
@@ -34,5 +34,8 @@ FULLSAMPLE 0.01%, PERSIST 0.56%, OUTLIER 0.02%, CROSSTALK 1.28%, SOURCE 99.37%, 
 HALO 1.71%; DICHROIC, MISSING_DATA, PHANMISS, NONLINEAR, the GHOST bits and STREAK 0.
 The mask list removes about 2.1% of pixels. Per-image counts are in the IMAGE header `L2 N_*` keys.
 
-## Still open
-- OUTLIER (19): check it isn't set on known asteroids (V4 batch) before deciding whether to mask it.
+## Answered
+- OUTLIER (19), checked 16 Nov on 4,646 movers on tracklets tracks (nearly all known asteroids; hunt, ecl04, ecl08,
+  ecl11): at the peak of at least one dot on 68% of them (56% of their dots), against 28% of the listed suspects. It
+  marks a change between exposures, which is what a mover is: never mask it, and read it as a sign of motion, not a
+  doubt (contracts/api.md v3.24, check `flag_outlier` `ok`).
