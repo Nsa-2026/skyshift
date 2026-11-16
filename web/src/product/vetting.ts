@@ -9,6 +9,9 @@
 //             with the numbers and what to look at.
 //   ok        nothing near it in a catalogue that answered → "Sign for".
 // A catalogue that didn't answer is named as not checked; nothing is ever implied to have passed.
+// The five published fields hold these checks already, made before the list was published by
+// scripts/precompute/signal_checks.py (a line-by-line port of this file, against every MPC asteroid and comet seen from
+// SPHEREx): precomputedVerdict reads them, and the browser checks only signals without them.
 import type {Candidate} from '../api/science-client';
 import type {CatwiseSource, GaiaStar, KnownPrediction} from '../api/catalogues';
 import {dateLabel, separation} from './evidence';
@@ -299,7 +302,7 @@ export function vetSignal(kind: SignalKind, t: Track | null, cats: Catalogues, d
     checks.push({code:'catalogue_star', level:'warn',
       text:`${best.name}${best.detail ? ` (${best.detail})` : ''} sits ${arcsec(best.nearest)} from ${place.still && place !== t ? 'its mean place' : 'it'}${m > 1 ? ` on ${dateLabel(best.nearestAt)}` : ''}${within(place, best.k, STAR_RADIUS)}${motion} (${epoch}${more})`,
       look:lookFor(kind, det, service === 'gaia' ? 'star' : 'catwise', best.nearestAt),
-      values:{sep_arcsec:+best.nearest.toFixed(2), sightings:best.k, sources:hits.length}});
+      values:{sep_arcsec:+best.nearest.toFixed(2), sightings:best.k, sources:hits.length, catalogue:service}});
   };
   stars('gaia');
   stars('catwise');
@@ -324,6 +327,37 @@ export function vetSignal(kind: SignalKind, t: Track | null, cats: Catalogues, d
   return {status, known_name, known_kind, checks:order, found, pending, failed, untimed:false};
 }
 
+// ---- checks written before the list was published ----------------------------------------------------
+
+/** What scripts/precompute/signal_checks.py writes on each candidate of a published field's analysis file: these same
+ *  rules, run before the list is published against every MPC asteroid and comet seen from SPHEREx. The names are
+ *  contract v3.23's `status`, `known_name` and `checks`; analysis candidates already have their own `status`
+ *  (unvetted, single_visit, …), so the status is `check_status`. */
+export type Prechecked = {check_status?:string;known_name?:string|null;checks?:unknown};
+const LEVELS: readonly Level[] = ['strong', 'warn', 'ok'];
+function asCheck(v: unknown): Check | null {
+  const c = v as Partial<Check> | null;
+  if (!c || typeof c !== 'object' || typeof c.text !== 'string' || !LEVELS.includes(c.level as Level)) return null;
+  return {code:String(c.code ?? ''), level:c.level as Level, text:c.text, look:typeof c.look === 'string' ? c.look : '',
+    values:c.values && typeof c.values === 'object' ? c.values : null};
+}
+/** The verdict a published file already holds for a signal, or null when it holds none (live coordinates, older
+ *  files): then the browser checks it itself. */
+export function precomputedVerdict(c: Candidate): Verdict | null {
+  const p = c as Candidate & Prechecked;
+  if (!Array.isArray(p.checks)) return null;
+  const checks = p.checks.map(asCheck).filter((x): x is Check => x !== null)
+    .map((c, i) => ({c, i})).sort((a, b) => LEVEL_RANK[a.c.level] - LEVEL_RANK[b.c.level] || a.i - b.i).map(x => x.c);
+  const has = (code: string, level?: Level) => checks.some(x => x.code === code && (!level || x.level === level));
+  const onStar = (service: 'gaia' | 'catwise') => checks.some(x => x.code === 'catalogue_star' && x.values?.catalogue === service);
+  const known = p.check_status === 'known';
+  const found = {gaia:onStar('gaia'), catwise:onStar('catwise'), body:has('known_nearby'), clear:false};
+  found.clear = !known && !found.gaia && !found.catwise && !found.body && has('catalogues_checked', 'ok')
+    && !has('catalogue_unchecked') && !has('catalogue_empty');
+  return {status:known ? 'known' : 'open', known_name:known ? p.known_name ?? null : null,
+    known_kind:known ? (has('known_star', 'strong') ? 'star' : 'body') : null, checks, found, pending:[], failed:[], untimed:false};
+}
+
 // ---- the list --------------------------------------------------------------------------------------
 
 export type Category = 'body' | 'star' | 'near' | 'gaia' | 'catwise' | 'clear' | 'partial' | 'untimed';
@@ -334,8 +368,9 @@ export function category(v: Verdict): Category {
   return v.found.body ? 'near' : v.found.gaia ? 'gaia' : v.found.catwise ? 'catwise' : v.found.clear ? 'clear' : 'partial';
 }
 
-/** One sentence on what was checked and what turned up, for the top of the list. */
-export function checkSummary(verdicts: Verdict[], cats: Catalogues, failures: Partial<Record<Service, string>> = {}): {text:string;done:boolean} {
+/** One sentence on what was checked and what turned up, for the top of the list. `lead` replaces "Checked against …"
+ *  (checks written before the list was published say so). */
+export function checkSummary(verdicts: Verdict[], cats: Catalogues, failures: Partial<Record<Service, string>> = {}, lead?: string): {text:string;done:boolean} {
   const services = Object.keys(cats) as Service[];
   const pending = services.filter(s => cats[s].state === 'pending');
   const answered = services.filter(s => cats[s].state === 'ok');
@@ -365,5 +400,5 @@ export function checkSummary(verdicts: Verdict[], cats: Catalogues, failures: Pa
   add(n('partial'), 'has nothing in the catalogues that answered', 'have nothing in the catalogues that answered');
   add(n('untimed'), 'could not be checked (its observation times did not load)', 'could not be checked (their observation times did not load)');
   const what = parts.length ? parts.join(', ') : 'there were no signals to check';
-  return {text:`Checked against ${names(answered)}${answered.includes('mpc') ? ' (asteroids and comets)' : ''}: ${what}.${failText ? ` ${failText}` : ''}`, done:true};
+  return {text:`${lead ?? `Checked against ${names(answered)}${answered.includes('mpc') ? ' (asteroids and comets)' : ''}`}: ${what}.${failText ? ` ${failText}` : ''}`, done:true};
 }
