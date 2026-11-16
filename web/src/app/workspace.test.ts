@@ -39,7 +39,7 @@ it('keeps the observation, selected signal and player instance through screen an
   engine.atlasContext!.skySelection?.(starter,'#/sky/269.4521,4.6934,12');
   root.querySelector<HTMLAnchorElement>('[data-screen="viewer"]')!.click();await settled();
   expect(engine.show).toHaveBeenCalledTimes(1);
-  expect(engine.show.mock.lastCall?.[3]).toEqual({singleDetector:false});
+  expect(engine.show.mock.lastCall?.[3]).toEqual({singleDetector:false,pages:true});
   expect(fetcher).not.toHaveBeenCalled();
   expect([...root.querySelectorAll('.nav a')].map(a=>a.textContent)).toEqual(['Sky','Viewer','To check','Community','Results','Learn']);
   expect(root.querySelector('.nav [aria-current]')!.textContent).toBe('Viewer');
@@ -77,7 +77,7 @@ it('keeps the observation, selected signal and player instance through screen an
   expect(root.querySelector<HTMLElement>('.practice-panel')!.hidden).toBe(false);
   expect(root.querySelector<HTMLElement>('#science-workbench')!.hidden).toBe(true);
   expect(new URLSearchParams(location.search).get('t')).toBe('elpis');
-  expect(engine.show.mock.lastCall?.[3]).toEqual({singleDetector:true});
+  expect(engine.show.mock.lastCall?.[3]).toEqual({singleDetector:true,pages:false});
   expect(engine.singleDetector).toHaveBeenLastCalledWith(true);
   expect(root.querySelector('.nav [aria-current]')!.textContent).toBe('Learn');
   const practiceLoads=engine.show.mock.calls.length;

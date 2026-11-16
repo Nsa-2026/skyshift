@@ -196,6 +196,10 @@ export function startApp(root: HTMLElement): void {
       vote.pick(pick, false);
       selectSignal(pick);
     },
+    // More photos of the hours visit joined the blink: the page's lookups (flag, workbench) see them.
+    onFrames(f) {
+      if (frames && frames.clock === f.clock && frames.center.ra === f.center.ra && frames.center.dec === f.center.dec) frames = f;
+    },
     onEpoch(e) {
       epochMjd = e.mjd_mid;
       highlightSelected();
@@ -367,7 +371,7 @@ export function startApp(root: HTMLElement): void {
       filters.goto(next, frames);
       card.show(next, object, frames);
       await blink.show({ ...next, slug: layer === 'raw' ? next.slug : null }, loaded.frames, loaded.jsonUrl,
-        {singleDetector:layer !== 'raw' || viewerNow().tab === 'play'});
+        {singleDetector:layer !== 'raw' || viewerNow().tab === 'play', pages: !forCand && layer === 'raw' && viewerNow().tab !== 'play'});
       if (fsig.aborted) return;
       blink.status('idle');
       if (cand) suspect.ready(true);
