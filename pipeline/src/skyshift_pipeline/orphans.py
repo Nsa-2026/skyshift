@@ -543,6 +543,22 @@ def window_cap_arcsec(mjd) -> float:
     return float(2.0 / max(near - 1.0, 1e-3) * ARCSEC_PER_RAD + own_motion_arcsec(near, span) + C.ORPHANS_WINDOW_TOL_ARCSEC)
 
 
+def searched_sep_arcsec(zone: C.Zone, mjd, visit) -> list:
+    """distant.json `searched.sep_arcsec` (the site contract's [min, max] separation paired): pair_window at the zone's
+    centre for every two of its visits >= ORPHANS_MIN_DT_DAYS apart (each visit at its sources' mean time), rounded."""
+    t = pd.DataFrame({"mjd": np.asarray(mjd, np.float64), "visit": np.asarray(visit, np.int64)})
+    vm = t[np.isfinite(t["mjd"]) & (t["visit"] >= 0)].groupby("visit")["mjd"].mean().sort_values().to_numpy()
+    a, b = np.triu_indices(len(vm), 1)
+    k = (vm[b] - vm[a]) >= C.ORPHANS_MIN_DT_DAYS
+    if not k.any():
+        return [None, None]
+    ra0 = (zone.ra_min + ((zone.ra_max - zone.ra_min) % 360) / 2) % 360
+    dec0 = (zone.dec_min + zone.dec_max) / 2
+    n = int(k.sum())
+    lo, hi, _, _ = pair_window(np.full(n, ra0), np.full(n, dec0), vm[a][k], vm[b][k])
+    return [round(float(lo.min()), 0), round(float(hi.max()), 0)]
+
+
 def candidate_pairs(ra, dec, visit, mjd) -> tuple[np.ndarray, np.ndarray]:
     """Index pairs (i earlier, j later) of different visits >= ORPHANS_MIN_DT_DAYS apart, separation inside
     pair_window (parallax of a body at ORPHANS_WINDOW_AU between the two times ± its own motion), the A→B offset along
@@ -933,6 +949,8 @@ def _run(store: Store, zone: C.Zone, workers: int = 16, pred: pd.DataFrame | Non
         "searched": {
             "what": "single-visit sources without Gaia/CatWISE/2MASS whose spot the other visit covered, paired across visits",
             "rate_arcsec_h": [C.ORPHANS_RATE_MIN, C.ORPHANS_RATE_MAX],
+            "sep_arcsec": searched_sep_arcsec(zone, out["mjd_mean"] if "mjd_mean" in out else [],
+                                              out["visit"] if "visit" in out else []),
             "pair_window": {"au": list(C.ORPHANS_WINDOW_AU), "tol_arcsec": C.ORPHANS_WINDOW_TOL_ARCSEC,
                             "min_dt_days": C.ORPHANS_MIN_DT_DAYS, "perp_frac": C.ORPHANS_WINDOW_PERP_FRAC,
                             "rule": "parallax between the two times at the far / near distance -/+ the bound orbit's own "

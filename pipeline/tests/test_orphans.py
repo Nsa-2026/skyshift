@@ -181,6 +181,8 @@ def test_orphans_finds_an_injected_planet_and_counts_chance_pairs(tmp_path, rng,
     assert abs(p["distance_au"] / 300 - 1) < 0.1 and p["n_common_det"] == 2 and abs(p["flux_ratio"] - 1) < 0.05
     assert 300 < p["sep_arcsec"] < 6000 and abs(p["dlat_arcsec"]) < 0.1 * p["sep_arcsec"]
     assert rep["control"]["n"] == 10 and rep["control"]["expected_chance_pairs"] < 0.5
+    lo, hi = rep["searched"]["sep_arcsec"]  # the site's distant.json reads it (scripts/validate/distant.py)
+    assert 250 < lo < 400 and 9000 < hi < 16000
     assert [x["source_id"] for x in rep["open"]] == [103]
     assert rep["counts"]["orphans"] == 5 and rep["counts"]["pairs"] == 1  # 101, 102, 103, 201, 206
     summ = json.loads((tmp_path / f"results/{ZONE.name}/summary.json").read_text())["steps"]["orphans"]
