@@ -1287,9 +1287,14 @@ def _measure(store: Store, l2, obs_id: str, detector: int, session: int, visit: 
             st["forced_s"] = round(time.time() - t0, 2)
             st["n_forced"] = int(len(forced))
             frel = forced_rel(obs_id, detector)
-            if ddir != C.DOTS_DIR and store.exists(frel):
+            exists = ddir != C.DOTS_DIR and store.exists(frel)
+            if exists and not settings.v2:
                 st["forced_kept"] = True  # never overwritten from a re-extraction into another dots folder
             else:
+                # v2 (the one rerun of every photo) rewrites it: forced photometry on the hole-masked image, with the
+                # red layer's targets (docs/extraction-v2.md §12.5); keeping the sky run's file would leave both out
+                if exists:
+                    st["forced_replaced"] = True
                 ft = pa.Table.from_pandas(forced, preserve_index=False)
                 st["forced_bytes"] = _retry(lambda: _write(store, frel, ft))
         st["status"] = "done_finast" if "finast" in st else "done"
@@ -1337,7 +1342,8 @@ def _measure_and_write(store: Store, l2, obs_id: str, detector: int, session: in
                        zone: str | None, st: dict) -> dict:
     """Everything after the read: dots, forced photometry, metadata, files. Never raises.
     The zone's detection setting and folder come from config.zone_dots. In a folder other than the sky run's,
-    an existing forced/ file is kept (forced photometry doesn't depend on deblending; other zones read it)."""
+    an existing forced/ file is kept (forced photometry doesn't depend on deblending; other zones read it), except under
+    extraction v2, which rewrites it (dark-hole mask, red layer; docs/extraction-v2.md §12.5)."""
     return _finish(store, _measure(store, l2, obs_id, detector, session, visit, zone, st), st)
 
 
@@ -1837,6 +1843,7 @@ def run(store: Store, zone: C.Zone, workers: int, limit: int | None = None) -> d
         "wall_s": round(wall, 1), "workers": workers, "dots_dir": ddir, "deblend_cont": deblend,
         "detect_settings": dataclasses.asdict(C.zone_detect(zone.name)),
         "forced_kept": sum(bool(s.get("forced_kept")) for s in stats),
+        "forced_replaced": sum(bool(s.get("forced_replaced")) for s in stats),
     }
     if done_now:
         a = pd.DataFrame(done_now)

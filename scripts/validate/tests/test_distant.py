@@ -100,3 +100,13 @@ def test_committed_hunt_run_builds():
     site = distant.build(run, None, "t", "DR1")
     assert site["counts"]["pairs_tested"] == 892 and site["counts"]["pairs"] == 1
     assert site["control"]["expected_pairs"] == 1.5 and site["control"]["beyond_chance"] is False
+
+
+def test_searched_follows_the_steps_pair_window():
+    """v3.27: a v3.26 run says what it searched (pair_window 40–1000 AU); the site file passes it on, not [70, 1000]."""
+    run = step_output()
+    pw = {"au": [40.0, 1000.0], "tol_arcsec": 30.0, "min_dt_days": 20.0, "perp_frac": 0.4, "rule": "parallax"}
+    run["searched"] = {**run["searched"], "pair_window": pw, "session_stacks": False}
+    s = distant.build(run, INJECTION, "t", "DR1")["searched"]
+    assert s["distance_au"] == [40.0, 1000.0] and s["pair_window"] == pw and s["session_stacks"] is False
+    assert distant.build(step_output(), INJECTION, "t", "DR1")["searched"]["distance_au"] == [70.0, 1000.0]

@@ -170,7 +170,7 @@ def test_sharp_and_one_photo_steady():
     assert one["values"]["steady_places"] == 2
     # "same place, same brightness": 500 ± 60 now against 250 ± 37 at the place on other days, 3.6σ apart
     v = one["values"]
-    assert v["flux_now_ujy"] == 500.0 and round(v["flux_other_ujy"]) == 250 and round(v["ratio"], 2) == 0.5
+    assert v["flux_now_ujy"] == 500.0 and round(v["flux_other_ujy"]) == 250 and round(v["other_ratio"], 2) == 0.5
     assert round(v["diff_snr"], 1) == round(250 / np.hypot(60, 90 / np.sqrt(6)), 1)
     assert ev["one_photo"]["verdict"] == "steady" and ev["one_photo"]["flux_now_ujy"] == 500.0
     # nothing at its places on other days: ok, with the same numbers
@@ -200,7 +200,7 @@ def test_an_asteroid_passing_a_star_is_brighter_not_steady():
     one = next(c for c in ev["checks"] if c["code"] == "one_photo")
     assert one["level"] == "ok" and ev["status"] is None and "2.1× as much" in one["text"]
     v = one["values"]
-    assert v["brighter_places"] == 2 and round(v["ratio"], 2) == 0.48 and v["diff_snr"] > 10
+    assert v["brighter_places"] == 2 and round(v["other_ratio"], 2) == 0.48 and v["diff_snr"] > 10
     assert ev["one_photo"]["verdict"] == "brighter" and round(ev["one_photo"]["flux_other_ujy"]) == 2900
     # the star's light centred 1.4 px (8.8″) beside the place on other days (Erato): still brighter, not "neighbour"
     for it in m.plan["static"]:

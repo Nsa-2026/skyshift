@@ -342,10 +342,17 @@ def test_ecl11_high_pm_not_a_still_star_and_highpm_counterpart_wins(tmp_path):
     assert none["level"] == "warn" and "nor at today's place" not in none["text"] and "found no entry either" in none["text"]
     # ... a still source it found decides too
     (st,) = K.candidate_checks(ECL11, ECL11_ANSWERS, hp={"counterpart": "allwise_still", "counterpart_id":
-                                                         "allwise:J074642.23+200031.4", "counterpart_sep_arcsec": 0.4,
-                                                         "counterpart_epoch_mjd": 55400.0})
+                                                         "allwise:J074642.23+200031.4", "counterpart_sep_arcsec": 10.6,
+                                                         "counterpart_epoch_mjd": 55400.0,
+                                                         "counterpart_offset_now_arcsec": 0.4})
     assert st["level"] == "strong" and st["text"].startswith("AllWISE J074642.23+200031.4 saw a source 0.40″ from its "
                                                              "place today in 2010, when its motion (695 mas a year) puts "
                                                              "it 11″ away") and "still star" in st["text"]
+    # v3.27: counterpart_sep_arcsec is the distance from our track (10.6″), never quoted as today's offset
+    assert st["values"]["sep_arcsec"] == 10.6 and st["values"]["offset_now_arcsec"] == 0.4
+    (old,) = K.candidate_checks(ECL11, ECL11_ANSWERS, hp={"counterpart": "allwise_still", "counterpart_id":
+                                                          "allwise:J074642.23+200031.4", "counterpart_sep_arcsec": 10.6,
+                                                          "counterpart_epoch_mjd": 55400.0})   # a table before v3.27
+    assert old["text"].startswith("AllWISE J074642.23+200031.4 saw a source at its place today in 2010")
     assert K.counterpart_name("tmass_position", "2mass:07464256+2000321") == "2MASS J07464256+2000321"
     assert K.counterpart_name("catwise_pm", "J074642.10+200031.2") == "CatWISE2020 J074642.10+200031.2"

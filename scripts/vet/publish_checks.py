@@ -121,6 +121,31 @@ def catalogued(cat: dict, cid: str) -> str | None:
     return None
 
 
+def still_verdict(cat_text: str) -> bool:
+    """The catalogue check's strong verdict is a still star (a catalogue saw a source sitting where the object is now,
+    which its motion says it had left: scripts/candidates/catalogue_check.py), not a catalogued motion."""
+    return "still star" in cat_text or "still source" in cat_text
+
+
+def apply_catalogue(c: dict, cat: str | None) -> dict:
+    """An `ok` AI check next to the engine's strong catalogue check: the catalogue check read a catalogue the AI checker
+    did not, so the finding is not new after all. The words follow what that check found: a catalogued object, or a
+    still star (whose motion then is not real, so nothing about it is "catalogued")."""
+    if not cat or c["level"] != "ok":
+        return c
+    c["text"] = c["text"].replace("worth a look: ", "")
+    if still_verdict(cat):
+        c["text"] = c["text"].replace("; no catalogue we read lists its motion", "")
+        c["text"] += (" The engine's catalogue check disagrees: a catalogue saw a still source at its place ("
+                      + one(cat, 160) + ").")
+    else:
+        c["text"] = (c["text"].replace("no catalogue we read lists its motion", "its motion is catalogued")
+                     .replace("not in the catalogues we read", "listed in a catalogue the AI checker did not read"))
+        c["text"] += " Already catalogued: the engine's catalogue check found it (" + one(cat, 160) + ")."
+    c["values"]["worth_a_look"] = False
+    return c
+
+
 def build(round_dir: str, catalogue: dict | None = None) -> dict:
     F = {f["id"]: f for f in json.load(open(os.path.join(round_dir, "findings.json")))}
     names = list(dict.fromkeys(MOVER_RUNS + OTHER_RUNS))
@@ -135,12 +160,7 @@ def build(round_dir: str, catalogue: dict | None = None) -> dict:
         recs = [(n, runs[n][i]) for n in order if n in runs and i in runs[n] and runs[n][i].get("verdict")]
         if not recs:
             continue
-        c = review(f["kind"], recs)
-        cat = catalogued(catalogue or {}, i)
-        if cat and c["level"] == "ok":  # the catalogue check read a catalogue the AI checker did not: not new after all
-            c["text"] = c["text"].replace("worth a look: ", "").replace("no catalogue we read lists its motion", "its motion is catalogued")
-            c["text"] += " Already catalogued: the engine's catalogue check found it (" + one(cat, 160) + ")."
-            c["values"]["worth_a_look"] = False
+        c = apply_catalogue(review(f["kind"], recs), catalogued(catalogue or {}, i))
         out[i] = {"checks": [c], "status": None, "known_name": None}
     return {"source": "ai", "made": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "candidates_file": "web/public/data/candidates.json", "candidates": out}

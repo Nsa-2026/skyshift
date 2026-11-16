@@ -34,7 +34,7 @@ Shared scripts. Run with uv run, except make_fixtures.py (stdlib only).
                    pixel, persistence, sharp, wide, one-photo. A dot on one detector pixel in every exposure is
                    hot_pixel_proven (status flaw); hot_pixel is the uncertain code. One-photo: the mover's spot in its
                    other photos; `brighter` (own ≥ 1.5× and ≥ 5σ over the other photos: an asteroid passing a star,
-                   e.g. Seraphina, Erato) keeps it open; every mover gets flux_now_ujy, flux_other_ujy, ratio, diff_snr
+                   e.g. Seraphina, Erato) keeps it open; every mover gets flux_now_ujy, flux_other_ujy, other_ratio, diff_snr
                    (check values and its `one_photo` entry). Writes ~/skyshift-data/checks/pixel.json; --validate
                    gives the hit rates on known asteroids, junk and faint stars (pixel_validate.py, into
                    ~/skyshift-data/cache/pixel/validation.json). Cache: ~/skyshift-data/cache/pixel. Run from server/.

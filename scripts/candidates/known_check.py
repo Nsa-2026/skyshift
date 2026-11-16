@@ -23,7 +23,7 @@ dots' own mean and fitted motion, so a dot is at most its position error off it.
 
 Each mover gets one check, `known_body` when certain (contracts v3.24: the one code for a certain known body), else
 `known_nearby`; values: name, body, v, sep_arcsec (nearest), max_sep_arcsec (farthest), body_rate_arcsec_h and
-body_pa_deg (the body's), rate_arcsec_h and pa_deg (ours), rate_ratio, dpa_deg, times, from_dots:
+body_pa_deg (the body's), rate_arcsec_h and pa_deg (ours), rate_ratio (ours ÷ the body's), dpa_deg, times, from_dots:
 - `known_body`, status `known` + known_name when a body is CERTAIN by the contract's rule (known.judge: within 10″ at
   every dot's time, rate within 20% and direction within 15° when both move), level `strong`;
 - level `strong`, status open, when a body is within ON_DOTS_ARCSEC (2″) at every one of >= 2 dot times but its
@@ -619,7 +619,8 @@ def mover_check(c: dict, it: dict, bs: list[dict], n_ast: int, n_com: int) -> di
     vals = {**base, "name": b["name"], "body": b["kind"], "v": _r(b["v"], 1),
             "sep_arcsec": _r(b["sep_min"]), "max_sep_arcsec": _r(b["sep_max"]) if np.isfinite(b["sep_max"]) else None,
             "body_rate_arcsec_h": _r(b["rate"]), "body_pa_deg": _r(b["pa"], 0),
-            "rate_ratio": _r(b["rate_ratio"], 2), "dpa_deg": _r(b["dpa"], 0)}
+            # v3.27: ours ÷ the body's, as the exporter's known_nearby (known.judge's rate_ratio is body ÷ ours)
+            "rate_ratio": _r(1.0 / b["rate_ratio"], 2) if b["rate_ratio"] else None, "dpa_deg": _r(b["dpa"], 0)}
     theirs = f"moving {b['rate']:.0f}″ an hour toward PA {b['pa']:.0f}°"
     if b["certain"]:
         rng = (f"{np.nanmin(b['seps']):.1f}–{b['sep_max']:.1f}″ from each of its {nt} dot times" if nt > 1

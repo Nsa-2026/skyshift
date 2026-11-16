@@ -767,7 +767,7 @@ COUNTERPART_STILL = {"gaia_still": "lists a source without a motion", "allwise_s
 COUNTERPART_CATALOGUE = {"gaia": "Gaia DR3", "catwise": "CatWISE2020", "tmass": "2MASS", "2mass": "2MASS",
                          "allwise": "AllWISE"}
 HIGHPM_COLUMNS = ["method", "source_id", "source_id_b", "counterpart", "counterpart_id", "counterpart_sep_arcsec",
-                  "counterpart_epoch_mjd"]
+                  "counterpart_epoch_mjd", "counterpart_offset_now_arcsec"]   # the last: v3.27 tables only
 
 
 def counterpart_name(kind: str, ref_id) -> str:
@@ -797,8 +797,13 @@ def counterpart_check(c: dict, hp: dict, pm: float, look: str) -> dict:
             "sep_arcsec": round(sep, 2) if math.isfinite(sep) else None,
             "epoch_year": round(yr, 1) if math.isfinite(yr) else None, "pm_mas_yr": round(pm, 1)}
     if kind in COUNTERPART_STILL:
+        # counterpart_sep_arcsec is the entry's distance from our TRACK (>= 4.5″); from today's place it is
+        # counterpart_offset_now_arcsec (v3.27; older tables: no number)
+        now = num(hp.get("counterpart_offset_now_arcsec"))
+        off_now = f"{now:.2f}″ from " if math.isfinite(now) else "at "
+        vals["offset_now_arcsec"] = round(now, 2) if math.isfinite(now) else None
         shift = pm * abs(num(c["mjd"]) - ep) / 365.25 / 1000.0 if math.isfinite(ep) else math.nan
-        text = (f"{who} {COUNTERPART_STILL[kind]} {off}its place today{at}, when its motion ({pm:.0f} mas a year) puts "
+        text = (f"{who} {COUNTERPART_STILL[kind]} {off_now}its place today{at}, when its motion ({pm:.0f} mas a year) puts "
                 + (f"it {shift:.0f}″ away" if math.isfinite(shift) else "it elsewhere")
                 + " (the pipeline's deep check): a still star, so the measured motion is likely not real.")
         return check("catalogues_checked", "strong", text, look, {**vals, "expected_shift_arcsec":
@@ -916,7 +921,7 @@ def highpm_counterparts(cands: list[dict], roots: list[str]) -> dict[str, dict]:
                 sid, sidb = int(r["source_id"]), int(r.get("source_id_b") if r.get("source_id_b") is not None else -1)
                 cid = f"{zone}-pm-{sid}" if str(r.get("method")) != "pair" else f"{zone}-pm-{sid}-{sidb}"
                 if cid in ids:
-                    out[cid] = {k: r.get(k) for k in HIGHPM_COLUMNS[3:]}
+                    out[cid] = {k: r.get(k) for k in HIGHPM_COLUMNS[3:] if k in r}   # older tables: fewer keys
             log.info("highpm counterparts %s: %d of %d candidates (from %s)", zone, sum(i in out for i in ids), len(ids), root)
             break
     return out

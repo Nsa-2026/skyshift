@@ -182,6 +182,10 @@ def test_export_order_dedupe_and_feed(tmp_path):
     assert e["headline"][:2] in ("29", "30", "31") and "% fainter in D" in e["headline"]
     assert e["det"] in (2, 3) and e["clock"] == "months"
     assert 0 < e["score"] < 1 and e["date_after"] == "2026-05-21"
+    # Gaia ids exceed 2**53: a string, so JavaScript reads every digit
+    assert all(x["gaia_id"] is None or (isinstance(x["gaia_id"], str) and x["gaia_id"].isdigit())
+               for x in doc["changes"])
+    assert any(x["gaia_id"] for x in doc["changes"])
     json.loads(EX.dumps(doc))                         # valid JSON, no NaN
     feed = ET.fromstring(EX.atom(doc, "https://example.org"))
     ns = {"a": "http://www.w3.org/2005/Atom"}

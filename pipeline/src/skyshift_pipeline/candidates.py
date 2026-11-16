@@ -972,7 +972,8 @@ def _year(mjd) -> str | None:
 def counterpart_tail(r, vetted: bool) -> str | None:
     """The why's catalogue clause from highpm's counterpart (#388): which entry lists the object, its id
     (counterpart_id) and how far it is from our track at the entry's epoch (counterpart_sep_arcsec,
-    counterpart_epoch_mjd); None without a counterpart."""
+    counterpart_epoch_mjd); for the still kinds, how far it is from where the object is now
+    (counterpart_offset_now_arcsec, v3.27; older tables: no number); None without a counterpart."""
     cp = str(getattr(r, "counterpart", "") or "")
     if not cp:
         return None
@@ -982,6 +983,8 @@ def counterpart_tail(r, vetted: bool) -> str | None:
     off = f"{sep:.1f}″ from " if sep is not None else "at "
     then = f" in {yr}" if yr else ""
     away = f" ({sep:.1f}″ away)" if sep is not None else ""
+    now = _fin(getattr(r, "counterpart_offset_now_arcsec", None))
+    now_away = f" ({now:.1f}″ away)" if now is not None else ""
     if cp == "gaia_pm":
         return (f"; {who or 'Gaia'}{away} lists this star with the same motion, a known nearby star that shows the "
                 "method works" if vetted else f"; {who or 'Gaia'}{away} lists a star here")
@@ -991,7 +994,7 @@ def counterpart_tail(r, vetted: bool) -> str | None:
     if cp == "gaia_crossid":
         return f"; {who or 'Gaia'}{away} lists a source here without a motion, not this motion"
     if cp == "gaia_still":
-        return (f"; {who or 'Gaia'} lists a source without a motion where this one is now{away}, while this motion puts "
+        return (f"; {who or 'Gaia'} lists a source without a motion where this one is now{now_away}, while this motion puts "
                 "it elsewhere in 2016: probably a still star, not a mover")
     if cp == "catwise_pm":
         return f"; {who or 'CatWISE'}{away} lists the same motion"
@@ -1000,7 +1003,7 @@ def counterpart_tail(r, vetted: bool) -> str | None:
     if cp == "allwise_position":
         return f"; {who or 'AllWISE'} saw it {off}where this motion puts it{then}, so it is a known source"
     if cp == "allwise_still":
-        return (f"; {who or 'AllWISE'} saw a source where this one is now{away}{then}, while this motion puts it "
+        return (f"; {who or 'AllWISE'} saw a source where this one is now{now_away}{then}, while this motion puts it "
                 "elsewhere then: probably a still source, not a mover")
     return None
 

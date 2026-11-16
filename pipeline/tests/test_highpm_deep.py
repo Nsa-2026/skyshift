@@ -86,6 +86,8 @@ def test_gaia_position_only_source_at_our_spot_is_a_still_source():
     r, rep = deep(c, tap=tap, leak=False)
     assert r["status"] == "gaia" and r["reason"] == "gaia_still" and not r["vetted"] and r["counterpart"] == "gaia_still"
     assert rep["gaia_still"] == 1 and rep["gaia_matched"] == 0
+    # v3.27: the entry is 0.7″ from where we are now (its own column) but ≥ 4.5″ from our track in 2016
+    assert abs(r["counterpart_offset_now_arcsec"] - 0.7) < 0.05 and r["counterpart_sep_arcsec"] >= 4.5
     # with the hunt's leak, ϖ up to 0.25 |pm| could have kept the object within 3.4″ of here since 2016: no verdict
     r1, rep1 = deep(c, tap=tap)
     assert r1["vetted"] and r1["status"] == "new" and rep1["gaia_still"] == 0
@@ -144,6 +146,7 @@ def test_allwise_source_where_we_are_now_is_a_still_source():
     aw = [("Jhere", OUR["ra"] + 0.4 / 3600, OUR["dec"], 15.2)]
     r, rep = deep(new_row(), irsa=irsa_with(allwise=aw), d_ab=d_ab, leak=False)
     assert r["reason"] == "allwise_still" and not r["vetted"] and r["counterpart"] == "allwise_still" and rep["allwise_still"] == 1
+    assert abs(r["counterpart_offset_now_arcsec"] - 0.4) < 0.1
     far = [("Jhere", OUR["ra"] + 0.4 / 3600, OUR["dec"], 11.0)]
     r2, _ = deep(new_row(), irsa=irsa_with(allwise=far), d_ab=d_ab, leak=False)
     assert r2["vetted"] and r2["counterpart"] == ""

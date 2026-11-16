@@ -585,6 +585,11 @@ def test_highpm_why_follows_the_counterpart():
                        "hunt", {})[0]
     assert "gaia_still" in still["reasons"] and set(still["reasons"]) <= set(K.REASONS["high_pm"])
     assert "probably a still star, not a mover" in still["why"] and not still["gaia_match"]
+    # v3.27: the why quotes the distance from where it is now, not counterpart_sep_arcsec (the track's, ≥ 4.5″)
+    assert "(0.7″ away)" not in still["why"]
+    now = K.high_pms(_cp("gaia_still", "gaia:3", 9.8, 57388.0, status="gaia", vetted=False, reason="gaia_still",
+                         counterpart_offset_now_arcsec=0.6), "hunt", {})[0]
+    assert "where this one is now (0.6″ away)" in now["why"] and "9.8" not in now["why"]
     aws = K.high_pms(_cp("allwise_still", "allwise:J1", 0.5, 55400.0, vetted=False, reason="allwise_still"), "hunt", {})[0]
     assert set(aws["reasons"]) <= set(K.REASONS["high_pm"]) and "probably a still source" in aws["why"]
     old = K.high_pms(_hp(status="gaia"), "hunt", {})[0]          # a table before #388: the status as before

@@ -1214,7 +1214,7 @@ def new_source_checks(r, refcat: pd.DataFrame | None) -> list[dict]:
                             "elsewhere when the telescope turns between visits.",
                     "look": f"Viewer, months clock, D{det[0]}, wide field: does a ghost of that star sit on this spot in one "
                             "visit only?",
-                    "values": {"sep_arcsec": round(float(sep[j]), 0), "g_mag": _f(gm[j], 2)}})
+                    "values": {"neighbour_sep_arcsec": round(float(sep[j]), 0), "g_mag": _f(gm[j], 2)}})
     return out
 
 

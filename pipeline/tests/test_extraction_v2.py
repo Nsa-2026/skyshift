@@ -319,6 +319,21 @@ def test_mf_pass_block_normalise_raises_the_threshold_only_where_the_map_is_wide
     assert P.mf_pass(img, noise, bad, E, np.zeros(0), np.zeros(0), normalise=False).info["n_mf_raw"] == off.info["n_mf_raw"]
 
 
+def test_mf_pass_block_mode_on_a_photo_with_few_data_pixels(epsf, monkeypatch):  # noqa: F811
+    """v3.27: block mode on a photo with too few data pixels for the map's sigma (here 400) raised a KeyError
+    (no sigma_grid), so the photo failed; now the grid is NaN, the threshold stays min_snr and the pass runs."""
+    monkeypatch.setattr(C, "MF_SIGMA_GRID", 4)
+    E = epsf.shifted(1000, 1000)
+    img = np.random.default_rng(3).normal(0, SIGMA, (128, 128))
+    bad = np.ones(img.shape, bool)
+    bad[40:60, 40:60] = False
+    img[bad] = 0.0
+    out = P.mf_pass(img, np.full(img.shape, SIGMA), bad, E, np.zeros(0), np.zeros(0), normalise="block")
+    st = out.info["stats"]
+    assert not np.isfinite(st["sigma_lo"]) and np.asarray(st["sigma_grid"]).shape == (4, 4)
+    assert st["min_snr_used"] == C.MF_PASS_SNR
+
+
 def test_v2_dark_holes_per_detector_threshold_and_footer(tmp_path, monkeypatch):
     """process_photos with DOTS_V2: single dark pixels (-40 sigma, unflagged) become bad pixels before detection (no
     dot on them, counted in the footer's dark_holes), the MF threshold is the detector's own (MF_PASS_SNR_DET), and

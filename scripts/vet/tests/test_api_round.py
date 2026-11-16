@@ -120,3 +120,14 @@ def test_publish_checks_rules():
     assert P.review("high_pm", [("a", wrong), ("b", wrong)])["level"] == "warn"            # a moving star with a wrong value is no fake
     assert P.review("spectral", [("a", wrong), ("b", wrong)])["code"] == "ai_fake_proven"
     assert P.catalogued({"x": {"checks": [{"code": "catalogues_checked", "level": "strong", "text": "CatWISE lists it."}]}}, "x")
+    # the catalogue override's words follow the catalogue verdict (contract v3.26 "other code issues")
+    hp = P.apply_catalogue(P.review("high_pm", [("a", real), ("b", real)]), "Gaia DR3 1 lists a source without a motion "
+                           "0.40″ from its place today in 2016 (the pipeline's deep check): a still star, so the measured "
+                           "motion is likely not real.")
+    assert "its motion is catalogued" not in hp["text"] and "Already catalogued" not in hp["text"]
+    assert "no catalogue we read lists its motion" not in hp["text"] and "still source" in hp["text"]
+    sp = P.apply_catalogue(P.review("spectral", [("a", real), ("b", real)]), "AllWISE lists it.")
+    assert "not in the catalogues we read" not in sp["text"] and "Already catalogued" in sp["text"]
+    assert not sp["values"]["worth_a_look"]
+    mv = P.apply_catalogue(P.review("high_pm", [("a", real), ("b", real)]), "CatWISE2020 lists the same motion.")
+    assert "its motion is catalogued" in mv["text"] and "Already catalogued" in mv["text"]

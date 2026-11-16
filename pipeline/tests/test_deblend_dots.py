@@ -121,6 +121,21 @@ def test_fine_zone_writes_its_own_folder_and_never_touches_existing_files(tmp_pa
     assert D.process_photo(str(root), OBS, 1, str(src), 3, 1, fine_zone)["status"] == "skipped"
 
 
+def test_extraction_v2_rewrites_the_forced_file(tmp_path, fine_zone, monkeypatch):
+    """v3.27: the v2 rerun replaces the sky run's forced/ file (hole-masked image, the red layer's targets), where a
+    re-extraction into another folder otherwise keeps it."""
+    src = synthetic_mef(tmp_path)
+    root = tmp_path / "root"
+    write_refcat(Store(str(root)), fine_zone)
+    assert D.process_photo(str(root), OBS, 1, str(src), 3, 1, fine_zone)["status"] == "done"
+    frel = root / D.forced_rel(OBS, 1)
+    frel.write_bytes(b"stale")                     # the sky run's file, as on the bucket
+    monkeypatch.setattr(C, "DOTS_V2", True)
+    st = D.process_photo(str(root), OBS, 1, str(src), 3, 1, fine_zone)
+    assert st["status"] == "done" and st.get("forced_replaced") is True and not st.get("forced_kept")
+    assert st["forced_bytes"] > 0 and len(pd.read_parquet(frel)) == st["n_forced"]
+
+
 def test_fine_zone_writes_forced_when_missing(tmp_path, fine_zone, monkeypatch):
     src = synthetic_mef(tmp_path)
     root = tmp_path / "root"
