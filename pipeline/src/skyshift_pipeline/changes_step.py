@@ -850,9 +850,17 @@ def run(store: Store, zone: str, *, cache: Path | None = None, out: Store | None
     return rep
 
 
+def zones_with_lightcurves(store: Store) -> list[str]:
+    """Every configured zone with results/<zone>/lightcurves.parquet, largest box first."""
+    zs = [z for z in C.ZONES.values() if store.exists(results_rel(z.name, "lightcurves.parquet"))]
+    zs.sort(key=lambda z: -(z.ra_max - z.ra_min) * (z.dec_max - z.dec_min))
+    return [z.name for z in zs]
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="skyshift_pipeline.changes_step", description=__doc__.split("\n")[0])
-    ap.add_argument("--zones", required=True, help="comma-separated zones")
+    ap.add_argument("--zones", required=True, help="comma-separated zones, or `all` (every zone with lightcurves)")
+    ap.add_argument("--skip-done", action="store_true", help="skip zones that already have changes.parquet")
     ap.add_argument("--root", default="gs://nasa-glazing-data")
     ap.add_argument("--cache", help="folder that keeps the column reads and Gaia answers between runs")
     ap.add_argument("--out-root", help="write results/<zone>/changes.* under this root instead of --root")
@@ -864,7 +872,11 @@ def main(argv: list[str] | None = None) -> int:
     out = Store(a.out_root) if a.out_root else None
     cache = Path(a.cache) if a.cache else None
     bad = 0
-    for z in a.zones.split(","):
+    zones = zones_with_lightcurves(store) if a.zones == "all" else a.zones.split(",")
+    for z in zones:
+        if a.skip_done and (out or store).exists(results_rel(z, "changes.parquet")):
+            L.info("changes %s: changes.parquet exists, skipped", z)
+            continue
         try:
             run(store, z, cache=cache, out=out, gaia=GaiaLookup(cache / "gaia" if cache else None, enabled=not a.no_gaia),
                 with_null=not a.no_null)

@@ -120,6 +120,17 @@ def test_gaia_down_leaves_variability_unknown_and_says_so(tmp_path):
     assert rep["gaia_errors"] and rep["brightness"]["candidates_by_population"].get("unknown") == 1
 
 
+def test_cli_all_zones_and_skip_done(tmp_path):
+    st = _zone(tmp_path)
+    assert ST.zones_with_lightcurves(st) == ["pilot"]
+    args = ["--zones", "all", "--root", str(tmp_path), "--no-gaia", "--no-null"]
+    assert ST.main(args) == 0
+    out = tmp_path / "results" / "pilot" / "changes.parquet"
+    first = out.stat().st_mtime_ns
+    assert ST.main(args + ["--skip-done"]) == 0
+    assert out.stat().st_mtime_ns == first                  # done zones are not redone
+
+
 def test_catwise_position_and_slugs():
     ra, dec = ST.catwise_position("catwise:J081628.26+142456.2")
     assert ra == pytest.approx(124.11775, abs=1e-5) and dec == pytest.approx(14.41561, abs=1e-5)

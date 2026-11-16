@@ -690,6 +690,11 @@ def population(source_id: np.ndarray, ref_id: np.ndarray, ra: np.ndarray, dec: n
     return np.where(sid >= 0, "source", np.where(inside, "forced_inside", "forced_outside"))
 
 
+def _n_detectors(n: int) -> str:
+    """"1 other detector" / "2 other detectors"."""
+    return f"{n} other detector" + ("" if n == 1 else "s")
+
+
 def brightness_checks(r) -> list[dict]:
     """v3.23-style checks for one listed brightness alert row (fields used when present: agree, disagree, other_z,
     origin, survives_session_drop, gaia_variable, gaia_class, nb_sep, nb_dmag, sign_blend, sign_saturated).
@@ -708,8 +713,8 @@ def brightness_checks(r) -> list[dict]:
     dis = int(getattr(r, "disagree", 0) or 0)
     agr = int(getattr(r, "agree", 0) or 0)
     if dis:
-        add("detectors_disagree", "warn", f"{dis} other detector(s) changed the opposite way at >= "
-            f"{CHANGES_Z_CONFIRM:.0f}σ.", "Viewer, months clock: blink the same two visits in each detector.",
+        add("detectors_disagree", "warn", f"{_n_detectors(dis)} changed the opposite way (by at least "
+            f"{CHANGES_Z_CONFIRM:.0f}σ).", "Viewer, months clock: blink the same two visits in each detector.",
             {"disagreeing_detectors": dis})
     oz = getattr(r, "other_z", np.nan)
     if oz is not None and np.isfinite(oz) and np.sign(oz) != np.sign(r.z) and abs(oz) >= CHANGES_Z_CONFIRM:
@@ -717,8 +722,8 @@ def brightness_checks(r) -> list[dict]:
         add("origin_disagrees", "warn", f"In D{det} {other} says the opposite ({oz:+.1f}σ): the measurement, not "
             "the star, may have changed.", "", {"other_sigma": round(float(oz), 2)})
     if agr:
-        add("other_detectors_agree", "ok", f"{agr} other detector(s) changed the same way at >= "
-            f"{CHANGES_Z_CONFIRM:.0f}σ.", "", {"agreeing_detectors": agr})
+        add("other_detectors_agree", "ok", f"{_n_detectors(agr)} changed the same way (by at least "
+            f"{CHANGES_Z_CONFIRM:.0f}σ).", "", {"agreeing_detectors": agr})
     return _sorted_checks(out + common_checks(r, det))
 
 
