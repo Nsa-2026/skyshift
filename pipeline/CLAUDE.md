@@ -185,6 +185,14 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   footer keys aperture_noise, grids_v2 (noise, 5σ depth), sat_cores, sky_jacobian_deg_px, mf. Bands of 68 photos:
   isolated Gaia at aperture S/N 5–5.5 found 33% (sky) → 85%, known asteroids V 17–18 16% → 53%, negative-image
   fakes 21 → 65 of 43k dots; ~3.7× the sky setting's detection CPU (glow a third of it), ~1.9× the bytes.
+  Second pass (16 Nov evening, docs/extraction-v2.md §12; config DOTS_V2_HOLES, HOLE_*, MF_PASS_SNR_DET,
+  MF_PASS_NORMALISE, MF_SIGMA_*): dots.mask_dark_holes sets unflagged 1–4 px groups > 5σ below the sky to NaN first
+  (core holes; MWIR 300–1,270 per photo, footer `dark_holes`); the matched-filter threshold is per detector (all 5.0)
+  × the S/N map's own σ in 32 × 32 blocks where it is > 1.1 (footer mf.sigma_grid, sigma_lo, n_neg); a photo with no
+  first-pass dot still gets the matched-filter pass; the saturation guard measures only the sky setting's objects
+  near its candidates (detect `near`, same drops). 36 full photos: negative-image dots per photo D1–D6 171/195/27/881/
+  508/508 → 61/67/4/29/36/30; Gaia found −0.1 to −0.5% (plane D4 −5.7%), known asteroids 2 of 267 sightings fewer.
+  What is left is D2's top rows (y ≥ ~1975, a background ramp in every D2 photo): a vet/suspects edge rule, no re-extraction.
 - classify and photoz read only sources.parquet (+ optional dot shape columns, crossids, refcat); never photos.
   photoz queries SDSS DR17 once per zone (cached in cache/sdss/<zone>.parquet); a network failure only skips the report.
 - refcat: Gaia DR3 (G<20), CatWISE2020, 2MASS PSC over zone + 0.1° in 1° tiles (cache/refcat/<zone>/), writes
@@ -197,6 +205,11 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   builds the sky-wide forced list refcat/sky/forced_n32/p<pixel>.parquet (Gaia DR3 G<17.5, HEALPix nside 32 by source_id,
   ESA TAP sync, brightest 8,221 per partition) and _complete.json last; resumable. dots uses it for every photo's whole
   footprint once _complete.json exists, else refcat/<zone>_forced.parquet (SKYSHIFT_FORCED_SKY=off forces the zone list).
+  `--red` (16 Nov) builds the red layer refcat/sky/forced_red_n32/ on the same partitions from AllWISE on S3 (nasa-irsa-wise,
+  healpix_k5, anonymous): W1 ≤ 16, W1 − W2 ≥ 0.4, W2 S/N ≥ 3, no forced Gaia target within 2″, ≤ 6,000 per partition,
+  ref_id `allwise:<designation>`, epoch 2010.5; needs the Gaia layer first. dots adds it once its _complete.json exists
+  (origin `sky+red`; SKYSHIFT_FORCED_SKY_RED=off: never). 54 partitions: median 990 rows, 30 KB, 1.6 s each (3 threads);
+  forced targets per photo +7% (plane) to +58% (high latitude).
 - `known` doesn't need `dots`: run it at the same time in a second process.
 - calib (after crossid; `all` reruns spectra after it): from the raw member dots, per detector the pixel-phase centroid
   bias (Fourier in φ = x − round(x)), per photo a distortion polynomial vs Gaia (order by cross-validation), pos_err =

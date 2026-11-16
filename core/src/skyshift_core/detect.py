@@ -88,6 +88,7 @@ def detect(
     deblend_cont: float = 0.005,
     clean_param: float = 1.0,
     bkg: Background | None = None,
+    near: tuple[ArrayLike, ArrayLike, float] | None = None,
 ) -> NDArray[np.void]:
     """Detect sources on a cutout.
 
@@ -98,6 +99,10 @@ def detect(
     neighbours into a brighter source's wings).
     bkg: optional precomputed background(d, m, box=box) of this same data and mask (d = data with
     the bad pixels zeroed), to skip computing it twice; the result is identical.
+    near: (x, y, r): measure only the objects whose peak pixel lies within r px of one of these points (the others
+    are left out). Each object is measured on its own and its position always ends within 1 px of its peak, so
+    with r >= d + 1 this returns exactly the rows of the full call that lie within d px of a point (the
+    pipeline's saturation guard, 16 Nov: ~2x cheaper than measuring every object).
     Returns a structured array with DETECTION_DTYPE, sorted by flux, brightest first.
     """
     m = build_mask(data, flags, mask)
@@ -122,6 +127,14 @@ def detect(
     # on the first photo; plain convolution keeps them apart.
     objs = sep.extract(sub, thresh, err=err, mask=mm, minarea=minarea, deblend_cont=deblend_cont,
                        clean_param=clean_param, filter_type="conv")
+    if near is not None:
+        qx, qy = np.atleast_1d(np.asarray(near[0], np.float64)), np.atleast_1d(np.asarray(near[1], np.float64))
+        if len(objs) and qx.size:
+            from scipy.spatial import cKDTree
+            dist, _ = cKDTree(np.c_[qx, qy]).query(np.c_[objs["xpeak"], objs["ypeak"]].astype(np.float64), k=1)
+            objs = objs[dist <= float(near[2])]
+        else:
+            objs = objs[:0]
     return measure_objects(sub, err, mm, objs, aperture_r=aperture_r, window_sigma=window_sigma)
 
 

@@ -119,3 +119,23 @@ def test_no_data_near_edge_but_not_a_saturated_hole():
     big = np.ones((81, 81))
     big[20:40, 20:40] = np.nan  # 400 px masked inside the frame: missing sky too
     assert no_data_near(big, 42.0, 30.0, 4.0)
+
+
+def test_detect_near_is_the_subset_of_the_full_call(cutout_path):
+    """near=(x, y, r) keeps the objects whose sep peak lies within r of a point: exactly those rows of the full
+    call, measured the same (the saturation guard's speed-up, 16 Nov)."""
+    l2 = open_level2(cutout_path, variance=True)
+    full = detect(l2.data, l2.flags, variance=l2.variance, thresh=2.0)
+    assert len(full) >= 20
+    px, py = full["x"][::4], full["y"][::4]
+    sub = detect(l2.data, l2.flags, variance=l2.variance, thresh=2.0, near=(px, py, 2.5))
+    assert 0 < len(sub) < len(full)
+    keep = np.array([np.hypot(px - x, py - y).min() <= 2.5 + 1.0 for x, y in zip(full["x"], full["y"])])
+    for x, y in zip(px, py):  # every point's own object comes back, with the same measurement
+        i = int(np.argmin(np.hypot(full["x"] - x, full["y"] - y)))
+        j = int(np.argmin(np.hypot(sub["x"] - x, sub["y"] - y)))
+        assert sub[j] == full[i]
+    for row in sub:  # and nothing that is not in the full call
+        assert any(row == full[k] for k in np.flatnonzero(keep))
+    none = detect(l2.data, l2.flags, variance=l2.variance, thresh=2.0, near=(np.array([]), np.array([]), 2.5))
+    assert len(none) == 0

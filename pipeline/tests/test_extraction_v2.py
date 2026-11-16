@@ -289,3 +289,110 @@ def test_process_photos_v2_pairs_partners(tmp_path, monkeypatch):
         m = D.photo_meta(str(p))
         assert m["partner"]["detector"] == C.PARTNER_DETECTOR[det] and m["n_partner"] > 0
         assert (root / D.peaks_rel("OBS", det, V2.folder)).exists()
+
+
+def test_mf_pass_block_normalise_raises_the_threshold_only_where_the_map_is_wide(epsf, monkeypatch):  # noqa: F811
+    """16 Nov, second pass: a patch whose real scatter is 2.5x the noise map (D2's top rows, crosstalk) makes MF-pass
+    fakes at a constant threshold; "block" multiplies each peak's threshold by its block's own sigma (from the S/N map's
+    lower half), so the patch makes none while a faint star on quiet sky is still found. The grid is in the stats."""
+    monkeypatch.setattr(C, "MF_SIGMA_GRID", 4)
+    E = epsf.shifted(1000, 1000)
+    rng = np.random.default_rng(5)
+    img = rng.normal(0, SIGMA, (128, 128))
+    img[:, :64] *= 2.5
+    star = (96.05, 63.95)
+    Pf, ix, iy = E.stamps([star[0]], [star[1]], half=6)
+    K = P.mf_kernel(E, int(E.zone([star[0]], [star[1]])[0]))
+    img[iy[0] - 6:iy[0] + 7, ix[0] - 6:ix[0] + 7] += 8.0 / np.sqrt((K ** 2).sum()) * Pf[0]
+    noise, bad = np.full(img.shape, SIGMA), np.zeros(img.shape, bool)
+    off = P.mf_pass(img, noise, bad, E, np.zeros(0), np.zeros(0), normalise="off")
+    blk = P.mf_pass(img, noise, bad, E, np.zeros(0), np.zeros(0), normalise="block")
+    assert (off.dots["x"] < 60).sum() >= 3  # the wide patch's fakes
+    assert (blk.dots["x"] < 64).sum() == 0
+    assert (np.hypot(blk.dots["x"] - star[0], blk.dots["y"] - star[1]) < 0.7).sum() == 1
+    st = blk.info["stats"]
+    g = np.asarray(st["sigma_grid"])
+    assert g.shape == (4, 4) and (g[:, :2] > 2.0).all() and (np.abs(g[:, 2:] - 1) < 0.25).all()
+    assert {"sigma_lo", "median", "n_neg", "min_snr_used"} <= set(st) and st["n_neg"] >= 1
+    # the same peaks either way: the ones under their block's threshold go to the peaks file
+    assert len(off.dots) + off.info["n_peaks"] == len(blk.dots) + blk.info["n_peaks"]
+    assert P.mf_pass(img, noise, bad, E, np.zeros(0), np.zeros(0), normalise=False).info["n_mf_raw"] == off.info["n_mf_raw"]
+
+
+def test_v2_dark_holes_per_detector_threshold_and_footer(tmp_path, monkeypatch):
+    """process_photos with DOTS_V2: single dark pixels (-40 sigma, unflagged) become bad pixels before detection (no
+    dot on them, counted in the footer's dark_holes), the MF threshold is the detector's own (MF_PASS_SNR_DET), and
+    the footer has the block grid; with the hole mask off the footer says so."""
+    path = synthetic_mef(tmp_path)
+    base = open_level2(path, variance=True, epsf=True)
+    base.zodi = None
+    ctx = D.photo_context(base, {})
+    xy = D.dots_table(base, "X", 1, settings=V2)[["x", "y"]].to_numpy()
+    ny, nx = np.shape(base.data)
+    spots = [(x, y) for y in range(8, ny - 8) for x in range(8, nx - 8)
+             if np.hypot(xy[:, 0] - x, xy[:, 1] - y).min() > 4 and not ctx.bad[y - 2:y + 3, x - 2:x + 3].any()]
+    assert len(spots) >= 3
+    holes = [spots[0], spots[len(spots) // 2], spots[-1]]
+    assert min(np.hypot(a[0] - b[0], a[1] - b[1]) for a, b in ((holes[0], holes[1]), (holes[1], holes[2]))) > 4
+    nz = float(np.sqrt(np.nanmedian(np.asarray(base.variance, np.float64))))
+
+    def load(url):
+        l2 = open_level2(path, variance=True, epsf=True)
+        l2.zodi = None
+        l2.detector = int(url[-1])
+        data = np.asarray(l2.data, np.float64).copy()
+        for x, y in holes:
+            data[y, x] -= 40 * nz
+        l2.data = data.astype(np.float32)
+        return l2
+
+    monkeypatch.setattr(C, "DOTS_V2", True)
+    monkeypatch.setattr(C, "MF_PASS_SNR_DET", {1: 5.5, 4: 6.5})
+    monkeypatch.setattr(D, "load_photo", load)
+    root = tmp_path / "root"
+    st = D.process_photos(str(root), [("OBS", 1, "u1", 0, 0), ("OBS", 4, "u4", 0, 0)], prefetch=False)
+    assert [s["status"] for s in st] == ["done", "done"]
+    for det, t in ((1, 5.5), (4, 6.5)):
+        p = root / f"{V2.folder}/OBSD{det}.parquet"
+        m = D.photo_meta(str(p))
+        assert m["dark_holes"]["n_holes"] >= len(holes) and m["dark_holes"]["config"]["sigma"] == C.HOLE_SIGMA
+        assert m["detect"]["dark_holes"] is True and m["detect"]["mf_pass_snr"] == t
+        assert m["mf"]["min_snr"] == t and m["mf"]["normalise"] == C.MF_PASS_NORMALISE
+        g = m["mf"]["sigma_grid"]
+        assert len(g) == C.MF_SIGMA_GRID and len(g[0]) == C.MF_SIGMA_GRID
+    # the mask itself: those pixels NaN in a copy (the photo untouched), no pixel of a bright star's core
+    l2 = load("u1")
+    m2, info, pre = D.mask_dark_holes(l2)
+    assert pre is None and m2 is not l2 and np.isfinite(np.asarray(l2.data)[[y for _, y in holes], [x for x, _ in holes]]).all()
+    new = np.isnan(np.asarray(m2.data)) & ~np.isnan(np.asarray(l2.data))
+    assert int(new.sum()) == info["n_px"] and all(new[y, x] for x, y in holes)
+    df = pd.read_parquet(root / f"{V2.folder}/OBSD1.parquet")
+    yy, xx = np.nonzero(new)
+    bright = df[df.snr > 20]
+    for x, y in zip(xx, yy):
+        assert np.hypot(bright.x - x, bright.y - y).min() > 2.0
+    monkeypatch.setattr(C, "DOTS_V2_HOLES", False)
+    root2 = tmp_path / "root2"
+    D.process_photos(str(root2), [("OBS", 1, "u1", 0, 0)], prefetch=False)
+    m2 = D.photo_meta(str(root2 / f"{V2.folder}/OBSD1.parquet"))
+    assert m2.get("dark_holes") is None and m2["detect"]["dark_holes"] is False
+
+
+def test_v2_runs_the_mf_pass_when_the_first_pass_finds_nothing(tmp_path, monkeypatch):
+    """A photo with no first-pass dot (a negative image, an empty field) still gets its matched-filter pass."""
+    from skyshift_core.detect import DETECTION_DTYPE
+    l2 = _photo(tmp_path)
+    seen = []
+    real = D._mf_pass
+
+    def spy(*a, **k):
+        seen.append(1)
+        return real(*a, **k)
+
+    monkeypatch.setattr(D, "_mf_pass", spy)
+    monkeypatch.setattr(D, "detect", lambda *a, **k: np.zeros(0, dtype=DETECTION_DTYPE))
+    counts, extras = {}, {}
+    v2 = D.dots_table(l2, "X", 1, settings=V2, counts=counts, extras=extras)
+    assert seen and "n_mf_raw" in counts and "peaks" in extras
+    assert list(v2.columns) == list(D.DOT_COLUMNS) + list(D.DOT_LIST_COLUMNS) + list(D.DOT_V2_COLUMNS)
+    assert len(v2) >= 1 and ((v2.sep_flag & C.SEP_FLAG_MF_PASS) != 0).all()
