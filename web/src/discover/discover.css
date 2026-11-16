@@ -678,6 +678,11 @@
 }
 
 /* Which list (contracts/api.md v3.23 status): to check, or the certain matches listed apart. */
+.dv-changes {
+  margin: 0 0 var(--s-2, 8px);
+  overflow-wrap: anywhere;
+}
+
 .dv-lists {
   display: grid;
   gap: 6px;

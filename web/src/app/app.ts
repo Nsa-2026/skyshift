@@ -17,6 +17,7 @@ import { mountLive } from "../live";
 import { mountDetailsSwitch } from "../prefs/details";
 import { candidateView, mountReview, mountSuspect, suspectFrames, suspectShown, suspectWave } from "../review";
 import { mountAbout, mountCommunity } from "../community";
+import { mountChanges } from "../changes";
 import { mountWorkbench, targetFor, type Layer } from "../product/workbench";
 import {MODES, workspaceHref, type WorkspaceState} from "../product/workspace-state";
 import {mountGuidedPractice} from '../product/practice';
@@ -39,6 +40,7 @@ const html = String.raw;
 const PAGE_TITLES: Record<string, string> = {
   discover: "To check",
   review: "To check, one at a time",
+  changes: "Changes in known stars",
   explore: "Viewer",
   live: "Live search",
   community: "Community",
@@ -120,6 +122,7 @@ export function startApp(root: HTMLElement): void {
       </div>
     </main>
     <main class="page page-score" data-page="results" hidden><div id="score"></div></main>
+    <main class="page page-changes" data-page="changes" hidden></main>
     <main class="page page-community" data-page="community" hidden></main>
     <main class="page page-about" data-page="about" hidden></main>
     <main class="page page-learn" data-page="learn" hidden></main>
@@ -516,6 +519,7 @@ export function startApp(root: HTMLElement): void {
     // Results in sections: show("<section>[/<part>]") opens and scrolls; hide() stops the live polling.
     results: mountScore,
     review: mountReview,
+    changes: mountChanges,
     community: mountCommunity,
     about: mountAbout,
   };

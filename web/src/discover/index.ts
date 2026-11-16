@@ -155,6 +155,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
           </details>
           <a class="btn btn-sm dv-skylink" href="#/candidates/map=1" title="These objects on a large sky map">${mapGlyph()}See them on the sky</a>
         </div>
+        <p class="dv-changes" data-changes-link hidden></p>
         <div class="dv-lists" hidden></div>
         <div class="dv-scope" hidden></div>
         <p class="dv-real" hidden>These are the objects the community agreed move or change: at least ${CONSENSUS.minVotes} votes with ${CONSENSUS_PCT}% agreeing.
@@ -231,6 +232,19 @@ export const mountDiscover: MountPage = (el, ctx) => {
   });
 
   // ---- data -------------------------------------------------------------------------------------
+
+  // Changes in known stars (#/changes) lives on this screen: a plain link with its count, none without the file.
+  if (!embed) {
+    void fetch("/data/changes.json", { cache: "no-cache" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { changes?: unknown[] } | null) => {
+        const p = el.querySelector<HTMLElement>("[data-changes-link]");
+        if (!p || !d || !Array.isArray(d.changes)) return;
+        p.innerHTML = html`<a href="#/changes">Changes in known stars (${d.changes.length.toLocaleString("en-US")}) →</a>`;
+        p.hidden = false;
+      })
+      .catch(() => undefined);
+  }
 
   async function load() {
     let resp: CandidatesResponse | null = null;

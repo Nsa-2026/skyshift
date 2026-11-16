@@ -17,7 +17,7 @@ export const SCREENS: readonly ScreenLink[] = [
 /** Which screen each page belongs to (its nav entry); About belongs to none. */
 const PAGE_SCREEN: Record<string, Screen | null> = {
   atlas:'sky', explore:'viewer',
-  discover:'check', review:'check', community:'community',
+  discover:'check', review:'check', changes:'check', community:'community',
   results:'results', live:'results', tools:'results',
   learn:'learn', about:null,
 };
@@ -79,6 +79,6 @@ export function siteRoute(hash: string, embed = false, search = '', advanced = f
   if (head === 'score' || head === 'results') return page('results', param);
   if (head === 'candidates' || head === 'discover') return page('discover', param);
   if (head === 'sky') return page('atlas', param);
-  if (['review', 'community', 'about', 'learn', 'tools', 'live'].includes(head)) return page(head, param);
+  if (['review', 'changes', 'community', 'about', 'learn', 'tools', 'live'].includes(head)) return page(head, param);
   return page('atlas', null);
 }
