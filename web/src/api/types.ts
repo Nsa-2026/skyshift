@@ -401,6 +401,31 @@ export interface Candidate {
   frames_url: string | null;
   /** Movers: the vetting grade (added 14 Nov). null or absent: not graded (other kinds, older exports). */
   grade?: Grade | null;
+  /** v3.23: open (to check), known (certainly a known body) or flaw (certainly the instrument).
+   *  Absent in older files: read as open (./checks.ts statusOf). */
+  status?: CandidateStatus;
+  /** v3.23: the known body's name when status is known, else null. */
+  known_name?: string | null;
+  /** v3.23: what could make it something else, measured, and what to look at. Absent: []. */
+  checks?: CandidateCheck[];
+}
+
+/** contracts/api.md v3.23, candidates.json `status`. */
+export type CandidateStatus = "open" | "known" | "flaw";
+
+/** strong: a measured sign against it; warn: can't be ruled out; ok: a measured sign for it. */
+export type CheckLevel = "strong" | "warn" | "ok";
+
+/** contracts/api.md v3.23, candidates.json `checks`. Words and order: ./checks.ts. */
+export interface CandidateCheck {
+  code: string;
+  level: CheckLevel;
+  /** What was measured, one plain sentence with the numbers. */
+  text: string;
+  /** Exactly what to look at in the Viewer, or "". */
+  look: string;
+  /** The numbers in `text`, keyed by name with units in the key; null when none. */
+  values: Record<string, unknown> | null;
 }
 
 export interface CandidatesResponse {

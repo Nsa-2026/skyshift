@@ -63,6 +63,32 @@ describe("toCandidate", () => {
     expect(set.candidates.map((c) => [c.id, c.kind])).toEqual([["a", "mover"]]);
     expect(set.sample).toBe(true);
   });
+
+  it("carries v3.23's status, known_name and checks when the file has them, and adds nothing when it doesn't", () => {
+    const c = toCandidate({
+      id: "k", kind: "mover", ra: 1, dec: 2, status: "known", known_name: "306P/LINEAR",
+      checks: [{ code: "edge", level: "warn", text: "Near the edge" }, { code: "known_nearby", level: "strong", text: "306P was predicted 2″ away", look: "Hours, D6" }],
+    });
+    expect(c).toMatchObject({ status: "known", known_name: "306P/LINEAR" });
+    expect(c?.checks?.map((k) => k.code)).toEqual(["known_nearby", "edge"]);
+    const old = toCandidate({ id: "o", kind: "mover", ra: 1, dec: 2 })!;
+    expect(["status", "known_name", "checks"].filter((k) => k in old)).toEqual([]);
+  });
+});
+
+describe("the Viewer's Previous and Next for a candidate listed apart", () => {
+  it("steps through the known bodies, never the objects to check", async () => {
+    const { listFor } = await import("./list");
+    const rows = [
+      { id: "o1", kind: "mover", ra: 1, dec: 2, score: 0.9, checks: [] },
+      { id: "k1", kind: "mover", ra: 1, dec: 2, score: 0.8, status: "known", known_name: "Iapetus", checks: [] },
+      { id: "o2", kind: "mover", ra: 1, dec: 2, score: 0.7, status: "open", checks: [] },
+      { id: "k2", kind: "mover", ra: 1, dec: 2, score: 0.6, status: "known", known_name: "(4512) Sinuhe", checks: [] },
+    ].map((r) => toCandidate(r)!);
+    const ids = async (q: string) => (await listFor(rows, q, new Map(), () => null)).map((c) => c.id);
+    expect(await ids("show=all")).toEqual(["o1", "o2"]);
+    expect(await ids("show=all&status=known")).toEqual(["k1", "k2"]);
+  });
 });
 
 describe("the plate's view and frames", () => {

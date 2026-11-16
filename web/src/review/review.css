@@ -675,6 +675,20 @@
   color: var(--ink-2);
   font-size: var(--step--1);
 }
+/* The file's checks (contracts/api.md v3.23, ./checks.ts): they replace "Watch for" when present. */
+.sp-checks {
+  display: grid;
+  gap: 6px;
+  margin-top: 2px;
+}
+.sp-checks-h {
+  font-size: var(--step--1);
+  font-weight: 650;
+  color: var(--ink);
+}
+.sp-about .ck-status {
+  font-size: var(--step--1);
+}
 /* ---- Review queue ---------------------------------------------------------------------------- */
 .rq-head {
   display: flex;

@@ -17,6 +17,8 @@ import { lastDiscoverHash, lastDiscoverQuery, trackDiscover } from "./nav";
 import { SAMPLE_NOTE, castVote, fillNearSource, gradeHtml, headHtml, motionHtml, visible } from "./parts";
 import { candidateMarks } from "./track";
 import { aboutCandidate } from "./about";
+import { checksHtml, statusHtml } from "./checks";
+import { STATUS_TEXT, statusOf } from "../api/checks";
 import { KIND_TEXT, SITE, esc, kindName } from "./text";
 
 const html = String.raw;
@@ -55,12 +57,15 @@ export function noVoteHtml(c: Candidate): string {
   </section>`;
 }
 
-/** What this object did, in which detector, and what could make it an artefact (src/review/about). */
+/** What this object did, in which detector, and what could make it an artefact (src/review/about).
+ *  A known body or an instrument flaw says so first; the file's checks (v3.23) replace "Watch for". */
 export function aboutHtml(c: Candidate, frames?: FramesResponse | null): string {
   const a = aboutCandidate(c, frames);
   return html`<div class="sp-about">
+    ${statusHtml(c)}
     <p class="sp-about-said">${esc(a.said.join(" "))}</p>
     ${a.watch ? html`<p class="sp-about-watch">${esc(a.watch)}</p>` : ""}
+    ${a.checks.length ? html`<section class="sp-checks" aria-labelledby="sp-checks-h"><p class="sp-checks-h" id="sp-checks-h" role="heading" aria-level="3">What to check</p>${checksHtml(c)}</section>` : ""}
   </div>`;
 }
 
@@ -315,9 +320,11 @@ export function mountSuspect(el: HTMLElement, opts: SuspectOptions): SuspectHand
     const votedFor = (id: string) => (id === c.id ? null : api.myVote(id));
     let items = await listFor(set.candidates, q, all, votedFor);
     let inList = true;
+    const status = statusOf(c);
     if (!items.some((x) => x.id === c.id)) {
-      // Not in the list: step through everything, including the groups the list sets aside by default.
-      items = await listFor(set.candidates, "show=all", all, votedFor);
+      // Not in the list: step through everything of its status (to check, known bodies or flaws),
+      // including the groups the list sets aside by default.
+      items = await listFor(set.candidates, status === "open" ? "show=all" : `show=all&status=${status}`, all, votedFor);
       inList = false;
     }
     if (cand !== c) return;
@@ -332,7 +339,9 @@ export function mountSuspect(el: HTMLElement, opts: SuspectOptions): SuspectHand
     link(prevEl, prev);
     link(nextEl, next);
     countEl.textContent =
-      index >= 0 ? `${(index + 1).toLocaleString("en-GB")} of ${items.length.toLocaleString("en-GB")} ${inList && q ? "in your filtered list" : "by pipeline score"}` : "";
+      index >= 0
+        ? `${(index + 1).toLocaleString("en-GB")} of ${items.length.toLocaleString("en-GB")} ${inList && q ? "in your filtered list" : status === "open" ? "by pipeline score" : `${STATUS_TEXT[status].many} listed apart`}`
+        : "";
     backEl.href = lastDiscoverHash();
   }
 

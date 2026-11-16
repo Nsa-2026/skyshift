@@ -677,6 +677,94 @@
   padding: 4px 2px;
 }
 
+/* Which list (contracts/api.md v3.23 status): to check, or the certain matches listed apart. */
+.dv-lists {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 var(--s3);
+}
+.dv-lists-seg {
+  justify-self: start;
+}
+.dv-lists-seg > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--step--1);
+}
+/* Phones: the three lists fit one row without scrolling. */
+@container results (max-width: 520px) {
+  .dv-lists-seg > button {
+    padding: 0 9px;
+    gap: 4px;
+    font-variation-settings: "wdth" 84;
+  }
+}
+.dv-lists-seg .fx-n {
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.dv-lists-seg > button[aria-pressed="true"] .fx-n {
+  color: inherit;
+  opacity: 0.75;
+}
+.dv-lists-text {
+  margin: 0;
+  max-width: 72ch;
+  font-size: var(--step--1);
+  color: var(--ink-2);
+  line-height: 1.45;
+}
+
+/* Score order: the open ones with a measured sign against them, last, under this divider. */
+.dv-less {
+  padding: var(--s5) var(--s2) var(--s3);
+  border-bottom: 1px solid var(--hair-strong);
+}
+.dv-less-h {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--step-0);
+  font-weight: 650;
+}
+.dv-less-n {
+  font-size: var(--step--1);
+  font-weight: 550;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.dv-less-text {
+  margin-top: 2px;
+  max-width: 72ch;
+  font-size: var(--step--1);
+  color: var(--ink-2);
+  line-height: 1.45;
+}
+.dv-less-kind {
+  padding: var(--s3) var(--s2) 6px;
+  border-bottom: 1px solid var(--hair);
+}
+.dv-less-kind-h {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--step--1);
+  font-weight: 650;
+  color: var(--ink-2);
+}
+.dv-row.is-less .dv-kind,
+.dv-row.is-less .dv-why {
+  color: var(--ink-2);
+}
+.dv-checks {
+  margin-top: 8px;
+}
+.dv-row .ck-status {
+  margin-top: 2px;
+  font-size: var(--step--1);
+}
+
 /* "Community says real": what the list is, and its download for astronomers. */
 .dv-real {
   margin: 0 0 var(--s3);

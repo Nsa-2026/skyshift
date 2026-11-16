@@ -2,6 +2,7 @@ import { candidateFramesUrl } from "../api/client";
 // Data for the review pages: the candidate list, each candidate's frames (static frames_url
 // first, then the live API) with a small preload cache, and the vote store.
 import { ApiFailure, epochsFor, loadCandidates, loadFrames, loadSuspects } from "../api/client";
+import { checksOf, knownNameOf, statusOf } from "../api/checks";
 import { gradeOf } from "../api/grades";
 import type { Candidate, CandidateKind, CandidatesResponse, Det, FramesResponse, LoadedFrames, Suspect } from "../api/types";
 import type { View } from "../app/modules";
@@ -57,6 +58,9 @@ export function toCandidate(x: unknown): Candidate | null {
     frames_url: typeof o.frames_url === "string" && o.frames_url ? o.frames_url : null,
     // The vetting grade, only when the file has one (older exports: not vetted yet, never B).
     ...(gradeOf(o) ? { grade: gradeOf(o) } : {}),
+    // v3.23, only when the file has them (older files: open, no name, no checks).
+    ...(o.status !== undefined ? { status: statusOf(o), known_name: knownNameOf(o) } : {}),
+    ...(Array.isArray(o.checks) ? { checks: checksOf(o) } : {}),
   };
 }
 

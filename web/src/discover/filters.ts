@@ -11,8 +11,13 @@
 // By default the list holds only what's worth checking: setAsideOf() names the groups it sets aside
 // (moving stars Gaia knows, movers whose motion isn't significant, grade C movers), and show=… in
 // the URL adds them back (show=all for every group).
+// Certain matches (contracts/api.md v3.23 `status`: a known body, an instrument flaw) are listed apart
+// from what's left to check: status=known or status=flaw in the URL lists them instead (a view, not a
+// filter). In score order, open ones with a measured sign against them (a `strong` check) come last,
+// kind by kind, under "Less likely".
+import { anyChecked, lessLikely, statusOf } from "../api/checks";
 import { gradeOf, gradeRank, leadRank } from "../api/grades";
-import type { Candidate, CandidateKind } from "../api/types";
+import type { Candidate, CandidateKind, CandidateStatus } from "../api/types";
 import { consensus as voteConsensus, type Answer, type Counts } from "../vote/model";
 import { reasonText, type ReviewState } from "./text";
 
@@ -25,7 +30,7 @@ export const SORTS: { key: SortKey; label: string; hint?: string }[] = [
   {
     key: "promising",
     label: "Score",
-    hint: "Grade A first and grade C last; then the highest score, with possible camera glitches and doubtful ones after the rest. Nothing is hidden.",
+    hint: "Grade A first and grade C last, then the highest score; ones with a measured sign against them come last, under “Less likely”. Nothing is hidden.",
   },
   {
     key: "grade",
@@ -76,6 +81,9 @@ export interface FilterState {
   /** The groups the list normally sets aside (SET_ASIDE) that it shows too. Empty: only what's
    *  worth checking. Not a filter: it widens the list, so it isn't counted or chipped. */
   show: SetAside[];
+  /** Which list: what's left to check (open), or the certain matches listed apart (known, flaw).
+   *  A view, not a filter: it isn't counted or chipped. */
+  status: CandidateStatus;
   sort: SortKey;
 }
 
@@ -96,6 +104,7 @@ export function defaultState(): FilterState {
     hideMine: false,
     ranges: {},
     show: [],
+    status: "open",
     sort: "promising",
   };
 }
@@ -127,7 +136,8 @@ export function setAsideOf(c: Candidate): SetAside | null {
  *  community verdict: what people agreed on counts more than our checks ("Community says real"
  *  matches the list for astronomers, set-aside ones included). */
 export function setsAside(s: FilterState): boolean {
-  return s.verdict.length === 0 && SET_ASIDE.some((g) => !s.show.includes(g));
+  // The certain matches (known bodies, instrument flaws) are listed whole: nothing set aside there.
+  return s.status === "open" && s.verdict.length === 0 && SET_ASIDE.some((g) => !s.show.includes(g));
 }
 
 /** Is this candidate listed under the state's set-aside rule? */
@@ -287,7 +297,7 @@ export function isDoubted(c: Candidate, doubts: (code: string) => boolean = isDo
 
 /** Keys of the independent tests: facet counts leave their own key out. "scope" is the set-aside
  *  rule (what's worth checking), so f.without("scope") is everything the other filters let through. */
-export type TestKey = ListKey | "gaia" | "catwise" | "doubts" | "cautions" | "mine" | "scope" | RangeKey;
+export type TestKey = ListKey | "gaia" | "catwise" | "doubts" | "cautions" | "mine" | "scope" | "status" | RangeKey;
 
 interface Test {
   key: TestKey;
@@ -297,8 +307,10 @@ interface Test {
 const has = (list: string[], v: string) => list.includes(v);
 const triPass = (t: Tri, v: boolean) => t === "any" || (t === "yes") === v;
 
-function tests(s: FilterState, doubts: (code: string) => boolean): Test[] {
+/** split: some rows are listed apart (status known or flaw), so the open list must leave them out. */
+function tests(s: FilterState, doubts: (code: string) => boolean, split: boolean): Test[] {
   const out: Test[] = [];
+  if (split || s.status !== "open") out.push({ key: "status", pass: (r) => statusOf(r.c) === s.status });
   if (s.kind.length) out.push({ key: "kind", pass: (r) => has(s.kind, r.c.kind) });
   if (s.review.length) out.push({ key: "review", pass: (r) => has(s.review, r.review) });
   if (s.verdict.length) out.push({ key: "verdict", pass: (r) => r.verdict != null && has(s.verdict, r.verdict) });
@@ -331,7 +343,7 @@ export interface Filtered {
 }
 
 export function filterRows(all: Row[], s: FilterState, doubts: (code: string) => boolean = isDoubtCode): Filtered {
-  const ts = tests(s, doubts);
+  const ts = tests(s, doubts, all.some((r) => statusOf(r.c) !== "open"));
   const rows = all.filter((r) => ts.every((t) => t.pass(r)));
   const cache = new Map<TestKey, Row[]>();
   return {
@@ -402,38 +414,55 @@ export function activeCount(s: FilterState): number {
 /** Descending with nulls last. */
 const desc = (a: number | null, b: number | null) => (a == null ? (b == null ? 0 : 1) : b == null ? -1 : b - a);
 
-/** The "Pipeline score" order: grade A first and grade C last (candidates.json: A, then B or no
- *  grade, then C); then anything an artefact may be behind goes last, then the pipeline's doubts;
- *  then the score, how sure the motion is, and S/N. Without grades it is the order it always was. */
-function promising(a: Row, b: Row): number {
-  return (
-    leadRank(gradeOf(a.c)) - leadRank(gradeOf(b.c)) ||
-    Number(isCautioned(a.c)) - Number(isCautioned(b.c)) ||
-    Number(isDoubted(a.c)) - Number(isDoubted(b.c)) ||
-    desc(a.c.score, b.c.score) ||
-    desc(significance(a.c), significance(b.c)) ||
-    desc(a.c.snr, b.c.snr) ||
-    a.c.id.localeCompare(b.c.id)
-  );
-}
-
-/** The "Vetting grade" order: A, B, C, then no grade; then S/N, highest first. */
-function byGrade(a: Row, b: Row): number {
-  return gradeRank(gradeOf(a.c)) - gradeRank(gradeOf(b.c)) || desc(a.c.snr, b.c.snr) || promising(a, b);
-}
-
-const SORTERS: Record<SortKey, (a: Row, b: Row) => number> = {
-  promising,
-  grade: byGrade,
-  fewest: (a, b) => a.total - b.total || promising(a, b),
-  most: (a, b) => b.total - a.total || promising(a, b),
-  brightest: (a, b) => desc(a.c.flux_ujy, b.c.flux_ujy) || promising(a, b),
-  fastest: (a, b) => desc(motionArcsecYr(a.c), motionArcsecYr(b.c)) || promising(a, b),
-  newest: (a, b) => b.c.mjd - a.c.mjd || promising(a, b),
+const kindRank = (c: Candidate) => {
+  const i = KIND_ORDER.indexOf(c.kind);
+  return i < 0 ? KIND_ORDER.length : i;
 };
 
+/** The "Pipeline score" order. Open ones with a measured sign against them (lessLikely) go last,
+ *  kind by kind; then grade A first and grade C last (candidates.json: A, then B or no grade, then C);
+ *  then the score as the file gives it (v3.23: a strong check already lowered it), how sure the
+ *  motion is, and S/N. A file without checks (before v3.23) also puts anything an artefact may be
+ *  behind last, then the pipeline's doubts, before the score: the order it always was. */
+function promisingBy(checked: boolean): (a: Row, b: Row) => number {
+  return (a, b) => {
+    const la = lessLikely(a.c);
+    const lb = lessLikely(b.c);
+    return (
+      Number(la) - Number(lb) ||
+      (la && lb ? kindRank(a.c) - kindRank(b.c) : 0) ||
+      leadRank(gradeOf(a.c)) - leadRank(gradeOf(b.c)) ||
+      (checked ? 0 : Number(isCautioned(a.c)) - Number(isCautioned(b.c)) || Number(isDoubted(a.c)) - Number(isDoubted(b.c))) ||
+      desc(a.c.score, b.c.score) ||
+      desc(significance(a.c), significance(b.c)) ||
+      desc(a.c.snr, b.c.snr) ||
+      a.c.id.localeCompare(b.c.id)
+    );
+  };
+}
+
+function sorters(checked: boolean): Record<SortKey, (a: Row, b: Row) => number> {
+  const promising = promisingBy(checked);
+  return {
+    promising,
+    // The "Vetting grade" order: A, B, C, then no grade; then S/N, highest first.
+    grade: (a, b) => gradeRank(gradeOf(a.c)) - gradeRank(gradeOf(b.c)) || desc(a.c.snr, b.c.snr) || promising(a, b),
+    fewest: (a, b) => a.total - b.total || promising(a, b),
+    most: (a, b) => b.total - a.total || promising(a, b),
+    brightest: (a, b) => desc(a.c.flux_ujy, b.c.flux_ujy) || promising(a, b),
+    fastest: (a, b) => desc(motionArcsecYr(a.c), motionArcsecYr(b.c)) || promising(a, b),
+    newest: (a, b) => b.c.mjd - a.c.mjd || promising(a, b),
+  };
+}
+
 export function sortRows(rows: Row[], key: SortKey): Row[] {
-  return [...rows].sort(SORTERS[key] ?? promising);
+  const by = sorters(anyChecked(rows.map((r) => r.c)));
+  return [...rows].sort(by[key] ?? by.promising);
+}
+
+/** Does this state's list end with the "Less likely" ones under their divider (score order, to check)? */
+export function splitsLessLikely(s: FilterState): boolean {
+  return s.sort === "promising" && s.status === "open";
 }
 
 // ---- URL: everything after "#/?" ---------------------------------------------------------------
@@ -473,6 +502,7 @@ export function stateToQuery(s: FilterState): string {
   }
   const show = SET_ASIDE.filter((g) => s.show.includes(g));
   if (show.length) add("show", show.length === SET_ASIDE.length ? "all" : show.join(","));
+  if (s.status !== "open") add("status", s.status);
   if (s.sort !== "promising") add("sort", s.sort);
   return parts.join("&");
 }
@@ -500,6 +530,7 @@ export function queryToState(q: string): FilterState {
   // show=all, or some of the set-aside groups: show=gaia_known,grade_c.
   const show = (p.get("show") ?? "").split(",").map((x) => x.trim());
   s.show = show.includes("all") ? [...SET_ASIDE] : SET_ASIDE.filter((g) => show.includes(g));
+  s.status = statusOf({ status: p.get("status") });
   const sort = p.get("sort") as SortKey | null;
   if (sort && SORT_KEYS.includes(sort)) s.sort = sort;
   return s;
@@ -619,6 +650,8 @@ function structuredCloneSafe<T>(x: T): T {
 export function bestRelaxation(f: Filtered): { key: TestKey; n: number } | null {
   let best: { key: TestKey; n: number } | null = null;
   for (const k of f.activeKeys) {
+    // Which list (to check, known bodies, flaws) is a view: switching it is not a way to loosen this one.
+    if (k === "status") continue;
     const n = f.without(k).length;
     if (n > 0 && (!best || n > best.n)) best = { key: k, n };
   }
@@ -634,6 +667,7 @@ export function withoutTest(s: FilterState, key: TestKey): FilterState {
   else if (key === "cautions") next.cautions = "any";
   else if (key === "mine") next.hideMine = false;
   else if (key === "scope") next.show = [...SET_ASIDE];
+  else if (key === "status") next.status = "open";
   else delete next.ranges[key as RangeKey];
   return next;
 }

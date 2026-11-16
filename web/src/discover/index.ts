@@ -9,9 +9,15 @@
 // What's worth checking: the list sets aside moving stars Gaia already knows, fast movers whose motion
 // isn't significant and grade C fast movers (./filters.ts setAsideOf). A line under the toolbar names
 // each group with its count, one click from the list (show=… in the URL), and "Show all" adds them all.
+// Certain matches (contracts/api.md v3.23 `status`) are listed apart: "Known bodies" and "Instrument
+// flaws" switch the list (status=… in the URL), never mixed into what's left to check. Each row shows
+// its checks (v3.23 `checks`), strong first; in score order the open ones with a strong check come last,
+// kind by kind, under "Less likely".
 // DESIGN.md: "Product", "Pages", "Candidates", "Smart filters", "Votes and consensus".
 import "./discover.css";
+import { STATUSES, STATUS_TEXT, checksOf, lessLikely, statusOf } from "../api/checks";
 import { loadCandidates } from "../api/client";
+import { checksHtml, statusHtml } from "../review/checks";
 import { GRADE_TEXT, failedGates, gatesPhrase, gradeLabel, gradeOf, isGate, votable } from "../api/grades";
 import type { Candidate, CandidatesResponse } from "../api/types";
 import { DETECTORS, formatMjd, formatRaDec } from "../app/astro";
@@ -57,6 +63,7 @@ import {
   setsAside,
   significance,
   sortRows,
+  splitsLessLikely,
   toRows,
   withoutTest,
   type FilterState,
@@ -147,6 +154,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
           </details>
           <a class="btn btn-sm dv-skylink" href="#/candidates/map=1" title="These objects on a large sky map">${mapGlyph()}See them on the sky</a>
         </div>
+        <div class="dv-lists" hidden></div>
         <div class="dv-scope" hidden></div>
         <p class="dv-real" hidden>These are the objects the community agreed move or change: at least ${CONSENSUS.minVotes} votes with ${CONSENSUS_PCT}% agreeing.
           They go to astronomers as leads to check, not discoveries.
@@ -173,6 +181,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
   const toolbar = $<HTMLDivElement>(".dv-toolbar");
   const countEl = $<HTMLHeadingElement>(".dv-count");
   const scopeEl = $<HTMLDivElement>(".dv-scope");
+  const listsEl = $<HTMLDivElement>(".dv-lists");
   const filtersBtn = $<HTMLButtonElement>(".dv-filters-btn");
   const sortSel = $<HTMLSelectElement>(".dv-select");
   const activeEl = $<HTMLUListElement>(".dv-active");
@@ -285,8 +294,8 @@ export const mountDiscover: MountPage = (el, ctx) => {
     rememberDiscover();
   }
 
-  /** "Clear all": no filters, the same order, and the same set-aside groups shown (not a filter). */
-  const cleared = (): FilterState => ({ ...defaultState(), sort: state.sort, show: [...state.show] });
+  /** "Clear all": no filters, the same order and list, and the same set-aside groups shown (not filters). */
+  const cleared = (): FilterState => ({ ...defaultState(), sort: state.sort, show: [...state.show], status: state.status });
 
   function setState(next: FilterState, opts: { keepPage?: boolean } = {}) {
     state = next;
@@ -303,6 +312,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
     for (const u of updates) u();
     renderPresets();
     renderToolbar();
+    renderLists();
     renderScope();
     renderActive();
     renderReal();
@@ -861,7 +871,44 @@ export const mountDiscover: MountPage = (el, ctx) => {
   /** "8,108 moving stars Gaia already knows". */
   const asideText = (g: SetAside, n: number) => plural(n, SET_ASIDE_TEXT[g].one, SET_ASIDE_TEXT[g].many);
 
+  // ---- which list: to check, or the certain matches listed apart (contracts/api.md v3.23 status) ---
+  // Known bodies and instrument flaws are never mixed into what's left to check, and never hidden:
+  // a switch above the list lists them instead (status=known, status=flaw in the URL). Each count is
+  // under the other filters, like the facet counts. Files without status show no switch.
+
+  /** Does this list hold anything listed apart (a known body or an instrument flaw)? */
+  const anyApart = () => rows.some((r) => statusOf(r.c) !== "open");
+
+  listsEl.addEventListener("click", (ev) => {
+    const b = (ev.target as Element).closest<HTMLButtonElement>("button[data-status]");
+    if (!b) return;
+    const status = statusOf({ status: b.dataset.status });
+    if (status === state.status) return;
+    setState({ ...state, status });
+    listsEl.querySelector<HTMLButtonElement>(`button[data-status="${status}"]`)?.focus();
+  });
+
+  function renderLists() {
+    listsEl.hidden = !anyApart() && state.status === "open";
+    if (listsEl.hidden) {
+      listsEl.innerHTML = "";
+      return;
+    }
+    const n = (s: (typeof STATUSES)[number]) => (s === state.status ? sorted.length : filterRows(rows, { ...state, status: s }).rows.length);
+    const now = state.status;
+    listsEl.innerHTML = html`<div class="seg dv-seg dv-lists-seg" role="group" aria-label="Which list">${STATUSES.map(
+      (s) =>
+        html`<button type="button" data-status="${s}" aria-pressed="${s === now}" title="${esc(STATUS_TEXT[s].plain)}">${esc(STATUS_TEXT[s].tab)} <span class="fx-n">${n(s).toLocaleString("en-GB")}</span></button>`,
+    ).join("")}</div>${now === "open" ? "" : html`<p class="dv-lists-text">${esc(STATUS_TEXT[now].plain)}</p>`}`;
+  }
+
   function renderScope() {
+    if (state.status !== "open") {
+      // Known bodies and flaws are listed whole: nothing is set aside there.
+      scopeEl.hidden = true;
+      scopeEl.innerHTML = "";
+      return;
+    }
     const base = f.without("scope");
     const n = countBy(base, setAsideValues);
     const aside = SET_ASIDE.reduce((a, g) => a + (n.get(g) ?? 0), 0);
@@ -899,7 +946,10 @@ export const mountDiscover: MountPage = (el, ctx) => {
 
   /** The set-aside rule in a few words, for the map page's list of what's filtered (null: nothing set aside). */
   function scopeChip(): string | null {
-    if (!setsAside(state) || f.without("scope").length === sorted.length) return null;
+    // The certain matches listed apart (v3.23): which list this is, when it isn't the one to check.
+    if (state.status !== "open") return `${STATUS_TEXT[state.status].tab} only`;
+    if (!setsAside(state) || f.without("scope").length === sorted.length)
+      return anyApart() ? `Without ${STATUS_TEXT.known.many} and ${STATUS_TEXT.flaw.many}` : null;
     if (!state.show.length) return "Only what's worth checking";
     return `Worth checking, plus ${SET_ASIDE.filter((g) => state.show.includes(g)).map((g) => SET_ASIDE_TEXT[g].short).join(" and ")}`;
   }
@@ -957,9 +1007,43 @@ export const mountDiscover: MountPage = (el, ctx) => {
     list.querySelectorAll<HTMLAnchorElement>(".dv-link")[first]?.focus();
   });
 
+  /** The list's rows; in score order, the "Less likely" divider before the first open one with a
+   *  strong check (sortRows puts them last, kind by kind), and the kind before each kind's run there. */
+  function listHtml(items: Row[]): string {
+    if (!splitsLessLikely(state)) return items.map(rowHtml).join("");
+    const tail = sorted.filter((r) => lessLikely(r.c));
+    const perKind = countBy(tail, (r) => [r.c.kind]);
+    let kind: string | null = null;
+    let started = false;
+    const out: string[] = [];
+    for (const r of items) {
+      if (lessLikely(r.c)) {
+        if (!started) {
+          started = true;
+          out.push(lessHtml(tail.length));
+        }
+        if (perKind.size > 1 && r.c.kind !== kind) {
+          const k = KIND_TEXT[r.c.kind];
+          out.push(html`<li class="dv-less-kind" role="presentation"><h4 class="dv-less-kind-h">${glyphSvg(r.c.kind, 12)}${esc(k?.plural ?? r.c.kind)} <span class="dv-less-n">${(perKind.get(r.c.kind) ?? 0).toLocaleString("en-GB")}</span></h4></li>`);
+        }
+        kind = r.c.kind;
+      }
+      out.push(rowHtml(r));
+    }
+    return out.join("");
+  }
+
+  /** The divider: what "Less likely" means. */
+  function lessHtml(n: number): string {
+    return html`<li class="dv-less" role="presentation">
+      <h3 class="dv-less-h">Less likely <span class="dv-less-n">${n.toLocaleString("en-GB")}</span></h3>
+      <p class="dv-less-text">Each of these has a measured sign against it, shown first under it as “Sign against”: it may be a known body, a flaw of one detector or a star. Still worth a look: nothing is hidden for it.</p>
+    </li>`;
+  }
+
   function renderList() {
     const items = sorted.slice(0, shown);
-    list.innerHTML = items.map(rowHtml).join("");
+    list.innerHTML = listHtml(items);
     list.querySelectorAll<HTMLElement>("[data-thumb]").forEach((b) => {
       if (byId.get(b.dataset.thumb ?? "")?.frames_url) thumbs.observe(b);
     });
@@ -980,6 +1064,16 @@ export const mountDiscover: MountPage = (el, ctx) => {
     stateEl.hidden = false;
     const hint = bestRelaxation(f);
     const chip = hint ? activeChips(state).find((c) => sameState(c.remove(), withoutTest(state, hint.key))) : undefined;
+    if (state.status !== "open" && !hint) {
+      // A list of certain matches with nothing in it (or a link to one from an older list).
+      const t = STATUS_TEXT[state.status];
+      stateEl.innerHTML = html`
+        <p class="dv-state-title">${esc(`No ${t.many} here.`)}</p>
+        <p class="dv-state-text">${esc(`Nothing in this list is certainly a ${t.one}, so everything stays with the objects to check.`)}</p>
+        <div class="dv-state-actions"><button type="button" class="btn" data-to-open>Back to the objects to check</button></div>`;
+      stateEl.querySelector("[data-to-open]")?.addEventListener("click", () => setState({ ...state, status: "open" }));
+      return;
+    }
     if (activePreset(state)?.id === "check-first") {
       stateEl.innerHTML = html`
         <p class="dv-state-title">Nothing to check first.</p>
@@ -1059,8 +1153,10 @@ export const mountDiscover: MountPage = (el, ctx) => {
         html`<li class="tag tag-grade is-${grade}" title="${esc(`${GRADE_TEXT[grade].short}: ${GRADE_PLAIN[grade]}`)}">${esc(grade === "C" ? GRADE_TEXT.C.short : gradeLabel(grade))}</li>`,
       );
     for (const l of c.labels) chips.push(html`<li class="tag tag-label" title="${esc(l)}">${esc(labelText(l))}</li>`);
+    // The file's checks (v3.23), measured, replace the doubt and caution chips read from its codes.
+    const checked = checksOf(c).length > 0;
     // A grade C row says its failed checks in its own line: keep them out of the doubts chip.
-    const doubts = c.reasons.filter((x) => isDoubtCode(x) && !(grade === "C" && isGate(x)));
+    const doubts = checked ? [] : c.reasons.filter((x) => isDoubtCode(x) && !(grade === "C" && isGate(x)));
     for (const code of c.reasons.filter((x) => reasonText(x).tone === "support")) {
       const t = reasonText(code);
       chips.push(html`<li class="tag tag-support" title="${esc(code)}: ${esc(t.detail)}">${esc(t.label)}</li>`);
@@ -1079,9 +1175,9 @@ export const mountDiscover: MountPage = (el, ctx) => {
     }
     // Cautions: artefact flags and caution reasons (outlier pixels, the same spot days apart), once each.
     const cautions = new Map<string, string>();
-    for (const fl of c.flags) cautions.set(flagText(fl), fl);
+    if (!checked) for (const fl of c.flags) cautions.set(flagText(fl), fl);
     // A grade C row names its failed checks in its own line: no caution chip for those.
-    for (const code of c.reasons.filter((x) => isCautionCode(x) && !(grade === "C" && isGate(x)))) {
+    for (const code of c.reasons.filter((x) => !checked && isCautionCode(x) && !(grade === "C" && isGate(x)))) {
       const t = reasonText(code);
       cautions.set(t.label, cautions.has(t.label) ? `${cautions.get(t.label)}, ${code}` : `${code}: ${t.detail}`);
     }
@@ -1092,13 +1188,17 @@ export const mountDiscover: MountPage = (el, ctx) => {
       grade === "C"
         ? html`<p class="dv-gradec">${esc(gates.length ? `Fails a check: ${gatesPhrase(gates)}.` : "Fails one of our checks.")} Open it to blink; it isn't put to a vote.</p>`
         : "";
-    return html`<li class="dv-row${grade === "C" ? " is-gradec" : ""}" data-id="${esc(c.id)}">
+    const status = statusOf(c);
+    const cls = `${grade === "C" ? " is-gradec" : ""}${status !== "open" ? ` is-${status}` : lessLikely(c) ? " is-less" : ""}`;
+    return html`<li class="dv-row${cls}" data-id="${esc(c.id)}">
       <div class="dv-thumb" data-thumb="${esc(c.id)}" aria-hidden="true">${emptyPlate()}</div>
       <div class="dv-main">
         <h3 class="dv-name"><a class="dv-link" href="${href}" title="${esc(c.id)}">${glyphSvg(c.kind, 12)}<span class="dv-kind">${esc(kind.name)}</span><span class="dv-pos">${esc(pos)}</span></a></h3>
+        ${statusHtml(c, { short: true })}
         <p class="dv-why">${esc(c.why)}</p>
         ${failed}
         ${chips.length ? html`<ul class="dv-tags" aria-label="Labels and reasons">${chips.join("")}</ul>` : ""}
+        ${checksHtml(c, { className: "dv-checks" })}
       </div>
       <div class="dv-meas">${measured(c)}<p class="m3 det-${c.det}" title="Detector ${c.det}, ${det?.min}–${det?.max} µm. Seen best on ${esc(formatMjd(c.mjd))}."><span class="det-dot" aria-hidden="true"></span>D${c.det} <span class="m-um">${det?.min}–${det?.max} µm</span></p>${scoreHtml(c.score)}</div>
       <div class="dv-votes">${votesHtml(r)}</div>

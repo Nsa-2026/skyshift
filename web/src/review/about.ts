@@ -2,7 +2,10 @@
 // lines at the top of the suspect panel (#/c/<id>). Built only from the candidate's own fields and
 // reasons (contracts/api.md, candidates.json) and, once loaded, the measured layer of its frames
 // (the mover's track, a moving star's fitted shift, the partner detector's detections). Pure.
-import type { Candidate, FramesResponse, MeasuredTrack, SkyPos } from "../api/types";
+// A file with `checks` (contracts/api.md v3.23: measured, with what to look at) shows those in place
+// of the "Watch for" line guessed here from reasons and flags.
+import { checksOf } from "../api/checks";
+import type { Candidate, CandidateCheck, FramesResponse, MeasuredTrack, SkyPos } from "../api/types";
 import { SAME_MOMENT, sepArcsec } from "../app/astro";
 import { paWord } from "../card/format";
 import { arcsecH, arcsecYr } from "./text";
@@ -10,9 +13,15 @@ import { arcsecH, arcsecYr } from "./text";
 export interface About {
   /** At most three short sentences: what it did and what that means. */
   said: string[];
-  /** "Watch for: …" (the cautions in plain words), or "" when the pipeline raised none. */
+  /** "Watch for: …" (the cautions in plain words), or "" when the pipeline raised none or the file
+   *  has checks (they replace it). */
   watch: string;
+  /** The file's checks (v3.23), strong first, then warn, then ok; [] without any. */
+  checks: CandidateCheck[];
 }
+
+/** Checks that say, measured, whether the partner detector saw a mover: they replace our guess. */
+const PARTNER_CHECKS = new Set(["one_detector", "partner_seen"]);
 
 /** Two dots this close in time (days, 30 s) are one moment: two detectors exposed together. */
 const MOMENT_DAYS = 30 / 86400;
@@ -208,7 +217,7 @@ function watchLine(c: Candidate): string {
 
 // ---- what it did, per kind ---------------------------------------------------------------------
 
-function mover(c: Candidate, f: FramesResponse | null | undefined): string[] {
+function mover(c: Candidate, f: FramesResponse | null | undefined, checks: CandidateCheck[]): string[] {
   const D = `D${c.det}`;
   const P = SAME_MOMENT[c.det];
   const out: string[] = [];
@@ -226,6 +235,8 @@ function mover(c: Candidate, f: FramesResponse | null | undefined): string[] {
     out.push(`${verb} ${arcsecText(moved)} in ${D} over ${spanText(m[m.length - 1].mjd - m[0].mjd)} (${m.length} photos)${rate ? `, ${rate}` : ""}.`);
   } else if (rate) out.push(`Moves ${rate} in ${D}.`);
   else out.push(`Seen at different places in ${D} photos minutes apart.`);
+  // The file measured the partner (one_detector, partner_seen): its check says so, with numbers.
+  if (checks.some((k) => PARTNER_CHECKS.has(k.code))) return out;
   const saw = partnerSaw(c, f);
   const means = aloneMeans(c.det);
   if (saw === "no" && P) {
@@ -302,6 +313,7 @@ function shape(c: Candidate): string[] {
 
 /** The panel's lines for a candidate; `frames` (its own, when loaded) make them more precise. */
 export function aboutCandidate(c: Candidate, frames?: FramesResponse | null): About {
-  const said = c.kind === "mover" ? mover(c, frames) : c.kind === "high_pm" ? movingStar(c, frames) : c.kind === "spectral" ? spectral(c) : shape(c);
-  return { said: said.slice(0, 3), watch: watchLine(c) };
+  const checks = checksOf(c);
+  const said = c.kind === "mover" ? mover(c, frames, checks) : c.kind === "high_pm" ? movingStar(c, frames) : c.kind === "spectral" ? spectral(c) : shape(c);
+  return { said: said.slice(0, 3), watch: checks.length ? "" : watchLine(c), checks };
 }
