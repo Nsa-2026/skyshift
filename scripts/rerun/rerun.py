@@ -12,6 +12,8 @@ Commands
     bench   run the benchmark sessions of scripts/rerun/bench_targets.json into <data>/rerun-bench/ (its own root:
             the full run doesn't mix with it), then report seconds per photo, RAM per worker, MB per photo for
             dots, peaks, forced, stack tables and maps, and the target list for the checks (<root>/bench.json).
+    fetch   local copies of the bench photos (<data>/photo-cache/, ~65 MB each, free from NASA's S3); `bench
+            --photo-cache <dir>` then reads them, so a rerun after a fix costs CPU only.
     run     the full run, zone by zone (`skyshift-pipeline dots` per zone, one subprocess each). Resumable: a photo
             whose dot file exists and a stack whose file exists are skipped. Before each zone it checks the free disk
             against the zone's estimate; while a zone runs, a watchdog stops it if the disk falls under --min-free-gb.
@@ -291,6 +293,65 @@ def bench_root(data: Path, root: Path) -> None:
             link.symlink_to(data / rel)
 
 
+def cached_url(r, cache: Path | None) -> str:
+    """The photo's local copy in the photo cache when it is there (fetch), else its S3 URL."""
+    if cache is not None:
+        p = cache / Path(str(r.s3_key)).name
+        if p.exists():
+            return str(p)
+    return str(r.url)
+
+
+def _fetch_one(url: str, dest: Path, size: int) -> tuple[str, int]:
+    import requests
+
+    if dest.exists() and (not size or dest.stat().st_size == size):
+        return "have", 0
+    tmp = dest.with_suffix(dest.suffix + ".part")
+    for attempt in range(1, 4):
+        try:
+            with requests.get(url, stream=True, timeout=120) as r:
+                r.raise_for_status()
+                with open(tmp, "wb") as f:
+                    for chunk in r.iter_content(1 << 22):
+                        f.write(chunk)
+            if size and tmp.stat().st_size != size:
+                raise OSError(f"size {tmp.stat().st_size} != {size}")
+            tmp.replace(dest)
+            return "got", dest.stat().st_size
+        except Exception as e:  # noqa: BLE001
+            if attempt == 3:
+                return f"failed: {e}"[:200], 0
+            time.sleep(5 * attempt)
+    return "failed", 0
+
+
+def cmd_fetch(a) -> None:
+    """Local copies of the bench photos (from NASA's S3, free) so bench reruns don't wait on the network."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    data, cache = Path(a.data), Path(a.photo_cache)
+    cache.mkdir(parents=True, exist_ok=True)
+    sel = bench_photos(data, json.loads(Path(a.targets).read_text())["targets"])
+    rows = pd.concat([r for _, r, _ in sel]).drop_duplicates(["obs_id", "detector"])
+    need = [(str(r.url), cache / Path(str(r.s3_key)).name, int(r.size_bytes or 0)) for r in rows.itertuples()]
+    gb = sum(n for _, d, n in need if not d.exists()) / 1e9
+    log(f"fetch: {len(need)} photos, {gb:.1f} GB to get, free {free_gb(cache):.0f} GB -> {cache}")
+    if gb * 1.1 > free_gb(cache) - a.min_free_gb:
+        raise SystemExit("not enough free disk")
+    t0, got, bad = time.time(), 0, []
+    with ThreadPoolExecutor(max_workers=a.threads) as ex:
+        for k, (st, n) in enumerate(ex.map(lambda x: _fetch_one(*x), need), 1):
+            got += n
+            if st.startswith("failed"):
+                bad.append(st)
+            if k % 20 == 0 or k == len(need):
+                log(f"fetch: {k}/{len(need)}, {got / 1e9:.1f} GB in {time.time() - t0:.0f} s "
+                    f"({got / max(1e-9, time.time() - t0) / 1e6:.1f} MB/s), failed {len(bad)}")
+    if bad:
+        log(f"fetch: {len(bad)} failed, e.g. {bad[:3]}; run again to retry")
+
+
 def cmd_bench(a) -> dict:
     from skyshift_pipeline import coadd, dots
     from skyshift_pipeline import config as C
@@ -321,8 +382,10 @@ def cmd_bench(a) -> dict:
     ctx = mp.get_context("spawn")
     with ProcessPoolExecutor(max_workers=a.workers, mp_context=ctx, initializer=_worker_init,
                              initargs=(zones,)) as ex:
+        cache = Path(a.photo_cache) if a.photo_cache else None
         futs = {ex.submit(dots.process_photos, str(root),
-                          [(r.obs_id, int(r.detector), r.url, int(r.session), int(r.visit)) for r in g.itertuples()],
+                          [(r.obs_id, int(r.detector), cached_url(r, cache), int(r.session), int(r.visit))
+                           for r in g.itertuples()],
                           zone, None, tasks): (zone, why) for zone, g, tasks, why in jobs}
         for f in as_completed(futs):
             zone, why = futs[f]
@@ -345,7 +408,7 @@ def cmd_bench(a) -> dict:
         stk.drop(columns=[c for c in stk if stk[c].map(lambda v: isinstance(v, (dict, list))).any()]) \
            .to_parquet(runs / f"{stamp}_stacks.parquet")
     (runs / f"{stamp}_run.json").write_text(json.dumps({
-        "workers": a.workers, "wall_s": round(wall, 1), "photos": int(len(ph)),
+        "workers": a.workers, "photo_cache": bool(a.photo_cache), "wall_s": round(wall, 1), "photos": int(len(ph)),
         "photos_done_now": int(ph["status"].isin(["done", "done_finast"]).sum()) if len(ph) else 0,
         "ram_gb_max_worker": round(ram.max_child / 1e9, 2), "ram_gb_max_total": round(ram.max_total / 1e9, 1),
         "targets": [{"zone": z, "why": t.get("why", ""), "photos": int(len(r))} for z, r, t in sel]}, indent=1))
@@ -467,7 +530,7 @@ def cmd_run(a) -> None:
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("plan", "bench", "run"):
+    for name in ("plan", "bench", "run", "fetch"):
         s = sub.add_parser(name)
         s.add_argument("--data", default=str(DEFAULT_DATA))
         s.add_argument("--root", default=None, help="output root (plan/run: the data root; bench: <data>/rerun-bench)")
@@ -480,13 +543,19 @@ def main(argv: list[str] | None = None) -> None:
             s.add_argument("--cores", type=int, default=max(1, (os.cpu_count() or 2) // 2), help="physical cores")
             s.add_argument("--smt-gain", type=float, default=0.25, help="a second thread on a core adds this much")
             s.add_argument("--net-mbps", type=float, default=300.0, help="sustained download, MB/s")
+        if name in ("bench", "fetch"):
+            s.add_argument("--photo-cache", default=None if name == "bench" else str(DEFAULT_DATA / "photo-cache"),
+                           help="folder of local photo copies (fetch writes them; bench reads them when present)")
+        if name == "fetch":
+            s.add_argument("--targets", default=str(TARGETS))
+            s.add_argument("--threads", type=int, default=4)
         if name == "bench":
             s.add_argument("--targets", default=str(TARGETS))
             s.add_argument("--dry-run", action="store_true")
     a = ap.parse_args(argv)
     if a.root is None:
         a.root = str(Path(a.data) / "rerun-bench") if a.cmd == "bench" else a.data
-    {"plan": cmd_plan, "bench": cmd_bench, "run": cmd_run}[a.cmd](a)
+    {"plan": cmd_plan, "bench": cmd_bench, "run": cmd_run, "fetch": cmd_fetch}[a.cmd](a)
 
 
 if __name__ == "__main__":
