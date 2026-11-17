@@ -464,7 +464,7 @@ The step never raises (errors go to its stats).
   with local fits (linear + the visit's acceleration, quadratic with ≥ 4 members over ≥ 24 h), leave-one-out pruned;
   a track needs movers in ≥ 3 sessions (exactly 3: span ≤ 36 h). Main-belt asteroids share one apparent acceleration
   per visit (hunt: 0.028″/h², 99% within 0.016 of the visit's vector), measured from the first pass's long tracks.
-  Then, in every other session of the visit within 60 h, link's non-fixed dots at the predicted position (3–8″) are
+  Then, in every other session of the visit within 60 h, link's non-fixed dots at the predicted position (3–10″) are
   recovered detections. Writes tracklets.parquet (one row per mover: mover_id = suspects' id
   `<zone>-<cell>-<round(mjd×1440)>`, tracklet_id (−1 = none), n_sessions, rate_arcsec_h, pa_deg, rate_sigma, rate_snr,
   fit chi2…) and tracklet_dots.parquet (recovered dots: obs_id, detector, dot_row, sep_arcsec…). score counts a known
@@ -478,6 +478,12 @@ The step never raises (errors go to its stats).
   takes nonfixed_dots' `in_fixed` dots (a star crossing; TRACK_RECOVER_IN_FIXED; stats `recovered_in_fixed`), and the
   control now moves every track 2′ to count chance recovered dots (control `recovered_dots`, `recovered_in_fixed`).
   Pilot: recovered dots 50 → 55 (5 in a star's group), control 2 → 2 (0 in a group); V < 16 recall 85 → 86 of 90.
+  17 Nov (#409; needs link rerun for the in_fixed rows): seeds tested up to 60 h out, tracks grow across 120 h gaps,
+  an extrapolation keeps the 4 nearest members (quadratic), recovery radius up to 10″, FIXED_OFF 1.0″ + 2σ. Hunt's 8
+  visit-2 sessions (local dots, the 16 Nov tables' movers and members): known V < 18 found 95 → 112 of 164, the 19 missed
+  sightings 3 → 15, tracks 104 → 106 (movers on them 1,111 → 1,229), chance dots on tracks moved 2′ 0.25 → 0.45 a run;
+  pilot relinked: 200 → 202 of 309; ecl04 / ecl11 (free dots only): 2,087 → 2,145 of 3,404, 1,133 → 1,143 of 1,932,
+  chance dots 1.9 → 6.4 / 1.5 → 2.3 a run; score's control 0 everywhere.
   score tells the two kinds of dot apart (members.parquet: a dot in a fixed source's group vs a free dot, the only kind
   link pairs): recall_units `dot_free`/`dot_fixed`/`miss`, recall.json `free_dot_share` and `misses`. Hunt (15 Nov
   tables, V < 16): dot_share 97.4% but free_dot_share 95.0%; misses no_dot 11, fixed_dot 11, free_dot 1; control

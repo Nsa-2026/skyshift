@@ -328,9 +328,9 @@ def test_local_fit_keeps_four_nearest_beyond_window():
     assert float(np.hypot(px[0] - (vx * 40.0 + 0.5 * ax * 1600.0), py[0] - (vy * 40.0 + 0.5 * ay * 1600.0))) < 0.1
 
 
-def test_wide_session_gaps_link_and_recover_within_12_arcsec():
+def test_wide_session_gaps_link_and_recover_within_10_arcsec():
     # Sessions with a 44 h triplet step (> 36 h, <= 60 h) and an 85 h grow gap (> 60 h, <= 120 h) on a curved path
-    # (ACC), plus a missing detection 50 h past the track at 9.5″ from the predicted path (<= 12″).
+    # (ACC), plus a missing detection 50 h past the track at 9.5″ from the predicted path (<= 10″).
     ts = np.array([0.0, 44.0, 62.0, 74.0, 159.0, 209.0])
     vx, vy, acc = 32.0, 12.0, (-0.015, 0.002)
     ra0, dec0 = 122.0, 17.0
@@ -360,25 +360,30 @@ def test_wide_session_gaps_link_and_recover_within_12_arcsec():
     assert st["control"]["tracks"] == 0 and st["control"]["recovered_dots"] == 0
 
 
-def test_off_star_dot_at_2p1_arcsec_recovered():
+def test_off_star_dot_at_2p55_arcsec_recovered(monkeypatch):
+    # Paul, hunt session 225: a D2 dot of S/N 14 sits 2.55″ off the fixed star it was chained into. FIXED_OFF 1.0″ + 2σ
+    # (σ 0.65″ at S/N 14: 2.30″) lists it as in_fixed and tracklets recovers it; main's 1.5″ + 3σ (3.45″) did not.
     from skyshift_pipeline.sky import offset_radec
 
     m, photos, ts = scene(drop={2: [10]})
     th = ts[9] + 2.1 / 60
     pra, pdec = position(2, np.array([th]))
-    star_ra, star_dec = offset_radec(float(pra[0]), float(pdec[0]), 2.1, 0.0)
+    star_ra, star_dec = offset_radec(float(pra[0]), float(pdec[0]), 2.55, 0.0)
     fixed = pd.DataFrame({"source_id": [7], "ra": [star_ra], "dec": [star_dec]})
     dots = pd.DataFrame([
         {"ra": star_ra, "dec": star_dec, "mjd": T0 + ts[0] / 24, "session": np.int32(1), "visit": np.int16(1),
-         "photo": 0, "detector": 1, "dot_row": 0, "snr": 9.0, "flux_ujy": 60.0, "flags": 0, "flags_peak": 0, "elong": 1.0},
+         "photo": 0, "detector": 1, "dot_row": 0, "snr": 14.0, "flux_ujy": 60.0, "flags": 0, "flags_peak": 0, "elong": 1.0},
         {"ra": star_ra, "dec": star_dec, "mjd": T0 + ts[1] / 24, "session": np.int32(2), "visit": np.int16(1),
-         "photo": 3, "detector": 1, "dot_row": 0, "snr": 9.0, "flux_ujy": 60.0, "flags": 0, "flags_peak": 0, "elong": 1.0},
+         "photo": 3, "detector": 1, "dot_row": 0, "snr": 14.0, "flux_ujy": 60.0, "flags": 0, "flags_peak": 0, "elong": 1.0},
         {"ra": float(pra[0]), "dec": float(pdec[0]), "mjd": T0 + th / 24, "session": np.int32(10), "visit": np.int16(1),
-         "photo": 27, "detector": 1, "dot_row": 0, "snr": 9.0, "flux_ujy": 60.0, "flags": 0, "flags_peak": 0, "elong": 1.0},
+         "photo": 27, "detector": 1, "dot_row": 0, "snr": 14.0, "flux_ujy": 60.0, "flags": 0, "flags_peak": 0, "elong": 1.0},
     ])
-    fd = nonfixed_dots_table(dots, np.array([7, 7, 7]), fixed, photos)
+    sid = np.array([7, 7, 7])
+    fd = nonfixed_dots_table(dots, sid, fixed, photos)
     assert len(fd) == 1 and bool(fd["in_fixed"].iloc[0])
     _, rec, st = T.build(m.drop(columns="truth"), photos, ZONE, fd)
     assert len(rec) == 1 and bool(rec["in_fixed"].iloc[0]) and st["recovered_in_fixed"] == 1
     assert st["control"]["recovered_dots"] == 0
-
+    monkeypatch.setattr(C, "FIXED_OFF_ARCSEC", 1.5)
+    monkeypatch.setattr(C, "FIXED_OFF_SIGMA", 3.0)
+    assert len(nonfixed_dots_table(dots, sid, fixed, photos)) == 0
