@@ -86,3 +86,18 @@ def test_bench_photos_takes_whole_sessions(tmp_path):
     sel = R.bench_photos(tmp_path, [{"zone": "zz", "obs": ["2025W01_1A_0001"]}, {"zone": "zz", "pick": "largest"},
                                     {"zone": "zz", "sessions": [2]}])
     assert [len(r) for _, r, _ in sel] == [2, 3, 1]
+
+
+def test_score_helpers_shift_box_and_finite():
+    import numpy as np
+
+    import score_bench as S
+    from skyshift_pipeline import config as C
+    from skyshift_pipeline.sky import angsep
+
+    ra2, dec2 = S.shifted(np.array([10.0]), np.array([60.0]))
+    assert abs(float(angsep(10.0, 60.0, ra2[0], dec2[0])) * 3600 - S.SHIFT_ARCSEC) < 0.5
+    z = C.Zone("z", 10.0, 20.0, -5.0, 5.0)
+    assert S.in_box(z, np.array([15.0, 10.001, 25.0]), np.array([0.0, 0.0, 0.0])).tolist() == [True, False, False]
+    df = pd.DataFrame({"ra": [1.0, np.nan, 3.0], "dec": [0.0, 0.0, np.inf]})
+    assert S.finite(df)["ra"].tolist() == [1.0]

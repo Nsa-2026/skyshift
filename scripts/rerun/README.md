@@ -23,6 +23,11 @@ Before `bench` and `run`, the data root (`~/skyshift-data`, or `--data`) needs:
 
 `SKYSHIFT_FORCED_SKY_RED=off` runs a bench without the red layer (a smoke test only).
 
+`score_bench.py` (after a bench) compares the new extraction with the old one of the same photos (`~/skyshift-data/before/`)
+and with known things: isolated Gaia stars by G and detector, MPC asteroids and comets by V (`cache/mpc/<zone>/`),
+306P, 3I/ATLAS, Galatea and the featured targets (nearest dot, peak, stack row, forced row), dots with nothing
+catalogued under them, and a 45″-shifted control for chance matches. Writes `<root>/score.json`.
+
 What `bench` reports (`rerun-bench/bench.json`, from every bench run so far): a worker's seconds per photo (read wait,
 detection, forced, writing, its share of the stack), RAM per worker, MB per photo for dots, peaks, forced, stack tables
 and session maps (maps are written for every bench zone so they can be sized), and the per-detector split. `plan`
