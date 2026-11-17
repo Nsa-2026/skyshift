@@ -141,7 +141,7 @@ def test_merge_only_reorders_and_leaves_old_files_alone(tmp_path):
     assert st["rb_score"]["score_changed"] == 2
 
 
-def test_comet_exempts_and_keeps_its_place():
+def test_comet_exempts_and_keeps_its_place(monkeypatch):
     assert RB.is_comet({"checks": [{"code": "known_body", "level": "strong", "values": {"body": "comet"}}]})
     assert not RB.is_comet({"checks": [{"code": "known_body", "level": "strong", "values": {"body": "asteroid"}}]})
     assert not RB.is_comet({"checks": [{"code": "known_nearby", "level": "warn", "values": {"body": "comet"}}]})
@@ -159,8 +159,21 @@ def test_comet_exempts_and_keeps_its_place():
     assert by["m2"]["score"] == 0.9 and by["m0"]["score"] == 0.5
     assert st["score_changed"] == 2
 
+    # build(): movers() first, then exempt_comets nulls the matched mover's rb_score, given the movers' own motion
+    seen = {}
+
+    def zone_comets(store, zone, m, orbits):
+        seen["motion"] = m[["rate_arcsec_h", "pa_deg"]].to_numpy().tolist()
+        return {str(m.loc[0, "id"]): "306P/LINEAR"}, {"matched": 1}
+
+    monkeypatch.setattr(K.KC, "zone_comets", zone_comets)
     s = pd.DataFrame([_row(0), _row(1)])
-    comet_cand, other_cand = K.movers(s, "hunt", None, comets={s.loc[0, "id"]: "306P/LINEAR"})
+    full = {c["id"]: c for c in K.movers(s, "hunt", None)}
+    plain = {c["id"]: dict(c) for c in full.values()}
+    full[s.loc[1, "id"]]["rate_arcsec_h"], full[s.loc[1, "id"]]["pa_deg"] = 33.0, 12.0  # e.g. measured on its dots
+    got, _ = K.exempt_comets(None, "hunt", s, full, orbits=("states", "names", "label"))
+    assert got == {s.loc[0, "id"]: "306P/LINEAR"} and seen["motion"] == [[80.0, 90.0], [33.0, 12.0]]
+    comet_cand, other_cand = full[s.loc[0, "id"]], full[s.loc[1, "id"]]
     assert comet_cand["rb_score"] is None and other_cand["rb_score"] is not None
-    plain_a, _ = K.movers(s, "hunt", None)
-    assert comet_cand["score"] == plain_a["score"]
+    assert comet_cand["score"] == plain[s.loc[0, "id"]]["score"]
+    assert K.exempt_comets(None, "hunt", s, full, orbits=None) == ({}, {})  # no orbits: nothing changes

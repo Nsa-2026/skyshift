@@ -760,14 +760,12 @@ def mover_facts(r, dots: pd.DataFrame | None, mo, no_motion: bool, track, ctx: d
 
 def movers(susp: pd.DataFrame, zone: str, near: pd.DataFrame | None,
            cells: dict[tuple[int, int], float] | None = None, repeats: dict[str, tuple[float, float]] | None = None,
-           ctx: dict | None = None, flags3: list | None = None,
-           comets: dict[str, str] | set[str] | None = None) -> list[dict]:
+           ctx: dict | None = None, flags3: list | None = None) -> list[dict]:
     """Mover candidates from suspects. `cells` (excess_cells) and `repeats` (repeat_positions) come from the
     whole zone, so they stay right when `susp` is a subset. ctx: the zone's facts for the checks (zone_base: motion_ref,
-    control_tracks, photos, bright); flags3: mover_dot_flags of susp (None: not read); comets: {id: name} or {id}
-    whose position, rate and direction match a known comet (rb_score null)."""
+    control_tracks, photos, bright); flags3: mover_dot_flags of susp (None: not read). A known comet's rb_score is
+    nulled afterwards (exempt_comets)."""
     cells, repeats, ctx = cells or {}, repeats or {}, ctx or {}
-    comet_ids = {str(x) for x in comets} if comets else set()
     rbs = mover_rb(susp)
     out = []
     for i, r in enumerate(susp.itertuples()):
@@ -828,14 +826,13 @@ def movers(susp: pd.DataFrame, zone: str, near: pd.DataFrame | None,
         slow = RB.is_slow(tr_[1], tr_[1] / tr_[2]) if tr_ and tr_[2] > 0 else \
             RB.is_slow(rate, rate_err, int(r.n_exposures))
         wide = "wide" in vet_reasons or "wide" in facts["warn"]
-        comet = str(r.id) in comet_ids
         why_reasons = vet_reasons
         if "wide" in vet_reasons and (facts["warn"].get("wide") or {}).get("with_blend"):
             why_reasons = ["wide_blend" if x == "wide" else x for x in vet_reasons]
         c = {
             "id": r.id, "kind": "mover", "ra": r.ra, "dec": r.dec, "mjd": r.mjd, "clock": "hours", "det": int(r.det),
             "zone": zone, "zones": [zone], "score": base, "grade": grade, "snr": r.snr,
-            "rb_score": None if slow or wide or comet or not np.isfinite(rbs[i]) else float(rbs[i]), "flux_ujy": r.flux_ujy, "rate_arcsec_h": rate,
+            "rb_score": None if slow or wide or not np.isfinite(rbs[i]) else float(rbs[i]), "flux_ujy": r.flux_ujy, "rate_arcsec_h": rate,
             "pm_mas_yr": None, "pm_err_mas_yr": None, "pa_deg": pa, "nearest_known_arcsec": nk,
             # a catalogue source within 6″ and at most 2 mag fainter (the suspects' reasons gaia, catwise): its own light
             "gaia_match": "gaia" in vet_reasons, "catwise_match": "catwise" in vet_reasons, "labels": [], "reasons": reasons,
@@ -847,6 +844,31 @@ def movers(susp: pd.DataFrame, zone: str, near: pd.DataFrame | None,
         set_status(c)
         out.append(c)
     return out
+
+
+def exempt_comets(store: Store, zone: str, susp: pd.DataFrame, cands: dict[str, dict],
+                  orbits: tuple | None) -> tuple[dict[str, str], dict]:
+    """rb_score null on the movers (cands: id -> the mover movers() made from that suspects row) whose place, rate and
+    direction match a known comet (known_comets.zone_comets), with the in-session motion movers() measured for them
+    (their dots' or link's session motion, never a track's chord); a mover shown without one keeps its table's
+    (known_comets.session_motion: link's rate off a track in a table without session_* columns). orbits:
+    known_comets.load_orbits (None: nothing matched). Returns ({id: comet name}, counts)."""
+    if orbits is None or not cands or not len(susp):
+        return {}, {}
+    by = {str(k): c for k, c in cands.items()}
+    m = susp[susp["id"].astype(str).isin(by)].reset_index(drop=True)
+    t_rate, t_pa = KC.session_motion(m)
+    mine = [by[str(i)] for i in m["id"]]
+    c_rate = np.array([_fin(c.get("rate_arcsec_h")) for c in mine], dtype=np.float64)
+    c_pa = np.array([_fin(c.get("pa_deg")) for c in mine], dtype=np.float64)
+    own = np.isfinite(c_rate) & np.isfinite(c_pa)
+    # the motion is settled here: match() then reads rate_arcsec_h / pa_deg as they are
+    m = m.drop(columns=[c for c in ("session_rate_arcsec_h", "session_pa_deg", "tracklet_id") if c in m])
+    m["rate_arcsec_h"], m["pa_deg"] = np.where(own, c_rate, t_rate), np.where(own, c_pa, t_pa)
+    got, st = KC.zone_comets(store, zone, m, orbits)
+    for i in got:
+        by[i]["rb_score"] = None
+    return got, st
 
 
 def mover_rb(susp: pd.DataFrame) -> np.ndarray:
@@ -1629,8 +1651,7 @@ def build(store: Store, zones: list[str], frames_root: Path | None = None, worke
     kept: list[dict] = []
     collections: set[str] = set()
     used_zones = []
-    orbits_loaded = False
-    orbits = None
+    orbits, orbits_loaded = None, False  # known comets (exempt_comets), read once for all zones
     for z in zones:
         t0 = time.time()
         use_dots_dir(linked_dots_dir(store, z))  # the zone's dot files: the folder its link read (members.dot_row)
@@ -1676,25 +1697,14 @@ def build(store: Store, zones: list[str], frames_root: Path | None = None, worke
             ctx = mover_context(store, z)
             L.info("candidates %s: %d grade A/B movers (dot flags; positions for %d without an in-session motion) in "
                    "%.0f s; %d grade C from the table alone", z, len(sd), int(need.sum()), time.time() - t1, len(sm))
+            full = {c["id"]: c for c in movers(sd, z, near, b["cells"], b["repeats"], ctx, flags3)
+                    + movers(sm, z, None, b["cells"], b["repeats"], ctx, None)}
             if not orbits_loaded:
-                orbits = KC.load_orbits(store)
-                orbits_loaded = True
-            sr = sp = None
-            if orbits is not None and near is not None and len(near):
-                sr = np.full(len(sd) + len(sm), np.nan)
-                sp = np.full(len(sd) + len(sm), np.nan)
-                for idx_sd, r_sd in enumerate(sd.itertuples()):
-                    if need[idx_sd]:
-                        mo_sd = motion(match_mover(r_sd.ra, r_sd.dec, r_sd.mjd, int(r_sd.n_dots),
-                                                   near[near["sid"] == idx_sd]))
-                        if mo_sd:
-                            sr[idx_sd], _, sp[idx_sd] = mo_sd
-            susp_ord = pd.concat([sd, sm], ignore_index=True)
-            comets, kst = KC.zone_comets(store, z, susp_ord, orbits, rates=sr, pas=sp) if orbits is not None else ({}, {})
-            if comets or kst.get("near_coarse") or kst.get("error"):
-                L.info("candidates %s: known comets: %s", z, kst)
-            full = {c["id"]: c for c in movers(sd, z, near, b["cells"], b["repeats"], ctx, flags3, comets)
-                    + movers(sm, z, None, b["cells"], b["repeats"], ctx, None, comets)}
+                orbits, orbits_loaded = KC.load_orbits(store), True
+            t1 = time.time()
+            got, kst = exempt_comets(store, z, susp, full, orbits)
+            if got or kst.get("near_coarse") or kst.get("error"):
+                L.info("candidates %s: known comets (rb_score null) in %.1f s: %s", z, time.time() - t1, kst)
             cands = [full.get(c["id"], c) if c["kind"] == "mover" else c for c in cands]
         fill_sources(store, z, cands, workers)
         fixed_facts(store, z, cands, b.get("galaxies") or set())

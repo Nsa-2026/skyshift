@@ -121,11 +121,25 @@ def test_comet_orbits_and_matching_rules(tmp_path):
     assert got == {"z1-match-run": "306P/LINEAR", "z1-match-pq-track": "306P/LINEAR"}
     assert st["matched"] == 2 and st["observers_spherex"] == 4
 
-    cands = {c["id"]: c for c in K.movers(susp, "z1", None, comets=got)}
+    cands = {c["id"]: c for c in K.movers(susp, "z1", None)}
+    assert cands["z1-match-pq-track"]["rate_arcsec_h"] == pytest.approx(rate)  # the session's motion, not the chord
+    got_c, st_c = K.exempt_comets(store, "z1", susp, cands, orbits)
+    assert got_c == got and st_c["matched"] == 2
     assert cands["z1-match-run"]["rb_score"] is None
     assert cands["z1-match-pq-track"]["rb_score"] is None
     assert cands["z1-wrong-motion"]["rb_score"] is not None
     assert cands["z1-far"]["rb_score"] is not None
+
+    # A table without session_* columns (before 16 Nov): the mover's own motion (build: its dots') beats the track's
+    # chord in rate_arcsec_h; a mover shown without a motion off a track keeps link's rate_arcsec_h
+    old = susp.drop(columns=["session_rate_arcsec_h", "session_pa_deg"]).iloc[:2].copy()
+    old["rate_arcsec_h"], old["pa_deg"] = [rate, 5.0], [pa, (pa + 180.0) % 360.0]
+    oc = {c["id"]: c for c in K.movers(old, "z1", None)}
+    assert oc["z1-match-run"]["rate_arcsec_h"] is None and oc["z1-match-pq-track"]["rate_arcsec_h"] is None
+    assert K.exempt_comets(store, "z1", old, {k: dict(v) for k, v in oc.items()}, orbits)[0] == {"z1-match-run": "306P/LINEAR"}
+    oc["z1-match-pq-track"]["rate_arcsec_h"], oc["z1-match-pq-track"]["pa_deg"] = rate, pa
+    assert K.exempt_comets(store, "z1", old, oc, orbits)[0] == {"z1-match-run": "306P/LINEAR",
+                                                               "z1-match-pq-track": "306P/LINEAR"}
 
     # Empty store fails soft with no exception
     empty_got, empty_st = KC.zone_comets(Store(str(tmp_path / "empty")), "z1", susp)

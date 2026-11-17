@@ -29,7 +29,7 @@ import pandas as pd
 from . import config as C
 from . import log
 
-L = log.get(__name__) if hasattr(log, "get") else __import__("logging").getLogger(__name__)
+L = log.get("known_comets")
 
 COARSE_ARCSEC = C.KNOWN_NEARBY_ARCSEC  # first pass, from the Earth's centre: SPHEREx is ≤ ~10″/Δ(AU) off that
 FINE_ARCSEC = C.KNOWN_NEARBY_ARCSEC    # second pass, from SPHEREx: the bodies near each dot (the rule then needs ≤ 30″)
@@ -179,12 +179,35 @@ def _list(v) -> list:
     return list(v)
 
 
+def session_motion(m: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+    """Per row of a suspects or movers table, its own session's (rate ″/h, PA °), never a track's chord:
+    session_rate_arcsec_h / session_pa_deg where the table has them (track_grades writes the chord into rate_arcsec_h /
+    pa_deg on linked rows), else rate_arcsec_h / pa_deg off a track; NaN on a track without them."""
+    n = len(m)
+    rate = pd.to_numeric(m["rate_arcsec_h"], errors="coerce").to_numpy(float, copy=True) if "rate_arcsec_h" in m \
+        else np.full(n, np.nan)
+    pa = pd.to_numeric(m["pa_deg"], errors="coerce").to_numpy(float, copy=True) if "pa_deg" in m else np.full(n, np.nan)
+    on_trk = (pd.to_numeric(m["tracklet_id"], errors="coerce").to_numpy(float) >= 0) if "tracklet_id" in m \
+        else np.zeros(n, bool)
+    if "session_rate_arcsec_h" in m:
+        srate = pd.to_numeric(m["session_rate_arcsec_h"], errors="coerce").to_numpy(float)
+        spa = pd.to_numeric(m["session_pa_deg"], errors="coerce").to_numpy(float) if "session_pa_deg" in m \
+            else np.full(n, np.nan)
+        use_s = on_trk | np.isfinite(srate)
+        rate[use_s] = srate[use_s]
+        pa[use_s] = spa[use_s]
+    else:
+        rate[on_trk] = np.nan
+        pa[on_trk] = np.nan
+    return rate, pa
+
+
 def match(m: pd.DataFrame, states: list, names: np.ndarray, observers: dict[str, dict] | None = None,
-          kete=None, rates: np.ndarray | None = None, pas: np.ndarray | None = None) -> tuple[np.ndarray, dict]:
+          kete=None) -> tuple[np.ndarray, dict]:
     """Per row of m (suspects or movers rows: ra, dec, mjd, rate_arcsec_h, pa_deg, n_exposures; session, motion_snr,
     dot_mjd, dot_obs when present), the name of the known comet its place, rate and direction match ("" none), by the
-    known step's rule (module doc). observers: obs_id -> X_SC..VZ_SC (missing: the Earth's centre). Optional per-row
-    in-session rates/pas fill rows whose table lacks them."""
+    known step's rule (module doc), with the row's in-session motion (session_motion). observers: obs_id ->
+    X_SC..VZ_SC (missing: the Earth's centre)."""
     from . import known as K
     from . import suspects as SU
 
@@ -209,28 +232,7 @@ def match(m: pd.DataFrame, states: list, names: np.ndarray, observers: dict[str,
     ms = m.iloc[sub].reset_index(drop=True)
     if "session" not in ms:
         ms["session"] = 0
-    rate = pd.to_numeric(ms.get("rate_arcsec_h", pd.Series(np.nan, index=ms.index)), errors="coerce").to_numpy(float, copy=True)
-    pa = pd.to_numeric(ms.get("pa_deg", pd.Series(np.nan, index=ms.index)), errors="coerce").to_numpy(float, copy=True)
-    on_trk = (pd.to_numeric(ms["tracklet_id"], errors="coerce").to_numpy(float) >= 0) if "tracklet_id" in ms \
-        else np.zeros(len(ms), bool)
-    if "session_rate_arcsec_h" in ms:  # track_grades overwrote rate_arcsec_h / pa_deg with the track's chord on linked rows
-        srate = pd.to_numeric(ms["session_rate_arcsec_h"], errors="coerce").to_numpy(float)
-        spa = pd.to_numeric(ms["session_pa_deg"], errors="coerce").to_numpy(float) if "session_pa_deg" in ms \
-            else np.full(len(ms), np.nan)
-        use_s = on_trk | np.isfinite(srate)
-        rate[use_s] = srate[use_s]
-        pa[use_s] = spa[use_s]
-    elif on_trk.any():
-        rate[on_trk] = np.nan
-        pa[on_trk] = np.nan
-    if rates is not None and pas is not None:
-        sub_arr = np.asarray(sub, dtype=np.intp)
-        fill = ~np.isfinite(rate) | ~np.isfinite(pa)
-        sr = np.asarray(rates, float)[sub_arr]
-        sp = np.asarray(pas, float)[sub_arr]
-        ok = fill & np.isfinite(sr) & np.isfinite(sp)
-        rate[ok] = sr[ok]
-        pa[ok] = sp[ok]
+    rate, pa = session_motion(ms)
     ms["rate_arcsec_h"] = rate
     ms["pa_deg"] = pa
     items, owner = [], []
@@ -266,8 +268,7 @@ def match(m: pd.DataFrame, states: list, names: np.ndarray, observers: dict[str,
     return out, st
 
 
-def zone_comets(store, zone: str, susp: pd.DataFrame, orbits: tuple | None = None,
-                rates: np.ndarray | None = None, pas: np.ndarray | None = None) -> tuple[dict[str, str], dict]:
+def zone_comets(store, zone: str, susp: pd.DataFrame, orbits: tuple | None = None) -> tuple[dict[str, str], dict]:
     """{suspects id: comet name} for the zone's rows that match a known comet (match), and counts. orbits: (states,
     names, label) already built (kete_comets), else from the store's snapshot. Any failure: {} and the reason."""
     st: dict = {"movers": int(len(susp))}
@@ -284,7 +285,7 @@ def zone_comets(store, zone: str, susp: pd.DataFrame, orbits: tuple | None = Non
         obs_ids = {o for v in susp.get("dot_obs", pd.Series([], dtype=object)) for o in _list(v)}
         observers = session_observers(store, zone, obs_ids) if obs_ids else {}
         st["observers_spherex"] = len(observers)
-        got, mst = match(susp, states, names, observers, rates=rates, pas=pas)
+        got, mst = match(susp, states, names, observers)
         st.update(mst)
     except Exception as e:  # noqa: BLE001
         L.warning("known comets %s: not matched (%s): movers keep the existing rb_score rule", zone, str(e)[:200])
