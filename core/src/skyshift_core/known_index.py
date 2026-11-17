@@ -65,37 +65,42 @@ V_MAX = 21.0                         # known_near: drop fainter objects (as the 
 
 # ---------------------------------------------------------------- orbits and names
 
+def _table_arrays(tab: Any, is_comet: bool) -> dict[str, np.ndarray]:
+    n = len(tab["desig"])
+    desig = np.array([str(d).strip() for d in np.asarray(tab["desig"], dtype=object)], dtype=object)
+    raw = np.asarray(tab["name"], dtype=object) if "name" in tab else np.full(n, None, dtype=object)
+    numbered = np.array([d.isdigit() for d in desig], bool)
+    name = np.array([
+        (str(r).strip() if isinstance(r, str) and r.strip() else (f"({d})" if num else d))
+        for r, d, num in zip(raw, desig, numbered)], dtype=object)
+    h = np.asarray(tab["h_mag"], float) if "h_mag" in tab else np.full(n, np.nan)
+    g = np.asarray(tab["g_phase"], float) if "g_phase" in tab else np.full(n, np.nan)
+    out = {
+        "desig": desig, "name": name, "h": np.where(h > 90, np.nan, h),
+        "g": np.where(np.isfinite(g), g, 0.15), "comet": np.full(n, is_comet),
+    }
+    for k, src in (("q", "peri_dist"), ("e", "ecc"), ("inc", "incl"), ("node", "lon_node"),
+                   ("argp", "peri_arg"), ("tp", "peri_time"), ("epoch", "epoch")):
+        out[k] = np.asarray(tab[src], float)
+    return out
+
+
+def _disambiguate_names(name: np.ndarray, desig: np.ndarray) -> np.ndarray:
+    name = np.array(name, dtype=object, copy=True)
+    _, inv, counts = np.unique(name.astype(str), return_inverse=True, return_counts=True)
+    dup = counts[inv] > 1
+    name[dup] = [f"{a} [{d}]" for a, d in zip(name[dup], desig[dup])]
+    return name
+
+
 def orbit_arrays(asteroids: Any, comets: Any | None = None) -> dict[str, np.ndarray]:
     """Columns of the MPC snapshot tables (kete.mpc.fetch_known_orbit_data, fetch_known_comet_orbit_data;
     pandas DataFrames or dicts of arrays) → one dict of arrays, asteroids first, then comets.
     Names as the pipeline's object_table: the MPC name, else "(number)", else the designation; a name
     used twice gets " [designation]" appended."""
-    parts = [(asteroids, False)] + ([(comets, True)] if comets is not None else [])
-    cols: dict[str, list] = {k: [] for k in ("desig", "name", "q", "e", "inc", "node", "argp", "tp", "epoch",
-                                             "h", "g", "comet")}
-    for tab, is_comet in parts:
-        n = len(tab["desig"])
-        desig = np.array([str(d).strip() for d in np.asarray(tab["desig"], dtype=object)], dtype=object)
-        raw = np.asarray(tab["name"], dtype=object) if "name" in tab else np.full(n, None, dtype=object)
-        numbered = np.array([d.isdigit() for d in desig], bool)
-        name = np.array([
-            (str(r).strip() if isinstance(r, str) and r.strip() else (f"({d})" if num else d))
-            for r, d, num in zip(raw, desig, numbered)], dtype=object)
-        cols["desig"].append(desig)
-        cols["name"].append(name)
-        for k, src in (("q", "peri_dist"), ("e", "ecc"), ("inc", "incl"), ("node", "lon_node"),
-                       ("argp", "peri_arg"), ("tp", "peri_time"), ("epoch", "epoch")):
-            cols[k].append(np.asarray(tab[src], float))
-        h = np.asarray(tab["h_mag"], float) if "h_mag" in tab else np.full(n, np.nan)
-        g = np.asarray(tab["g_phase"], float) if "g_phase" in tab else np.full(n, np.nan)
-        cols["h"].append(np.where(h > 90, np.nan, h))  # MPC writes 99.99 for "unknown"
-        cols["g"].append(np.where(np.isfinite(g), g, 0.15))
-        cols["comet"].append(np.full(n, is_comet))
-    out = {k: np.concatenate(v) for k, v in cols.items()}
-    name = out["name"]
-    _, inv, counts = np.unique(name.astype(str), return_inverse=True, return_counts=True)
-    dup = counts[inv] > 1
-    name[dup] = [f"{a} [{d}]" for a, d in zip(name[dup], out["desig"][dup])]
+    parts = [_table_arrays(asteroids, False)] + ([_table_arrays(comets, True)] if comets is not None else [])
+    out = {k: np.concatenate([p[k] for p in parts]) for k in parts[0]}
+    out["name"] = _disambiguate_names(out["name"], out["desig"])
     return out
 
 
@@ -528,6 +533,38 @@ def build_index(asteroids: Any, comets: Any | None = None, *, snapshot: str = ""
         f"{np.median(err_deg[keep_ast]):.4f} p99 {np.percentile(err_deg[keep_ast], 99):.3f} "
         f"p99.9 {np.percentile(err_deg[keep_ast], 99.9):.3f}; {time.time() - t_start:.0f} s")
     return data
+
+
+def replace_comets(idx: KnownIndex, comets: Any, *, snapshot: str, asteroids: Any | None = None,
+                   built: str | None = None) -> dict[str, np.ndarray]:
+    """Keep an existing index's asteroid rows and measured err_deg/always bounds, replacing all comet rows with
+    `comets`. Requires zero name collisions between `comets` and asteroids in `idx` (checked against `asteroids`
+    when given, falling back to `build_index` when names collide)."""
+    a = idx.ast_rows
+    ast_names = np.array([idx.name(int(r)) for r in a], dtype=object)
+    com = _table_arrays(comets, True)
+    com_names = _disambiguate_names(com["name"], com["desig"])
+    ast_pool = _table_arrays(asteroids, False)["name"].astype(str) if asteroids is not None else ast_names.astype(str)
+    clashes = set(com_names.astype(str)) & set(ast_pool)
+    if clashes:
+        raise ValueError(f"comet name clash with asteroid table ({sorted(clashes)[:3]}): run full build_index")
+    d = idx.data
+    n_com = len(com["q"])
+    out = {
+        "version": np.array(INDEX_VERSION), "snapshot": np.array(snapshot),
+        "built": np.array(built or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())),
+        "mjd_lo": np.array(float(d["mjd_lo"])), "mjd_hi": np.array(float(d["mjd_hi"])),
+        "v_keep": np.array(float(d["v_keep"])),
+    }
+    for k in ("q", "e", "inc", "node", "argp", "tp", "epoch"):
+        out[k] = np.concatenate([d[k][a].astype(float), com[k].astype(float)])
+    for k, dtype in (("h", np.float32), ("g", np.float32), ("comet", bool)):
+        out[k] = np.concatenate([d[k][a].astype(dtype), com[k].astype(dtype)])
+    out["err_deg"] = np.concatenate([d["err_deg"][a].astype(np.float32), np.full(n_com, np.nan, np.float32)])
+    out["always"] = np.concatenate([d["always"][a].astype(bool), np.zeros(n_com, bool)])
+    blob, off = _pack_names(np.concatenate([ast_names, com_names]))
+    out["name_blob"], out["name_off"] = blob, off
+    return out
 
 
 def main(argv: Sequence[str] | None = None) -> None:
