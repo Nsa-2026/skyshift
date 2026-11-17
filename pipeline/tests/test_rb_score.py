@@ -139,3 +139,28 @@ def test_merge_only_reorders_and_leaves_old_files_alone(tmp_path):
     out, st = K.merge_only_doc(doc(new), tmp_path)
     assert [(c["id"], c["score"]) for c in out["candidates"]] == [("b", 0.9), ("a", 0.5)]
     assert st["rb_score"]["score_changed"] == 2
+
+
+def test_comet_exempts_and_keeps_its_place():
+    assert RB.is_comet({"checks": [{"code": "known_body", "level": "strong", "values": {"body": "comet"}}]})
+    assert not RB.is_comet({"checks": [{"code": "known_body", "level": "strong", "values": {"body": "asteroid"}}]})
+    assert not RB.is_comet({"checks": [{"code": "known_nearby", "level": "warn", "values": {"body": "comet"}}]})
+
+    cands = [
+        _m(0, 0.9, 0.1),
+        _m(1, 0.7, 0.2, checks=[{"code": "known_body", "level": "strong", "values": {"body": "comet"}}]),
+        _m(2, 0.5, 0.95),
+        _m(3, 0.4, 0.8, status="known", checks=[{"code": "known_body", "level": "strong", "values": {"body": "asteroid"}}]),
+    ]
+    st = RB.reorder(cands)
+    by = {c["id"]: c for c in cands}
+    assert by["m1"]["rb_score"] is None and by["m1"]["score"] == 0.7
+    assert by["m3"]["rb_score"] == 0.8 and by["m3"]["score"] == 0.4
+    assert by["m2"]["score"] == 0.9 and by["m0"]["score"] == 0.5
+    assert st["score_changed"] == 2
+
+    s = pd.DataFrame([_row(0), _row(1)])
+    comet_cand, other_cand = K.movers(s, "hunt", None, comets={s.loc[0, "id"]: "306P/LINEAR"})
+    assert comet_cand["rb_score"] is None and other_cand["rb_score"] is not None
+    plain_a, _ = K.movers(s, "hunt", None)
+    assert comet_cand["score"] == plain_a["score"]
