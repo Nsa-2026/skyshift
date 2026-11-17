@@ -134,16 +134,18 @@ class Fit:
 
 def local_fit(t: np.ndarray, x: np.ndarray, y: np.ndarray, s: np.ndarray, t0: float, acc: Accel = Accel(),
               window: float = C.TRACK_FIT_WINDOW_H, exclude: int = -1, quad: bool = True) -> Fit:
-    """Fit of the members within `window` hours of t0 (at least the 2 nearest in time), `exclude` left out."""
+    """Fit of the members within `window` hours of t0 (at least the 4 nearest in time when `quad` can use them, else 2),
+    `exclude` left out."""
     dt = t - t0
     ok = np.ones(t.size, bool)
     if exclude >= 0:
         ok[exclude] = False
     use = ok & (np.abs(dt) <= window)
-    if use.sum() < 2:
+    need = 4 if (quad and ok.sum() >= 4) else 2
+    if use.sum() < need:
         cand = np.flatnonzero(ok)
         use = np.zeros(t.size, bool)
-        use[cand[np.argsort(np.abs(dt[cand]), kind="stable")[:2]]] = True
+        use[cand[np.argsort(np.abs(dt[cand]), kind="stable")[:need]]] = True
     tt, xx, yy, ss = dt[use], x[use], y[use], s[use]
     n = tt.size
     span = float(tt.max() - tt.min()) if n else 0.0

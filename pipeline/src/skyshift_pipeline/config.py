@@ -410,8 +410,14 @@ FIXED_VETO_BRIGHT_RATIO = 3.0
 # sit > FIXED_OFF_ARCSEC + FIXED_OFF_SIGMA × σ off its median in their photo, or are a second dot of the group in one photo
 # > FIXED_OFF_ARCSEC off, unless another session has such a dot within FIXED_OFF_REPEAT_ARCSEC (a neighbour, a wing piece).
 # tracklets recovers them only on a track's predicted path (TRACK_RECOVER_IN_FIXED). None = off.
-FIXED_OFF_ARCSEC = 1.5
-FIXED_OFF_SIGMA = 3.0
+# 17 Nov (#409): 1.5″ + 3σ → 1.0″ + 2σ (σ = dot_sigma_arcsec, already × LINK_POS_ERR_SCALE): asteroids chained into a star
+# at 2.5–3.3″ ((6038) and Paul in hunt sessions 203 and 225) were below 1.5 + 3σ. Only nonfixed_dots changes (pilot relink:
+# fixed, members, movers, freedots and link's stats identical); in_fixed rows pilot 14,362 → 33,499, hunt's 8 sessions
+# 9,215 → 23,066. 1.0″ + 1σ keeps no more known sightings (hunt + pilot 314 either way, at TRACK_RECOVER_R_MAX 12″) with 52,526 / 48,266 rows, twice the
+# chance in_fixed recoveries (tracks moved 2′, 20 seeds: hunt 0.15 → 0.40 a run), and its extra star scatter trips the
+# repeat rule on real crossings (pilot: Nelsonia, session 35, lost).
+FIXED_OFF_ARCSEC = 1.0
+FIXED_OFF_SIGMA = 2.0
 FIXED_OFF_REPEAT_ARCSEC = 2.0
 # Mover vetting (link.vet_reason, after the session-coverage test; stats vetoed_<rule>; SKYSHIFT_MOVER_VET=off keeps
 # every candidate, with the columns). Hunt, 14 Nov: of 6,143 movers 4,464 were seen in two exposures and 4,045 of those
@@ -1444,9 +1450,11 @@ INJECT_DET_WIDTH = 0.7
 TRACK_RATE_MIN_ARCSEC_H = 0.5    # slower: not linked (stars, galaxies, fixed junk)
 TRACK_RATE_MAX_ARCSEC_H = 150.0  # link's pair rule allows ~146″/h (3″ + 1″/min over 2.1 min)
 TRACK_SEED_MAX_GAP_H = 36.0      # seed pairs: movers of two sessions at most this far apart
-TRACK_TRIPLET_WINDOW_H = 36.0    # a seed is tested in sessions up to this far outside its two times
-TRACK_MAX_GAP_H = 60.0           # a track grows across gaps up to this long (no detection in between)
-TRACK_FIT_WINDOW_H = 48.0        # local fits use the members within this of the time they predict (at least 2)
+# 17 Nov (#409): triplet window 36 → 60 h, growth gap 60 → 120 h (hunt visit 2: 37.5–57 h between linked sessions, 68.5 h
+# across missing ones); exactly-3 tracks still span <= TRACK_SHORT_MAX_SPAN_H, so chance tracks stay 0 (hunt, 20 seeds).
+TRACK_TRIPLET_WINDOW_H = 60.0    # a seed is tested in sessions up to this far outside its two times
+TRACK_MAX_GAP_H = 120.0          # a track grows across gaps up to this long (no detection in between)
+TRACK_FIT_WINDOW_H = 48.0        # local fits use the members within this of the time they predict (at least 4 for quad, else 2)
 TRACK_QUAD_MIN_SPAN_H = 24.0     # a local fit with >= 4 members spanning this long is quadratic, else linear
 TRACK_ACCEL_ARCSEC_H2 = 0.04     # first pass: curvature allowance of a linear prediction, ½ a |(t-t1)(t-t2)| (hunt:
                                  # known asteroids' apparent acceleration 0.028″/h² median, 0.039 at 99%)
@@ -1481,7 +1489,9 @@ TRACK_VISIT_MAX_S = 30.0         # time budget of one linking pass over a visit 
 TRACK_RECOVER = True
 TRACK_RECOVER_EXT_H = 60.0       # sessions up to this far before the first / after the last member are searched too
 TRACK_RECOVER_R_MIN_ARCSEC = 3.0
-TRACK_RECOVER_R_MAX_ARCSEC = 8.0
+TRACK_RECOVER_R_MAX_ARCSEC = 10.0  # 17 Nov (#409): 8 → 10. Walhalla (hunt s203) sits 8.9″ from a 50 h quadratic extrapolation.
+                                 # 12″ found 3 more known sightings than 10″ in ecl04 + ecl11 (of 3,404 + 1,932 V < 18) for
+                                 # ~3.6 more chance dots a run (tracks moved 2′, 10 seeds: ecl04 6.4 → 8.8, ecl11 2.3 → 3.5)
 TRACK_RECOVER_NEAR_FIXED = True  # also dots 4-6″ from a fixed source (link's veto zone; not in its group)
 TRACK_RECOVER_IN_FIXED = True    # also the fixed groups' member dots that sit off their star (link off_star_members)
 TRACK_RECOVER_STACK_SMEAR_ARCSEC = 7.5  # session stacks on: a stack row (link puts the free ones in nonfixed_dots) is
