@@ -1,16 +1,105 @@
 {
- "about": "Benchmark sessions for scripts/rerun/rerun.py bench: whole sessions (every detector) chosen where known things are, so the same run gives speed and size per photo and the found/missed checks. A target names `sessions` (the zone's session numbers), `obs` (observation-number prefixes) or `pick: largest` (the zone's session with the most photos). Add the comet 135P (ecl08), 98P (ecl11), Saturn's moons (ecl35) and fast near-Earth asteroids (hunt) from the Mac's results/ when they arrive.",
+ "about": "Benchmark sessions for scripts/rerun/rerun.py bench: whole sessions (every detector) chosen where known things are, so the same run gives speed and size per photo and the found/missed checks. A target names `sessions` (the zone's session numbers), `obs` (observation-number prefixes) or `pick: largest` (the zone's session with the most photos).",
  "targets": [
-  {"zone": "hunt", "obs": ["2025W43_2A_0389", "2025W43_2A_0390"], "why": "asteroid (74) Galatea V 13.9 in D6 (lost to the old glow bug); known asteroids; the v2 measurement bands"},
-  {"zone": "hunt", "sessions": [72, 81], "why": "the session-stack measurement sessions: Gaia G50 per detector, 109 known asteroids V < 18.5"},
-  {"zone": "ecl04", "obs": ["2025W34_1B_0173", "2025W34_1B_0366", "2025W34_1B_0451", "2025W33_1B_0294"], "why": "comet 306P/LINEAR (the only grade A mover; its D3 image at S/N 4.4 was only in the peaks file)"},
-  {"zone": "ecl25", "obs": ["2025W31_2A_0156"], "why": "interstellar comet 3I/ATLAS"},
-  {"zone": "t_barnard", "pick": "largest", "why": "Barnard's Star: 10.4\"/yr, saturates (wings centroid)"},
-  {"zone": "t_wise0855", "pick": "largest", "why": "WISE 0855-0714: coldest brown dwarf, MWIR only, 8\"/yr"},
-  {"zone": "t_epsindib", "pick": "largest", "why": "Epsilon Indi B: T dwarf pair next to a bright star"},
-  {"zone": "t_rdra", "pick": "largest", "why": "R Draconis: Mira variable, saturates"},
-  {"zone": "t_rwaur", "pick": "largest", "why": "RW Aurigae: variable young star, saturates"},
-  {"zone": "t_gc", "pick": "largest", "why": "galactic centre: confusion, the plane D4 -5.7% of Gaia stars"},
-  {"zone": "t_nep", "pick": "largest", "why": "north ecliptic pole: deepest coverage, high latitude"}
+  {
+   "zone": "hunt",
+   "obs": [
+    "2025W43_2A_0389",
+    "2025W43_2A_0390"
+   ],
+   "why": "asteroid (74) Galatea V 13.9 in D6 (lost to the old glow bug); known asteroids; the v2 measurement bands"
+  },
+  {
+   "zone": "hunt",
+   "sessions": [
+    72,
+    81
+   ],
+   "why": "the session-stack measurement sessions: Gaia G50 per detector, 109 known asteroids V < 18.5"
+  },
+  {
+   "zone": "ecl04",
+   "obs": [
+    "2025W34_1B_0173",
+    "2025W34_1B_0366",
+    "2025W34_1B_0451",
+    "2025W33_1B_0294"
+   ],
+   "why": "comet 306P/LINEAR (the only grade A mover; its D3 image at S/N 4.4 was only in the peaks file)"
+  },
+  {
+   "zone": "ecl25",
+   "obs": [
+    "2025W31_2A_0156"
+   ],
+   "why": "interstellar comet 3I/ATLAS"
+  },
+  {
+   "zone": "t_barnard",
+   "pick": "largest",
+   "why": "Barnard's Star: 10.4\"/yr, saturates (wings centroid)"
+  },
+  {
+   "zone": "t_wise0855",
+   "pick": "largest",
+   "why": "WISE 0855-0714: coldest brown dwarf, MWIR only, 8\"/yr"
+  },
+  {
+   "zone": "t_epsindib",
+   "pick": "largest",
+   "why": "Epsilon Indi B: T dwarf pair next to a bright star"
+  },
+  {
+   "zone": "t_rdra",
+   "pick": "largest",
+   "why": "R Draconis: Mira variable, saturates"
+  },
+  {
+   "zone": "t_rwaur",
+   "pick": "largest",
+   "why": "RW Aurigae: variable young star, saturates"
+  },
+  {
+   "zone": "t_gc",
+   "pick": "largest",
+   "why": "galactic centre: confusion, the plane D4 -5.7% of Gaia stars"
+  },
+  {
+   "zone": "t_nep",
+   "pick": "largest",
+   "why": "north ecliptic pole: deepest coverage, high latitude"
+  },
+  {
+   "zone": "ecl08",
+   "sessions": [
+    285,
+    287
+   ],
+   "why": "comet 135P/Shoemaker-Levy (rb_score once ranked it 372nd in grade C)"
+  },
+  {
+   "zone": "ecl11",
+   "sessions": [
+    97,
+    99
+   ],
+   "why": "comet 98P/Takamizawa"
+  },
+  {
+   "zone": "ecl35",
+   "sessions": [
+    106
+   ],
+   "why": "Saturn's moons Titan V 8.5, Rhea 9.9, Iapetus 11.3 (once listed as unknown movers)"
+  },
+  {
+   "zone": "hunt",
+   "sessions": [
+    169,
+    185,
+    75
+   ],
+   "why": "fast near-Earth asteroids: 2006 GC1 1,284\"/h V 18.3, 2026 GU 911\"/h V 19.0, 2025 TX2 3,117\"/h V 19.8 (trails)"
+  }
  ]
 }

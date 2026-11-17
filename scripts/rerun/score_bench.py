@@ -39,6 +39,8 @@ from skyshift_pipeline.sky import Footprint, SkyTree  # noqa: E402
 FINE_ZONES = set(C.DOTS_FINE_ZONES)
 G_BINS = [0, 12, 14, 16, 17, 18, 19, 20]
 V_BINS = [0, 16, 17, 18, 19, 20, 30]
+RATE_BINS = [0, 50, 150, 386, 1000, 6000]  # ″/h: main belt, fast main belt, the pair rule's limit, NEOs, trails
+NAMED = ("Galatea", "135P/Shoemaker-Levy", "98P/Takamizawa", "Iapetus", "Titan", "Rhea", "2006 GC1", "2026 GU", "2025 TX2")
 EDGE_DEG = 30 / 3600
 SHIFT_ARCSEC = 45.0
 PHOTO_DEG2 = (2040 * C.PIXEL_ARCSEC / 3600) ** 2
@@ -89,15 +91,17 @@ def tree_of(df: pd.DataFrame | None, ra="ra", dec="dec") -> SkyTree | None:
 
 def load_known(data: Path, zone: str) -> pd.DataFrame:
     rows = []
-    for f in glob.glob(str(data / "cache" / "mpc" / zone / "run_*.json")):
+    for f in glob.glob(str(data / "cache" / "mpc" / zone / "run_*.json")) + glob.glob(str(data / "cache" / "planets" / zone / "run_*.json")):
         d = json.load(open(f))
         pp, ob = d.get("per_photo") or {}, d.get("objects") or {}
         if not pp:
             continue
-        v = dict(zip(ob.get("name", []), ob.get("v", [])))
-        cls = dict(zip(ob.get("name", []), ob.get("class", [])))
+        names = ob.get("name", [])
+        v, cls = dict(zip(names, ob.get("v", []))), dict(zip(names, ob.get("class", [])))
+        rate = dict(zip(names, np.hypot(np.asarray(ob.get("dra_arcsec_h", [np.nan] * len(names)), float),
+                                        np.asarray(ob.get("ddec_arcsec_h", [np.nan] * len(names)), float))))
         df = pd.DataFrame(pp)
-        df["v"], df["class"] = df["name"].map(v), df["name"].map(cls)
+        df["v"], df["class"], df["rate"] = df["name"].map(v), df["name"].map(cls), df["name"].map(rate)
         rows.append(df)
     return pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(columns=["obs_id", "detector", "name", "ra", "dec", "v"])
 
@@ -208,7 +212,7 @@ def main(argv=None) -> dict:
                 kra, kdec = k["ra"].to_numpy(), k["dec"].to_numpy()
                 cra, cdec = shifted(kra, kdec)
                 b = pd.DataFrame({"zone": zone, "detector": det, "name": k["name"].values, "v": k["v"].values,
-                                  "v_bin": pd.cut(k["v"], V_BINS), "after": near(ta, kra, kdec, a.body_arcsec)[0],
+                                  "v_bin": pd.cut(k["v"], V_BINS), "rate_bin": pd.cut(k["rate"], RATE_BINS), "after": near(ta, kra, kdec, a.body_arcsec)[0],
                                   "after_peaks": near(ta, kra, kdec, a.body_arcsec)[0] | near(tp, kra, kdec, a.body_arcsec)[0],
                                   "after_stack": near(ts, kra, kdec, a.body_arcsec)[0],
                                   "control_after": near(ta, cra, cdec, a.body_arcsec)[0],
@@ -243,7 +247,7 @@ def main(argv=None) -> dict:
                 q = atlas[(atlas["obs_id"] == r.obs_id) & (atlas["detector"] == det)]
                 if len(q):
                     checks.append(("3I/ATLAS", float(q["obj_ra"].iloc[0]), float(q["obj_dec"].iloc[0])))
-            for nm in ("Galatea",):
+            for nm in NAMED:
                 q = k[k["name"] == nm] if len(k) else k
                 if len(q):
                     checks.append((nm, float(q["ra"].iloc[0]), float(q["dec"].iloc[0])))
@@ -298,6 +302,8 @@ def main(argv=None) -> dict:
         "gaia_found_by_zone": table(num(both_st), ["zone", "detector"], ["before", "after", "after_peaks"]),
         "known_found_by_v": table(num(both_bo), ["v_bin"], ["before", "after", "after_peaks",
                                                                       "after_stack", "control_after", "control_peaks"]),
+        "known_found_by_rate": table(num(both_bo), ["rate_bin"], ["before", "after", "after_peaks", "after_stack",
+                                                                  "control_after"]),
         "known_found_by_detector": table(num(both_bo), ["detector"], ["before", "after", "after_peaks",
                                                                                  "after_stack", "control_after"]),
         "unmatched_per_photo": (un.groupby(["which", "detector"])[["dots", "unmatched", "unmatched_snr_lt7",
@@ -308,7 +314,7 @@ def main(argv=None) -> dict:
     (root / "score.json").write_text(json.dumps(rep, indent=1, default=str))
     pd.set_option("display.width", 200)
     for k in ("dots_per_photo", "gaia_found_by_detector", "gaia_found_by_g", "known_found_by_v",
-              "known_found_by_detector", "unmatched_per_photo"):
+              "known_found_by_rate", "known_found_by_detector", "unmatched_per_photo"):
         print(f"\n== {k}\n{pd.DataFrame(rep[k]).to_string(index=False)}")
     print("\n== named")
     for n in named:
