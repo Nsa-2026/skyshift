@@ -418,6 +418,10 @@ again). Do it only when the orchestrator asks: Cloud Run then needs
 
 ## 7. Later: the photo rerun on the PC (NOT READY)
 
+> **17 Nov: the script exists: `scripts/rerun/` (README.md there).** Corrected counts from the S3 index: the 333 sky
+> zones touch **856,377 photos (63 TB to read)**, not ~495,000; NASA's S3 holds 1,628,230 in all. Times and sizes
+> below are per-photo estimates from before; `rerun.py plan` gives the totals, `rerun.py bench` measures them.
+
 **Not ready to run.** It waits for agent "v2finish" (extraction v2's final settings and command) and for the session
 stacks to be fused into the dots worker. Agent "sessionstack" finished on 16 Nov (PR #383, docs/session-stacks.md §7):
 the `sessionstack` step exists, is off by default and still reads every photo itself, so run on its own it would read
