@@ -30,7 +30,7 @@ from .errors import UpstreamError, bad_request
 log = logging.getLogger(__name__)
 
 # Cache key of the index (a new snapshot gets a new name, so running instances keep a consistent file).
-INDEX_KEY = os.environ.get("SKYSHIFT_KNOWN_INDEX") or "mpc/known_index/known_index_2026-11-14.npz"
+INDEX_KEY = os.environ.get("SKYSHIFT_KNOWN_INDEX") or "mpc/known_index/known_index_2026-11-16.npz"
 
 _lock = threading.Lock()
 _index: known_index.KnownIndex | None = None

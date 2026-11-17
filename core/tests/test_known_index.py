@@ -181,3 +181,25 @@ def test_build_and_known_near_match_kete():
     assert K.known_near(vec.ra + 5, vec.dec, 0.2, [mjd], index=idx) == []
     with pytest.raises(ValueError):
         K.known_near(vec.ra, vec.dec, 0.2, [61100.0], index=idx)
+
+
+def test_replace_comets_matches_full_build_index(tmp_path):
+    pytest.importorskip("kete")
+    com_two = {
+        "desig": ["C/2025 R2 ", "306P/LINEAR"],
+        "peri_dist": [0.504275, 1.272986], "ecc": [0.994144, 0.59251],
+        "incl": [4.4729, 8.3017], "lon_node": [335.3156, 341.339],
+        "peri_arg": [308.3723, 0.9146], "peri_time": [2460931.295599982, 2460889.147],
+        "epoch": [2461357.5, 2461000.5],
+    }
+    base = K.build_index(ASTEROIDS, COMETS, snapshot="base", mjd_lo=61000.0, mjd_hi=61060.0,
+                         step_days=30.0, neo_step_days=10.0, log=lambda *_: None)
+    p = tmp_path / "base.npz"
+    K.save_index(str(p), base)
+    expected = K.build_index(ASTEROIDS, com_two, snapshot="updated", mjd_lo=61000.0, mjd_hi=61060.0,
+                             step_days=30.0, neo_step_days=10.0, log=lambda *_: None)
+    rebuilt = K.replace_comets(K.load_index(str(p)), com_two, snapshot="updated", asteroids=ASTEROIDS,
+                               built=str(expected["built"]))
+    for key in expected:
+        np.testing.assert_array_equal(rebuilt[key], expected[key], err_msg=f"mismatch on {key}")
+
