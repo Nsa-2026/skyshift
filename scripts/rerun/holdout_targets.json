@@ -1,0 +1,15 @@
+{
+ "about": "Hold-out sessions for re-testing extraction fixes on data the fix agents never tuned on (same format as bench_targets.json). Chosen 18 Nov 2026 from the known-object caches: dense asteroid fields, fast near-Earth asteroids, comets, the galactic plane and crowded/deep featured fields.",
+ "targets": [
+  {"zone": "ecl17", "sessions": [61, 360], "why": "dense main-belt fields: 55 and 54 known asteroids V < 18"},
+  {"zone": "ecl17", "sessions": [328, 307], "why": "fast near-Earth asteroids 2025 XP3, (883088); a comet in 328"},
+  {"zone": "ecl29", "sessions": [439], "why": "83 known asteroids V < 18 near the galactic plane"},
+  {"zone": "ecl29", "sessions": [96], "why": "fast 2025 TA and a comet"},
+  {"zone": "ecl20s1", "sessions": [515, 77], "why": "south of the ecliptic: 39 and 36 asteroids V < 18; a comet in 77"},
+  {"zone": "ecl20s1", "sessions": [247], "why": "fast 2026 AQ2"},
+  {"zone": "ecl26s4", "sessions": [12, 49], "why": "galactic plane, crowded; fast 2025 NO3 in 49"},
+  {"zone": "t_lmc", "pick": "largest", "why": "Large Magellanic Cloud: crowding"},
+  {"zone": "t_sep", "pick": "largest", "why": "south ecliptic pole: deep coverage"},
+  {"zone": "t_cygnus", "pick": "largest", "why": "Cygnus, galactic plane: the first photo's field"}
+ ]
+}
