@@ -69,6 +69,10 @@ def test_dry_run_and_build_with_full_comets(tmp_path):
     assert info["counts"]["comets_before"] == 2 and info["counts"]["comets_after"] == 3
     assert info["counts"]["has_306P_before"] is False and info["counts"]["has_306P_after"] is True
     assert info["write_local"]["key"] == "mpc/known_index/known_index_2026-11-16.npz"
+    # No env override: the next step is known.py's default key, then a plain deploy.sh.
+    assert "SKYSHIFT_KNOWN_INDEX" not in info["gated_cloud_commands"]["deploy_cloud_run"]
+    assert "known_index_2026-11-16.npz" in info["code_steps"]["set_default_key"]
+    assert "--known-only" in info["code_steps"]["refresh_static_known"]
 
     assert RKI.main(["--root", str(tmp_path), "--dry-run", "--json"]) == 0
     assert not (idx_dir / "known_index_2026-11-16.npz").exists()  # dry-run writes nothing

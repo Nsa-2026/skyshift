@@ -56,4 +56,4 @@ gcloud run deploy skyshift-api \
   --timeout 60 \
   --concurrency 8 \
   --allow-unauthenticated \
-  --set-env-vars "SKYSHIFT_CACHE=gs://nasa-glazing-data/cache,SKYSHIFT_PIXELS=s3first,SKYSHIFT_MEASURED_STACK=t_barnard+t_rwaur+t_epsindib+t_wise0855,SKYSHIFT_KNOWN_INDEX=${SKYSHIFT_KNOWN_INDEX:-mpc/known_index/known_index_2026-11-14.npz}"
+  --set-env-vars SKYSHIFT_CACHE=gs://nasa-glazing-data/cache,SKYSHIFT_PIXELS=s3first,SKYSHIFT_MEASURED_STACK=t_barnard+t_rwaur+t_epsindib+t_wise0855

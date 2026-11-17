@@ -15,7 +15,9 @@ What this does (local only; NEVER reads or writes gs://nasa-glazing-data or runs
    from the same mpcorb snapshot when present and collision-free (replace_comets; <1 s), else runs full build_index
    (~10-12 min). Use --full-sweep to force a fresh asteroid sweep regardless.
 3. Writes <root>/cache/mpc/known_index/known_index_<date>.npz atomically, then optionally verifies queries including
-   306P/LINEAR locally (--verify). Prints exact upload/deploy commands and cloud cost estimates for explicit approval.
+   306P/LINEAR locally (--verify). Prints the next steps: set known.py's INDEX_KEY default to the new key and refresh the
+   static known[] (precompute.py --known-only, local cache), then the exact upload/deploy commands (plain deploy.sh,
+   no env override) and cloud cost estimates for explicit approval.
 """
 
 from __future__ import annotations
@@ -174,7 +176,14 @@ def plan(
             "upload_index": f"gcloud storage cp --no-clobber {out_path} {BUCKET}/cache/{key}",
             "upload_allcometels": (f"gcloud storage cp --no-clobber {allcometels} {BUCKET}/cache/mpc/orbits/"
                                    if allcometels else None),
-            "deploy_cloud_run": f"SKYSHIFT_KNOWN_INDEX={key} infra/run/deploy.sh",
+            "deploy_cloud_run": "infra/run/deploy.sh  # from fresh main, once known.py's INDEX_KEY default is the new key",
+        },
+        # Code steps before the deploy (no env override: deploy.sh doesn't carry one, so it would be lost on the
+        # next deploy). The static known[] of the featured targets is refreshed from the local cache.
+        "code_steps": {
+            "set_default_key": f'server/src/skyshift_server/known.py: INDEX_KEY default "{key}"',
+            "refresh_static_known": (f"cd server && SKYSHIFT_CACHE={root / 'cache'} "
+                                     "uv run python ../scripts/precompute/precompute.py --known-only"),
         },
     }
 
@@ -245,7 +254,10 @@ def _print_plan(info: dict[str, Any], as_json: bool = False) -> None:
           f"comets={c['comets_before']} -> {c['comets_after']} (+{c['comets_added']}), "
           f"306P={c['has_306P_before']} -> {c['has_306P_after']}")
     print(f"Local cost: ${cost['local_build_usd']:.2f}")
-    print("Gated cloud actions (NOT run; require explicit approval):")
+    print("Next, in a PR (no cloud):")
+    print(f"  a. {info['code_steps']['set_default_key']}")
+    print(f"  b. {info['code_steps']['refresh_static_known']}")
+    print("Gated cloud actions after merge (NOT run; require explicit approval):")
     print(f"  1. {info['gated_cloud_commands']['upload_index']}")
     if info["gated_cloud_commands"]["upload_allcometels"]:
         print(f"  2. {info['gated_cloud_commands']['upload_allcometels']}")
