@@ -67,9 +67,10 @@ from skyshift_core.motion import PARALLAX_MODES
 from skyshift_core.planets import near_planets
 
 from . import candidate_checks as CK
-from . import rb_score as RB
 from . import config as C
+from . import known_comets as KC
 from . import log
+from . import rb_score as RB
 from .sky import SkyTree, angsep
 from .spectra import NCH_DET, NDET
 from .store import Store, dots_rel, linked_dots_dir, photolist_rel, results_rel, use_dots_dir
@@ -762,7 +763,8 @@ def movers(susp: pd.DataFrame, zone: str, near: pd.DataFrame | None,
            ctx: dict | None = None, flags3: list | None = None) -> list[dict]:
     """Mover candidates from suspects. `cells` (excess_cells) and `repeats` (repeat_positions) come from the
     whole zone, so they stay right when `susp` is a subset. ctx: the zone's facts for the checks (zone_base: motion_ref,
-    control_tracks, photos, bright); flags3: mover_dot_flags of susp (None: not read)."""
+    control_tracks, photos, bright); flags3: mover_dot_flags of susp (None: not read). A known comet's rb_score is
+    nulled afterwards (exempt_comets)."""
     cells, repeats, ctx = cells or {}, repeats or {}, ctx or {}
     rbs = mover_rb(susp)
     out = []
@@ -842,6 +844,31 @@ def movers(susp: pd.DataFrame, zone: str, near: pd.DataFrame | None,
         set_status(c)
         out.append(c)
     return out
+
+
+def exempt_comets(store: Store, zone: str, susp: pd.DataFrame, cands: dict[str, dict],
+                  orbits: tuple | None) -> tuple[dict[str, str], dict]:
+    """rb_score null on the movers (cands: id -> the mover movers() made from that suspects row) whose place, rate and
+    direction match a known comet (known_comets.zone_comets), with the in-session motion movers() measured for them
+    (their dots' or link's session motion, never a track's chord); a mover shown without one keeps its table's
+    (known_comets.session_motion: link's rate off a track in a table without session_* columns). orbits:
+    known_comets.load_orbits (None: nothing matched). Returns ({id: comet name}, counts)."""
+    if orbits is None or not cands or not len(susp):
+        return {}, {}
+    by = {str(k): c for k, c in cands.items()}
+    m = susp[susp["id"].astype(str).isin(by)].reset_index(drop=True)
+    t_rate, t_pa = KC.session_motion(m)
+    mine = [by[str(i)] for i in m["id"]]
+    c_rate = np.array([_fin(c.get("rate_arcsec_h")) for c in mine], dtype=np.float64)
+    c_pa = np.array([_fin(c.get("pa_deg")) for c in mine], dtype=np.float64)
+    own = np.isfinite(c_rate) & np.isfinite(c_pa)
+    # the motion is settled here: match() then reads rate_arcsec_h / pa_deg as they are
+    m = m.drop(columns=[c for c in ("session_rate_arcsec_h", "session_pa_deg", "tracklet_id") if c in m])
+    m["rate_arcsec_h"], m["pa_deg"] = np.where(own, c_rate, t_rate), np.where(own, c_pa, t_pa)
+    got, st = KC.zone_comets(store, zone, m, orbits)
+    for i in got:
+        by[i]["rb_score"] = None
+    return got, st
 
 
 def mover_rb(susp: pd.DataFrame) -> np.ndarray:
@@ -1624,6 +1651,7 @@ def build(store: Store, zones: list[str], frames_root: Path | None = None, worke
     kept: list[dict] = []
     collections: set[str] = set()
     used_zones = []
+    orbits, orbits_loaded = None, False  # known comets (exempt_comets), read once for all zones
     for z in zones:
         t0 = time.time()
         use_dots_dir(linked_dots_dir(store, z))  # the zone's dot files: the folder its link read (members.dot_row)
@@ -1671,6 +1699,12 @@ def build(store: Store, zones: list[str], frames_root: Path | None = None, worke
                    "%.0f s; %d grade C from the table alone", z, len(sd), int(need.sum()), time.time() - t1, len(sm))
             full = {c["id"]: c for c in movers(sd, z, near, b["cells"], b["repeats"], ctx, flags3)
                     + movers(sm, z, None, b["cells"], b["repeats"], ctx, None)}
+            if not orbits_loaded:
+                orbits, orbits_loaded = KC.load_orbits(store), True
+            t1 = time.time()
+            got, kst = exempt_comets(store, z, susp, full, orbits)
+            if got or kst.get("near_coarse") or kst.get("error"):
+                L.info("candidates %s: known comets (rb_score null) in %.1f s: %s", z, time.time() - t1, kst)
             cands = [full.get(c["id"], c) if c["kind"] == "mover" else c for c in cands]
         fill_sources(store, z, cands, workers)
         fixed_facts(store, z, cands, b.get("galaxies") or set())

@@ -113,11 +113,15 @@ def blind_ids() -> set[str]:
 
 def load(work: Path, zones: list[str]) -> tuple[pd.DataFrame, pd.DataFrame]:
     """(features, info) for every mover of the zones; info: zone, id, label (1 real, 0 rest, -1 unused), grade,
-    known name, exempt (slow or wide), existing score."""
+    known name, exempt (slow, wide or matched known comet), existing score."""
     from skyshift_pipeline import candidates as K
+    from skyshift_pipeline import known_comets as KC
     from skyshift_pipeline import rb_score as RB
     from skyshift_pipeline.candidates import mover_score
+    from skyshift_pipeline.store import Store
 
+    ds = Store(str(DATA)) if DATA.exists() else None
+    orbits = KC.load_orbits(ds) if ds is not None else None
     F, I = [], []
     for z in zones:
         s = pd.read_parquet(work / f"{z}_suspects.parquet").reset_index(drop=True)
@@ -130,6 +134,9 @@ def load(work: Path, zones: list[str]) -> tuple[pd.DataFrame, pd.DataFrame]:
         lab = np.where(sep <= REAL_ARCSEC, 1, np.where(~(sep <= REST_ARCSEC), 0, -1))
         wide = np.array([("wide" in list(w if w is not None else [])) or ("wide" in list(r if r is not None else []))
                          for w, r in zip(s["warn_codes"], s["reasons"])])
+        cm_ids = KC.zone_comets(ds, z, s, orbits)[0] if (ds is not None and orbits is not None) else {}
+        comet_match = s["id"].astype(str).isin(cm_ids).to_numpy()
+        comet = ((lab == 1) & np.array([bool(COMET.match(n)) for n in name])) | comet_match
         rate, slow = np.full(len(s), np.nan), np.zeros(len(s), bool)
         for j, r in enumerate(s.itertuples()):  # the exporter's rule (candidates.movers): the track's rate, else link's
             tr = K.on_track(r)
@@ -141,8 +148,8 @@ def load(work: Path, zones: list[str]) -> tuple[pd.DataFrame, pd.DataFrame]:
         base = mover_score(s["snr"], s["evidence"], np.full(len(s), np.nan), grade)
         F.append(RB.features(s))
         I.append(pd.DataFrame({"zone": z, "id": s["id"], "label": lab, "grade": grade, "name": name, "sep": sep,
-                               "slow": slow, "wide": wide, "exempt": slow | wide, "rate": rate, "base": base,
-                               "comet": [bool(COMET.match(n)) for n in name]}))
+                               "slow": slow, "wide": wide, "comet_match": comet_match,
+                               "exempt": slow | wide | comet_match, "rate": rate, "base": base, "comet": comet}))
     F, I = pd.concat(F, ignore_index=True), pd.concat(I, ignore_index=True)
     I["blind"] = I["id"].isin(blind_ids())
     return F, I
@@ -234,7 +241,8 @@ def train(work: Path, zones: list[str], out: Path, report: Path | None) -> dict:
     res = {"zones": zones, "label": f"real: a known body within {REAL_ARCSEC:g}″; rest: none within {REST_ARCSEC:g}″",
            "blind_ids_left_out": int(I.blind.sum()), "movers": int(len(I)), "used": int(use.sum()),
            "real": int((ev.label == 1).sum()), "rest": int((ev.label == 0).sum()),
-           "exempt": {"slow": int(ev.slow.sum()), "wide": int(ev.wide.sum()), "either": int(ev.exempt.sum()),
+           "exempt": {"slow": int(ev.slow.sum()), "wide": int(ev.wide.sum()),
+                      "comet": int(ev.comet_match.sum()), "either": int(ev.exempt.sum()),
                       "real_slow": int((ev.slow & (ev.label == 1)).sum()), "comets": int(ev.comet.sum()),
                       "comets_exempt": int((ev.comet & ev.exempt).sum())},
            "per_zone": per_zone,
@@ -249,6 +257,7 @@ def train(work: Path, zones: list[str], out: Path, report: Path | None) -> dict:
         res[f"rest_below_line_keeping_{int(keep * 100)}pct_real"] = round(float((ne.rb[ne.label == 0] < thr).mean()), 3)
     cm = ev[ev.comet]
     res["comets"] = {"movers": int(len(cm)), "exempt": int(cm.exempt.sum()),
+                     "exempt_comet": int((cm.comet_match).sum()),
                      "exempt_wide": int(cm.wide.sum()), "exempt_slow": int(cm.slow.sum())}
     res["comets_not_exempt"] = ranks(ev, cm[~cm.exempt].id)
     final = HistGradientBoostingClassifier(**PARAMS).fit(X[use], y[use])

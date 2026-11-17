@@ -15,8 +15,10 @@ dot, whole-pixel dots, two exposures on one pixel, a detector seeing only one ex
 coverage counts, still_free, paired_exposures, the peak and 3×3 flag bits, and the nearest catalogued or fixed source.
 
 Exempt (rb_score null, they keep their place by the existing score): slow movers (in-session rate under
-SLOW_ARCSEC_H, a motion under SLOW_SIGMA σ, or no rate from >= 2 exposures) and wide ones (the `wide` warning or
-reason: a comet's haze or a blend). The training set holds few of either, so a learned score would bury exactly what we are hunting.
+SLOW_ARCSEC_H, a motion under SLOW_SIGMA σ, or no rate from >= 2 exposures), wide ones (the `wide` warning or
+reason: a comet's haze or a blend), and known comets (position, rate and direction match an MPC comet via
+known_comets, or a `known_body` comet check). The training set holds few of these, so a learned score would bury
+what we are hunting.
 """
 
 from __future__ import annotations
@@ -197,10 +199,18 @@ def is_wide(c: dict) -> bool:
         any((k.get("code") if isinstance(k, dict) else None) in WIDE_CODES for k in c.get("checks") or [])
 
 
+def is_comet(c: dict) -> bool:
+    """A `known_body` check from a check producer matching a known comet."""
+    return any(isinstance(k, dict) and k.get("code") == "known_body"
+               and (k.get("values") or {}).get("body") == "comet"
+               for k in c.get("checks") or [])
+
+
 def exempt(c: dict) -> bool:
     """Not ordered by rb_score: not an open mover (a known body or a flaw is listed apart as it is), no rb_score
-    (exempt at export, or an older file), or wide since."""
-    return c.get("kind") != "mover" or c.get("status", "open") != "open" or c.get("rb_score") is None or is_wide(c)
+    (exempt at export, or an older file), wide or a known comet."""
+    return c.get("kind") != "mover" or c.get("status", "open") != "open" or c.get("rb_score") is None \
+        or is_wide(c) or is_comet(c)
 
 
 def tier(c: dict) -> tuple:
@@ -213,10 +223,10 @@ def tier(c: dict) -> tuple:
 def reorder(cands: list[dict]) -> dict[str, int]:
     """Inside each tier of open movers (all zones together, as the site lists them): the exempt movers keep their score
     and so their rank; the others take the tier's other scores (the same values) in rb_score order, highest first
-    (ties by the old score, then id). No score leaves its tier, no mover changes grade or status. A wide one found
-    since (a side file's `wide` check) gets rb_score null. Idempotent. Returns counts."""
+    (ties by the old score, then id). No score leaves its tier, no mover changes grade or status. A wide or comet one
+    found since (a side file's `wide` or `known_body` comet check) gets rb_score null. Idempotent. Returns counts."""
     for c in cands:
-        if c.get("kind") == "mover" and c.get("rb_score") is not None and is_wide(c):
+        if c.get("kind") == "mover" and c.get("rb_score") is not None and (is_wide(c) or is_comet(c)):
             c["rb_score"] = None
     groups: dict[tuple, list[dict]] = {}
     for c in cands:
