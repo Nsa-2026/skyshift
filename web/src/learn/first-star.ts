@@ -14,6 +14,7 @@ import {
 } from "./first-star-steps";
 
 const FRAME_DELAY_MS = 1000;
+const CORRECT_MARK_HOLD_MS = 450;
 
 const MOVING_FILTERS: Partial<Record<StarTool, { label: string; description: string }>> = {
   intensity: { label: "Intensity colours", description: "Colours show the brightness measured in this image." },
@@ -317,19 +318,22 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
   let tool: StarTool = "original";
   let landmarks: Point[] = [];
   let marks: (Point | undefined)[] = [];
+  const rejectedMarks: (Point | undefined)[] = [];
   let retryVisit: number | null = null;
   let triedFilter = false;
   let seenVisitTwo = false;
   let hints = 0;
   let revealed = false;
   let revealTimer: ReturnType<typeof setTimeout> | undefined;
+  let markAdvanceTimer: ReturnType<typeof setTimeout> | undefined;
   let playbackTimer: ReturnType<typeof setInterval> | undefined;
 
   const stage = () => step === steps.length ? "found" : steps[step].id;
   const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
+  const withinTarget = (at: Point, index: number) => distance(at, data.positions[index]) <= (moving ? 2.5 : 2.25);
   const matchesMark = (index: number) => {
     const mark = marks[index];
-    return !!mark && distance(mark, data.positions[index]) <= (moving ? 2.5 : 2.25);
+    return !!mark && withinTarget(mark, index);
   };
   const landmarkPatch = () => cropAround(landmarks, size, 9, moving ? 20 : 48);
   const candidatePatch = () => {
@@ -345,6 +349,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
       : current === "mark" || current === "close-look" || current === "difference" || current === "originals";
     const clue = hints && current !== "found" ? clueRegion(data.positions, world, hints) : undefined;
     const visibleMarks = tool === "difference" ? marks.slice(0, 2) : [marks[visit]];
+    const rejected = tool === "difference" ? undefined : rejectedMarks[visit];
     return {
       image: pictures[tool]?.[visit] ?? pictures.original[visit],
       marks: revealed
@@ -355,9 +360,10 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
           ...(!moving || showLandmarks ? landmarkMarks : []),
           ...visibleMarks.flatMap((at, i) => at ? [{
             at,
-            kind: "candidate" as const,
-            label: tool === "difference" ? `${frame(i)} mark` : "Your mark",
+            kind: moving ? "correct" as const : "candidate" as const,
+            label: tool === "difference" ? `${frame(i)} mark` : moving ? "" : "Your mark",
           }] : []),
+          ...(rejected ? [{ at: rejected, kind: "incorrect" as const, label: "" }] : []),
         ],
       trail: revealed ? data.positions : undefined,
       guides: [
@@ -381,6 +387,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
     field.destroy();
     stopPlayback();
     clearTimeout(revealTimer);
+    clearTimeout(markAdvanceTimer);
   }, { once: true });
 
   function ready() {
@@ -454,7 +461,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
     });
     visitButtons.forEach((button, i) => {
       button.hidden = i > maxVisit;
-      button.disabled = found || (tool === "difference" && i === 0);
+      button.disabled = found || markAdvanceTimer !== undefined || (tool === "difference" && i === 0);
       button.setAttribute("aria-pressed", String(i === visit));
       button.classList.toggle("is-suggested",
         (current === "next-visit" && !seenVisitTwo && i === 1) ||
@@ -465,6 +472,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
     $(".first-star-visits").hidden = moving && (found || current === "verify" || showingDifference);
     if (playback) {
       playback.hidden = !watching;
+      playback.disabled = markAdvanceTimer !== undefined;
       playback.textContent = playbackTimer === undefined ? "Play frames" : "Pause frames";
     }
     const filter = MOVING_FILTERS[tool];
@@ -488,7 +496,8 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
           : tool === "motion" ? "Moving objects in both frames" : current === "track" ? "Compare the same sky"
           : moving ? "Same patch, two frames" : "Same patch, two visits";
         const images = showingBackground ? pictures.original : pictures[tool] ?? pictures.original;
-        originalCutouts.forEach((detail, i) => drawFirstStarPatch(detail, images[i], patch, marks[i]));
+        originalCutouts.forEach((detail, i) =>
+          drawFirstStarPatch(detail, images[i], patch, marks[i], moving ? "correct" : "candidate"));
       }
     }
     const channel = asteroid ? ` · ${band(visit)} µm` : "";
@@ -525,22 +534,21 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
   function selectPoint(at: Point) {
     const current = stage();
     if (moving && (current === "track" || current === "verify" || current === "practice")) {
-      if (!matchesMark(visit)) marks[visit] = at;
-      if (!matchesMark(visit)) {
+      stopPlayback();
+      clearTimeout(markAdvanceTimer);
+      markAdvanceTimer = undefined;
+      if (withinTarget(at, visit)) {
+        marks[visit] = at;
+        rejectedMarks[visit] = undefined;
+        feedback.textContent = `Correct. ${frame(visit)} marked.`;
+        markAdvanceTimer = setTimeout(advanceAfterMark, CORRECT_MARK_HOLD_MS);
+      } else {
+        rejectedMarks[visit] = at;
         feedback.textContent = comet
           ? "Try again. Look for the bright head of the object that moved."
           : "Try again. Look for a point that shifts against the background stars.";
-        render();
-      } else if (ready()) {
-        advance();
-      } else {
-        const marked = frame(visit);
-        do {
-          visit = (visit + 1) % (current === "track" ? 2 : observations.length);
-        } while (matchesMark(visit));
-        feedback.textContent = `${marked} marked. ${frame(visit)} is now open.`;
-        render();
       }
+      render();
       return;
     }
 
@@ -565,6 +573,20 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
         break;
       default: return;
     }
+    render();
+  }
+
+  function advanceAfterMark() {
+    markAdvanceTimer = undefined;
+    if (ready()) {
+      advance();
+      return;
+    }
+    const marked = frame(visit);
+    do {
+      visit = (visit + 1) % (stage() === "track" ? 2 : observations.length);
+    } while (matchesMark(visit));
+    feedback.textContent = `${marked} marked. ${frame(visit)} is now open.`;
     render();
   }
 

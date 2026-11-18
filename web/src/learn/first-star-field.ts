@@ -1,11 +1,26 @@
 import { clampCamera, mapScale, toScreen, toWorld, zoomAt, type Camera, type Point, type Size } from "../play/hunt-model";
 
-type Mark = { at: Point; label: string; kind: "landmark" | "candidate" | "archive"; radius?: number };
+type MarkKind = "landmark" | "candidate" | "correct" | "incorrect" | "archive";
+type Mark = { at: Point; label: string; kind: MarkKind; radius?: number };
+
+const MARK_STYLE: Record<MarkKind, { color: string; radius: number; symbol?: string }> = {
+  landmark: { color: "#71caff", radius: 10 },
+  candidate: { color: "#ffd485", radius: 15 },
+  correct: { color: "#8ff0bd", radius: 15, symbol: "✓" },
+  incorrect: { color: "#ff747c", radius: 15, symbol: "×" },
+  archive: { color: "#8ff0bd", radius: 21 },
+};
 type Patch = Point & { w: number; h: number };
 type Guide = { patch: Patch; label: string; kind: "landmarks" | "compare" | "hint" };
 type FieldView = { image: HTMLCanvasElement; marks: Mark[]; guides: Guide[]; trail?: Point[] };
 
-export function drawFirstStarPatch(canvas: HTMLCanvasElement, image: HTMLCanvasElement, patch: Patch, mark?: Point) {
+export function drawFirstStarPatch(
+  canvas: HTMLCanvasElement,
+  image: HTMLCanvasElement,
+  patch: Patch,
+  mark?: Point,
+  markKind: "candidate" | "correct" = "candidate",
+) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -19,7 +34,7 @@ export function drawFirstStarPatch(canvas: HTMLCanvasElement, image: HTMLCanvasE
     ctx.strokeStyle = "#19222c";
     ctx.lineWidth = 3;
     ctx.stroke();
-    ctx.strokeStyle = "#ffd485";
+    ctx.strokeStyle = MARK_STYLE[markKind].color;
     ctx.lineWidth = 1.5;
     ctx.stroke();
   }
@@ -67,11 +82,10 @@ export function mountFirstStarField(
       ctx.lineWidth = 2;
       ctx.stroke();
     }
-    ctx.font = "600 12px system-ui";
     for (const mark of marks) {
       const point = toScreen(mark.at, camera, world, screen);
-      const radius = mark.radius ?? (mark.kind === "landmark" ? 10 : mark.kind === "archive" ? 21 : 15);
-      const color = mark.kind === "landmark" ? "#71caff" : mark.kind === "archive" ? "#8ff0bd" : "#ffd485";
+      const { color, radius: defaultRadius, symbol } = MARK_STYLE[mark.kind];
+      const radius = mark.radius ?? defaultRadius;
       ctx.beginPath();
       ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
       if (mark.kind === "archive") ctx.setLineDash([5, 3]);
@@ -79,16 +93,24 @@ export function mountFirstStarField(
       ctx.lineWidth = 4;
       ctx.stroke();
       ctx.strokeStyle = color;
-      ctx.lineWidth = 2;
+      ctx.lineWidth = symbol ? 3 : 2;
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.strokeStyle = "#19222c";
       ctx.lineWidth = 3;
-      const labelX = point.x + radius + 4;
-      const labelY = point.y + (mark.kind === "candidate" ? radius + 8 : -5);
-      ctx.strokeText(mark.label, labelX, labelY);
+      const label = symbol ? (mark.label ? `${symbol} ${mark.label}` : symbol) : mark.label;
+      ctx.font = symbol && !mark.label ? "700 18px system-ui" : "600 12px system-ui";
+      let labelX = point.x + radius + 4;
+      let labelY = point.y + (mark.kind === "candidate" ? radius + 8 : -5);
+      if (symbol) {
+        const width = ctx.measureText(label).width;
+        const right = Math.min(origin.x + world.width * scale, screen.width);
+        if (labelX + width > right) labelX = point.x - radius - width - 4;
+        labelY = Math.max(labelY, Math.max(origin.y, 0) + 16);
+      }
+      ctx.strokeText(label, labelX, labelY);
       ctx.fillStyle = color;
-      ctx.fillText(mark.label, labelX, labelY);
+      ctx.fillText(label, labelX, labelY);
     }
     if (keyboard) {
       const x = screen.width / 2;
