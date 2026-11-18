@@ -34,6 +34,7 @@ describe("lesson routes", () => {
   it("round-trips through learnHref", () => {
     const all: LearnRoute[] = [
       { view: "home" },
+      { view: "first-star" },
       { view: "lesson", n: 4 },
       { view: "glossary", slug: null },
       { view: "glossary", slug: "ghost" },
