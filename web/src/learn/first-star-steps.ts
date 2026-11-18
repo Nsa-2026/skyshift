@@ -18,8 +18,8 @@ export const COMET_TITLE = "Track a Comet";
 export const COMET_ROUTE = "#/learn/comet";
 
 export const COMET_STEPS = [
-  { id: "landmarks", prompt: "Look around Frame 1. Mark a bright star if you want a landmark.", action: "Compare frames" },
-  { id: "track", prompt: "What moved between the two frames?", action: "Check the difference" },
+  { id: "landmarks", prompt: "Watch what moves across the three frames.", action: "Mark what moved" },
+  { id: "track", prompt: "What moved between the two frames?" },
   { id: "difference", prompt: "Do the red and blue patches match your marks?", action: "Check Frame 3" },
-  { id: "verify", prompt: "Where did the comet go next? Mark its head in Frame 3.", action: "Confirm my track" },
+  { id: "verify", prompt: "Where did the comet go next? Mark its head in Frame 3." },
 ] as const;

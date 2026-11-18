@@ -40,7 +40,8 @@
 .first-star-track-instruction { margin: .6rem 0 0; }
 .first-star-actions { grid-area: actions; }
 .first-star-feedback { margin: 0 0 .6rem; color: var(--ink-2); }
-.first-star-feedback:empty { margin: 0; }
+.first-star-observation .first-star-feedback { margin: .45rem 0 0; }
+.first-star .first-star-feedback:empty { margin: 0; }
 .first-star-actions.is-complete { align-self: start; }
 .first-star-secondary { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .3rem; }
 .first-star-discovery h3 { margin: 1.1rem 0 .35rem; }
