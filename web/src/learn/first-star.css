@@ -93,6 +93,17 @@
   color: var(--ink-2);
   font-size: var(--step--1);
 }
+.first-star-intensity-key {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: .45rem;
+  max-width: 280px;
+  margin-top: .35rem;
+  color: var(--ink-2);
+  font-size: .8rem;
+}
+.first-star-intensity-ramp { height: .65rem; border-radius: 3px; border: 1px solid var(--hair); }
 .first-star-provenance { margin-top: .45rem; }
 .first-star-provenance summary { cursor: pointer; }
 .first-star-provenance p { margin: .5rem 0; }

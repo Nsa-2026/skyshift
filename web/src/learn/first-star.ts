@@ -4,13 +4,14 @@ import { clueRegion, type Point } from "../play/hunt-model";
 import { cropAround } from "./data";
 import { esc } from "./glossary";
 import {
-  ASTROMETRY_ARTICLE, SPHEREX_WISE_VIEW, TESS_COMET, TESS_EPHEMERIS, TRACKING_IMAGES, WISE_DISCOVERY, WISE_NAME,
+  ASTROMETRY_ARTICLE, INTENSITY_GRADIENT, SPHEREX_WISE_VIEW, TESS_COMET, TESS_EPHEMERIS, TRACKING_IMAGES, WISE_DISCOVERY, WISE_NAME,
   loadTrackingImages, mastImage, trackingPictures, type StarTool, type TrackingData, type TrackingLesson,
 } from "./first-star-data";
 import { drawFirstStarPatch, mountFirstStarField } from "./first-star-field";
 import { COMET_STEPS, COMET_TITLE, FIRST_STAR_STEPS, FIRST_STAR_TITLE } from "./first-star-steps";
 
 const COMET_FILTERS: Partial<Record<StarTool, { label: string; description: string }>> = {
+  intensity: { label: "Intensity colours", description: "Colours show the amount of light measured in the same TESS band." },
   negative: { label: "Negative", description: "Bright areas turn dark. Look for the outline of the head and tail." },
   background: { label: "Star background", description: "The middle light value at each pixel across all three frames keeps the steady star field visible." },
   motion: { label: "Moving objects", description: "Subtract the star background from this frame. Bright patches show extra light at this moment." },
@@ -143,6 +144,11 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
         </div>
         <figcaption id="first-star-caption"></figcaption>
         <p class="first-star-filter-note" hidden></p>
+        <div class="first-star-intensity-key" hidden>
+          <span>Fainter</span>
+          <span class="first-star-intensity-ramp" aria-hidden="true"></span>
+          <span>Brighter</span>
+        </div>
         <details class="first-star-provenance">
           <summary>Observation data and processing</summary>
           <p>${sourceCaption}. The ${fieldSize} cutouts share a north-up grid of ${arcsecPerPixel}″ per pixel. ${comet
@@ -171,6 +177,8 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
   const control = (name: string) => $<HTMLButtonElement>(`[data-control="${name}"]`);
   const canvas = $<HTMLCanvasElement>(".first-star-frame canvas");
   const guide = $(".first-star-guide");
+  const intensityKey = $(".first-star-intensity-key");
+  $(".first-star-intensity-ramp").style.backgroundImage = INTENSITY_GRADIENT;
   const comparison = $(".first-star-comparison");
   const comparisonHeading = $("#first-star-comparison-heading");
   const originalComparison = $(".first-star-cutout-pair");
@@ -247,7 +255,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
       case "mark": return !!marks[visit];
       case "close-look": return !!marks[0] && !!marks[1];
       case "difference": return tool === "difference";
-      case "originals": return tool === "original" || tool === "contrast" || tool === "negative";
+      case "originals": return tool === "original" || tool === "contrast" || tool === "negative" || tool === "intensity";
       case "verify": return visit === 2 && !!marks[2];
       case "found": return revealed;
       default: return true;
@@ -334,6 +342,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
     const filterNote = $(".first-star-filter-note");
     filterNote.hidden = !filter;
     filterNote.textContent = filter?.description ?? "";
+    intensityKey.hidden = tool !== "intensity";
 
     const observed = observations[visit];
     const calibration = comet ? observed.calibration : `CALWF3 ${observed.calibration.split(" ")[0]}`;
@@ -345,6 +354,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
       : showingBackground ? "SkyShift smooths each aligned frame and takes the median at each pixel."
       : tool === "motion" ? "SkyShift subtracts the pixel-wise median of the three smoothed frames and displays positive residuals above the estimated noise."
       : tool === "negative" ? "SkyShift reverses the original display palette while keeping the same intensity stretch on every image."
+      : tool === "intensity" ? "SkyShift maps brightness in TESS’s 600–1000 nm band to a colour scale. All frames use the same intensity stretch as Original."
       : tool === "contrast" ? "High contrast smooths the measured pixels and uses the same faint-detail stretch on every image."
       : "The original views use the same display stretch on every image.";
     $("#first-star-processing").textContent = `${exposureInfo} ${processing}`;

@@ -1,5 +1,5 @@
 import { psfSigmaPx, robustSigma, sigmaLimits, smooth, subtract } from "../blink/math";
-import { buildLut, diffIndex, paint, plainIndex, readPalette } from "../blink/paint";
+import { buildLut, diffIndex, lerp, paint, plainIndex, readPalette, type RGB } from "../blink/paint";
 import { medianPlanes } from "../colour/rgb";
 import cutoutUrl from "./wise0855/f110w.f32?url";
 import hubbleMetadata from "./wise0855/observations.json";
@@ -22,9 +22,24 @@ export const TRACKING_IMAGES = {
 export type TrackingLesson = keyof typeof TRACKING_IMAGES;
 export type TrackingImages = (typeof TRACKING_IMAGES)[TrackingLesson];
 type BaseTool = "original" | "contrast" | "difference";
-type CometTool = "negative" | "background" | "motion";
+type CometTool = "intensity" | "negative" | "background" | "motion";
 export type StarTool = BaseTool | CometTool;
 type TrackingPictures = Record<BaseTool, HTMLCanvasElement[]> & Partial<Record<CometTool, HTMLCanvasElement[]>>;
+
+const INTENSITY_STOPS: RGB[] = [
+  [18, 12, 33], [80, 29, 109], [159, 56, 104], [230, 109, 68], [252, 244, 162],
+];
+export const INTENSITY_GRADIENT = `linear-gradient(90deg, ${INTENSITY_STOPS.map(rgb => `rgb(${rgb.join(", ")})`).join(", ")})`;
+
+function intensityLut() {
+  const lut = new Uint8ClampedArray(256 * 3);
+  for (let index = 0; index < 256; index++) {
+    const position = index * (INTENSITY_STOPS.length - 1) / 255;
+    const segment = Math.min(Math.floor(position), INTENSITY_STOPS.length - 2);
+    lut.set(lerp(INTENSITY_STOPS[segment], INTENSITY_STOPS[segment + 1], position - segment), index * 3);
+  }
+  return lut;
+}
 
 export async function loadTrackingImages(source: TrackingImages, signal: AbortSignal) {
   const { width, height, observations, arcsecPerPixel } = source.field;
@@ -79,6 +94,7 @@ export function trackingPictures(source: TrackingImages, data: TrackingData, can
   };
   if (source !== TRACKING_IMAGES.comet) return pictures;
 
+  const intensity = intensityLut();
   const negative = buildLut(palette, false, false);
   const background = medianPlanes(data.smoothed);
   const backgroundPicture = picture(background, positive, contrastIndex);
@@ -88,6 +104,7 @@ export function trackingPictures(source: TrackingImages, data: TrackingData, can
 
   return {
     ...pictures,
+    intensity: data.originals.map(values => picture(values, intensity, originalIndex)),
     negative: data.originals.map(values => picture(values, negative, originalIndex)),
     background: data.originals.map(() => backgroundPicture),
     motion: residuals.map(values => picture(values, positive, residualIndex)),
