@@ -8,6 +8,8 @@
 .first-star [hidden] { display: none; }
 .first-star-back { display: inline-block; margin-bottom: var(--s3); }
 .first-star h1 { max-width: none; margin: 0; }
+.first-star-round-status { margin: .6rem 0 0; color: var(--ink); font-weight: 600; }
+.first-star-round-status:empty, .first-star-progress:empty { display: none; }
 .first-star-intro { margin: var(--s2) 0 var(--s5); color: var(--ink-2); }
 
 .first-star-guide {

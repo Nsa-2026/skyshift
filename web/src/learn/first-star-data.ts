@@ -11,7 +11,6 @@ import tessMetadata from "./comet/observations.json";
 export const ELPIS_NAME = "(59) Elpis";
 export const ELPIS_ORBIT = "https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html#/?sstr=59";
 export const IRSA_MOST = "https://irsa.ipac.caltech.edu/applications/MOST/";
-export const SPHEREX_ELPIS_VIEW = "?t=elpis&det=2#/explore";
 export const WISE_NAME = "WISE 0855−0714";
 export const TESS_COMET = "https://science.nasa.gov/blogs/3iatlas/2026/01/27/nasas-tess-reobserves-comet-3i-atlas/";
 export const TESS_EPHEMERIS = "https://github.com/tessgi/tess-3i/blob/main/data/2026/3iatlas_ephem_sector1751_20260326.csv";
@@ -25,7 +24,7 @@ const TRACKING_IMAGES = {
   star: { field: hubbleMetadata, url: cutoutUrl, smoothingArcsec: .22 },
   comet: { field: tessMetadata, url: tessUrl, smoothingArcsec: 33 },
 };
-export type TrackingLesson = keyof typeof TRACKING_IMAGES | "asteroid";
+export type TrackingLesson = keyof typeof TRACKING_IMAGES | "asteroid" | "brown-dwarf";
 
 interface TrackingObservation {
   filename: string;
@@ -75,7 +74,7 @@ function intensityLut() {
 
 export async function loadTrackingImages(lesson: TrackingLesson, signal: AbortSignal) {
   if (lesson === "asteroid") return loadElpis(signal);
-  const { field, url, smoothingArcsec } = TRACKING_IMAGES[lesson];
+  const { field, url, smoothingArcsec } = TRACKING_IMAGES[lesson === "brown-dwarf" ? "star" : lesson];
   const { width, height, observations } = field;
   const response = await fetch(url, { signal });
   if (!response.ok) throw new Error("The image cutouts are unavailable.");

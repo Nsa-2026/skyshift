@@ -4,13 +4,13 @@ import { clueRegion, type Point } from "../play/hunt-model";
 import { cropAround } from "./data";
 import { esc } from "./glossary";
 import {
-  ASTROMETRY_ARTICLE, ELPIS_NAME, ELPIS_ORBIT, INTENSITY_GRADIENT, IRSA_MOST, SPHEREX_ELPIS_VIEW,
+  ASTROMETRY_ARTICLE, ELPIS_NAME, ELPIS_ORBIT, INTENSITY_GRADIENT, IRSA_MOST,
   SPHEREX_WISE_VIEW, TESS_COMET, TESS_EPHEMERIS, WISE_DISCOVERY, WISE_NAME,
   loadTrackingImages, mastImage, trackingPictures, type StarTool, type TrackingData, type TrackingLesson,
 } from "./first-star-data";
 import { drawFirstStarPatch, mountFirstStarField } from "./first-star-field";
 import {
-  ASTEROID_ROUTE, ASTEROID_STEPS, ASTEROID_TITLE, COMET_STEPS, COMET_TITLE, FIRST_STAR_STEPS, FIRST_STAR_TITLE,
+  ASTEROID_TITLE, COMET_STEPS, COMET_TITLE, FIRST_STAR_STEPS, FIRST_STAR_TITLE, PRACTICE_STEPS,
 } from "./first-star-steps";
 
 const FRAME_DELAY_MS = 1000;
@@ -22,69 +22,141 @@ const MOVING_FILTERS: Partial<Record<StarTool, { label: string; description: str
   motion: { label: "Moving objects", description: "Subtract the star background from this frame. Bright patches show extra light at this moment." },
 };
 
+const PRACTICE_ROUNDS = ["comet", "asteroid", "brown-dwarf"] as const;
+
+const HUBBLE_GUIDE = {
+  mission: "Hubble", name: WISE_NAME,
+  sourceCaption: "NASA/ESA Hubble · WFC3/IR F110W",
+  preparation: "The F110W filter is centred near 1.15 µm. SkyShift used MAST programme 13802’s calibrated drizzle products, aligned stationary field sources and subtracted each cutout’s median sky background.",
+};
+
 const GUIDES = {
   comet: {
     title: COMET_TITLE, mission: "TESS", steps: COMET_STEPS, name: "3I/ATLAS",
-    intro: "Round 1 of 2. Follow a comet across three real NASA TESS images.",
+    intro: "Follow a comet across three real NASA TESS images.",
     sourceCaption: "NASA TESS · Sector 1751 · Camera 2, CCD 3",
     found: "Congratulations! You tracked the comet.",
     preparation: "SkyShift reprojected MAST’s calibrated full-frame images onto that grid and subtracted each cutout’s median sky background.",
   },
   asteroid: {
-    title: ASTEROID_TITLE, mission: "SPHEREx", steps: ASTEROID_STEPS, name: ELPIS_NAME,
-    intro: "Round 2 of 2. One point shifts against the stars in three NASA SPHEREx images. Follow it to find out what it is.",
+    title: ASTEROID_TITLE, mission: "SPHEREx", steps: PRACTICE_STEPS, name: ELPIS_NAME,
+    intro: "Watch the star field in three NASA SPHEREx images.",
     sourceCaption: "NASA SPHEREx · Detector 2",
     found: "Congratulations! You found the moving point.",
     preparation: "SkyShift cropped the same region from three calibrated SPHEREx images archived at NASA/IPAC IRSA and subtracted each cutout’s median sky background.",
   },
+  "brown-dwarf": {
+    ...HUBBLE_GUIDE,
+    title: "Follow a Faint Point", steps: PRACTICE_STEPS,
+    intro: "Follow a faint point through three infrared images from Hubble.",
+    found: "Practice complete!",
+  },
   star: {
-    title: FIRST_STAR_TITLE, mission: "Hubble", steps: FIRST_STAR_STEPS, name: WISE_NAME,
+    ...HUBBLE_GUIDE,
+    title: FIRST_STAR_TITLE, steps: FIRST_STAR_STEPS,
     intro: "Follow a faint point across three real Hubble images. Find out what you tracked at the end.",
-    sourceCaption: "NASA/ESA Hubble · WFC3/IR F110W",
     found: "Congratulations! You found your first star.",
-    preparation: "The F110W filter is centred near 1.15 µm. SkyShift used MAST programme 13802’s calibrated drizzle products, aligned stationary field sources and subtracted each cutout’s median sky background.",
   },
 };
 
-export function mountTrackingGuide(host: HTMLElement, signal: AbortSignal, lesson: TrackingLesson) {
-  const { title, mission, intro } = GUIDES[lesson];
-  const moving = lesson !== "star";
-  host.innerHTML = `<article class="first-star${moving ? " first-star-moving" : ""}" aria-labelledby="ln-h">
-    <a class="first-star-back" href="#/learn">← Learn</a>
-    <h1 id="ln-h" tabindex="-1">${title}</h1>
-    <p class="first-star-intro">${intro}</p>
-    <div class="first-star-body"><p role="status">Loading ${mission} images…</p></div>
-  </article>`;
-  const body = host.querySelector<HTMLElement>(".first-star-body")!;
-
-  async function load() {
-    try {
-      const data = await loadTrackingImages(lesson, signal);
-      if (!signal.aborted) runGuide(body, data, signal, lesson);
-    } catch (error) {
-      if (signal.aborted) return;
-      console.warn("Learn: tracking images failed to load", error);
-      body.innerHTML = `<p role="alert">Couldn’t load the ${mission} images.</p><button type="button" class="btn btn-primary">Try again</button>`;
-      body.querySelector("button")!.onclick = () => {
-        body.innerHTML = `<p role="status">Loading ${mission} images…</p>`;
-        void load();
-      };
-    }
-  }
-
-  void load();
+interface PracticeFlow {
+  foundCount: number;
+  advance?: () => void;
+  restart: () => void;
 }
 
-function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, lesson: TrackingLesson) {
+export function mountTrackingGuide(host: HTMLElement, signal: AbortSignal, lesson: TrackingLesson) {
+  host.innerHTML = `<article class="first-star${lesson === "star" ? "" : " first-star-moving"}" aria-labelledby="ln-h">
+    <a class="first-star-back" href="#/learn">← Learn</a>
+    <h1 id="ln-h" tabindex="-1"></h1>
+    <p class="first-star-round-status" role="status"></p>
+    <p class="first-star-intro"></p>
+    <div class="first-star-body"></div>
+  </article>`;
+  const title = host.querySelector<HTMLElement>("#ln-h")!;
+  const roundStatus = host.querySelector<HTMLElement>(".first-star-round-status")!;
+  const intro = host.querySelector<HTMLElement>(".first-star-intro")!;
+  const body = host.querySelector<HTMLElement>(".first-star-body")!;
+  const images = new Map<TrackingLesson, Promise<TrackingData>>();
+  let activeGuide: AbortController | undefined;
+  let completed = 0;
+  let lastFind: { name: string; href: string } | undefined;
+  signal.addEventListener("abort", () => activeGuide?.abort(), { once: true });
+
+  function getImages(active: TrackingLesson) {
+    const cached = images.get(active);
+    if (cached) return cached;
+    const request = loadTrackingImages(active, signal).catch(error => {
+      images.delete(active);
+      throw error;
+    });
+    images.set(active, request);
+    return request;
+  }
+
+  function openRound(active: TrackingLesson, focus = false) {
+    if (signal.aborted) return;
+    activeGuide?.abort();
+    const controller = new AbortController();
+    activeGuide = controller;
+    const config = GUIDES[active];
+    const round = active === "star" ? -1 : PRACTICE_ROUNDS.indexOf(active);
+    const following = round < 0 ? undefined : PRACTICE_ROUNDS[round + 1];
+    title.textContent = config.title;
+    roundStatus.innerHTML = lastFind ? `Found <a href="${lastFind.href}">${esc(lastFind.name)}</a>.` : "";
+    intro.textContent = round < 0 ? config.intro : `Round ${round + 1} of ${PRACTICE_ROUNDS.length}. ${config.intro}`;
+
+    const flow: PracticeFlow | undefined = round < 0 ? undefined : {
+      foundCount: completed + 1,
+      advance: following ? () => {
+        completed++;
+        lastFind = { name: config.name, href: active === "comet" ? TESS_COMET : ELPIS_ORBIT };
+        openRound(following, true);
+      } : undefined,
+      restart: () => {
+        completed = 0;
+        lastFind = undefined;
+        openRound("comet", true);
+      },
+    };
+
+    async function load() {
+      body.innerHTML = `<p role="status">Loading ${config.mission} images…</p>`;
+      try {
+        const data = await getImages(active);
+        if (controller.signal.aborted) return;
+        runGuide(body, data, controller.signal, active, flow);
+        if (following) void getImages(following).catch(() => { /* Retry when that round opens. */ });
+        if (focus) {
+          title.focus({ preventScroll: true });
+          title.scrollIntoView({ block: "nearest" });
+        }
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        console.warn("Learn: tracking images failed to load", error);
+        body.innerHTML = `<p role="alert">Couldn’t load the ${config.mission} images.</p><button type="button" class="btn btn-primary">Try again</button>`;
+        body.querySelector("button")!.onclick = load;
+      }
+    }
+
+    void load();
+  }
+
+  openRound(lesson);
+}
+
+function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, lesson: TrackingLesson, flow?: PracticeFlow) {
   const moving = lesson !== "star";
   const comet = lesson === "comet";
   const asteroid = lesson === "asteroid";
+  const brownDwarf = lesson === "brown-dwarf";
+  const hubble = brownDwarf || lesson === "star";
   const { steps, name, mission, sourceCaption, preparation, found: foundMessage } = GUIDES[lesson];
   const { width, height, observations, arcsecPerPixel } = data.field;
   const frame = (i: number) => `${moving ? "Frame" : "Visit"} ${i + 1}`;
   const size: [number, number] = [width, height];
   const world = { width, height };
-  const fieldSize = moving ? `${(width * arcsecPerPixel / 60).toFixed(0)}′` : `${(width * arcsecPerPixel).toFixed(1)}″`;
+  const fieldSize = hubble ? `${(width * arcsecPerPixel).toFixed(1)}″` : `${(width * arcsecPerPixel / 60).toFixed(0)}′`;
   const observedShifts = data.positions.slice(1).map((position, i) => {
     const back = data.positions[i];
     return (Math.hypot(position.x - back.x, position.y - back.y) * arcsecPerPixel).toFixed(1);
@@ -97,20 +169,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
     <canvas width="144" height="144" role="img" aria-label="${mission} detail from ${frame(i)}"></canvas>
     <figcaption><strong>${frame(i)}</strong><br>${imageTime(i)}</figcaption>
   </figure>`;
-  const first = data.positions[0];
-  const last = data.positions[data.positions.length - 1];
-  const totalPixels = Math.round(Math.hypot(last.x - first.x, last.y - first.y));
-  const hours = ((visitMidpoint(2) - visitMidpoint(0)) * 24).toFixed(1);
-  const story = comet
-    ? `This interstellar comet crossed ${totalPixels} image pixels in ${hours} hours. Its bright head and diffuse tail moved past the same background stars in three TESS exposures.`
-    : asteroid ? `Elpis is a main-belt asteroid. It appears as a star-like point and moved ${totalPixels} image pixels in ${hours} hours while the background stars stayed in place.`
-    : `You tracked a cold brown dwarf across three Hubble visits. In these images it moved about ${observedShifts[0]}″, then another ${observedShifts[1]}″, passing close to a brighter point.`;
-  const revealLinks = comet
-    ? `<p><a href="${TESS_COMET}">Watch NASA’s TESS sequence</a></p>`
-    : asteroid ? `<p><a href="${ELPIS_ORBIT}">Look up Elpis’s orbit at NASA/JPL</a></p>
-      <p><a href="${SPHEREX_ELPIS_VIEW}">Open more Elpis exposures in the SPHEREx Viewer</a></p>`
-    : `<p><a href="${WISE_DISCOVERY}">See NASA’s discovery animation</a></p>
-      <p><a href="${SPHEREX_WISE_VIEW}">Find it at longer wavelengths in the SPHEREx Viewer</a></p>`;
+  const story = `You tracked a cold brown dwarf across three Hubble visits. In these images it moved about ${observedShifts[0]}″, then another ${observedShifts[1]}″, passing close to a brighter point.`;
   const archiveSource = comet ? TESS_EPHEMERIS : asteroid ? IRSA_MOST : ASTROMETRY_ARTICLE;
   const archiveLabel = comet ? "TESS Science Support Center ephemeris"
     : asteroid ? "IRSA Moving Object Search Tool" : "Published astrometry and Hubble observations";
@@ -142,9 +201,12 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
         <h2 class="first-star-prompt" tabindex="-1"></h2>
         ${moving ? '<p class="first-star-track-instruction" hidden></p>' : ""}
         <div class="first-star-discovery" hidden>
-          <h3>Meet ${esc(name)}.</h3>
-          <p>${story}</p>
-          ${revealLinks}
+          ${hubble ? `
+            ${flow ? `<p>You tracked ${flow.foundCount} moving objects.</p>` : ""}
+            <h3>Meet ${esc(name)}.</h3>
+            <p>${story}</p>
+            <p><a href="${WISE_DISCOVERY}">See NASA’s discovery animation</a></p>
+            <p><a href="${SPHEREX_WISE_VIEW}">Find it at longer wavelengths in the SPHEREx Viewer</a></p>` : ""}
         </div>
       </header>
       <section class="first-star-comparison" aria-labelledby="first-star-comparison-heading" hidden>
@@ -174,7 +236,6 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
           <details class="first-star-difference-details">
             <summary>How the Difference image is made</summary>
             <p>SkyShift subtracts Frame 1’s light from Frame 2’s at each matching spot.</p>
-            ${asteroid ? "<p>The wavelengths vary slightly between frames, so a stationary star can also change brightness. Look for a point that shifts in the originals. Dark gaps mark masked pixels.</p>" : ""}
             ${differenceEquation}
           </details>
         </div>` : ""}
@@ -211,7 +272,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
           <p>${sourceCaption}. The ${fieldSize} cutouts share a north-up grid of ${arcsecPerPixel}″ per pixel. ${preparation}</p>
           <p id="first-star-processing"></p>
           <div class="first-star-archive" hidden>
-            <p>The green trail connects positions measured in the three images, using published coordinates as references.</p>
+            ${hubble ? "<p>The green trail connects positions measured in the three images, using published coordinates as references.</p>" : ""}
             <p><a href="${archiveSource}">${archiveLabel}</a></p>
             <ul>${observations.map((o, i) => asteroid
               ? `<li>${frame(i)} · ${utc(i)} · ${band(i)} µm · ${esc(o.filename)}</li>`
@@ -221,7 +282,6 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
       </figure>
       <div class="first-star-actions">
         ${moving ? "" : feedbackMarkup}
-        ${comet ? `<a class="btn btn-primary" data-next-round href="${ASTEROID_ROUTE}" hidden>Start round 2</a>` : ""}
         <button type="button" class="btn btn-primary" data-control="continue"></button>
         <div class="first-star-secondary">
           <button type="button" class="btn btn-ghost" data-control="undo" hidden>Undo landmark</button>
@@ -243,14 +303,11 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
   const differenceExplanation = $(".first-star-difference-explanation");
   const originalCutouts = [...originalComparison.querySelectorAll("canvas")];
   const differenceCutouts = [...differenceExplanation.querySelectorAll("canvas")];
-  const differenceDetails = body.querySelector<HTMLDetailsElement>(".first-star-difference-details");
-  const moreFilters = body.querySelector<HTMLDetailsElement>(".first-star-more-filters");
   const trackInstruction = body.querySelector<HTMLElement>(".first-star-track-instruction");
   const pictures = trackingPictures(lesson, data, canvas);
   const prompt = $(".first-star-prompt");
   const feedback = $(".first-star-feedback");
   const next = control("continue");
-  const nextRound = body.querySelector<HTMLAnchorElement>("[data-next-round]");
   const playback = body.querySelector<HTMLButtonElement>('[data-control="playback"]');
   const reducedMotion = moving ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
   const toolButtons = buttons("[data-tool]");
@@ -277,7 +334,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
   const landmarkPatch = () => cropAround(landmarks, size, 9, moving ? 20 : 48);
   const candidatePatch = () => {
     const selected = marks.slice(0, 2).filter((mark): mark is Point => !!mark);
-    return cropAround(moving && stage() === "track" ? [] : selected, size, asteroid ? 9 : 14, asteroid ? 30 : 56);
+    return cropAround(moving && stage() === "track" ? [] : selected, size, 14, 56);
   };
   const field = mountFirstStarField(canvas, world, () => {
     const current = stage();
@@ -292,15 +349,14 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
       image: pictures[tool]?.[visit] ?? pictures.original[visit],
       marks: revealed
         ? data.positions.map((at, i) => ({
-          at, kind: "archive" as const, label: asteroid ? String(i + 1) : frame(i), radius: asteroid ? 8 : undefined,
+          at, kind: "archive" as const, label: brownDwarf ? String(i + 1) : frame(i), radius: brownDwarf ? 8 : undefined,
         }))
         : [
           ...(!moving || showLandmarks ? landmarkMarks : []),
           ...visibleMarks.flatMap((at, i) => at ? [{
             at,
             kind: "candidate" as const,
-            label: tool === "difference" ? (asteroid ? String(i + 1) : `${frame(i)} mark`) : "Your mark",
-            radius: asteroid && tool === "difference" ? 8 : undefined,
+            label: tool === "difference" ? `${frame(i)} mark` : "Your mark",
           }] : []),
         ],
       trail: revealed ? data.positions : undefined,
@@ -334,6 +390,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
       case "next-visit": return seenVisitTwo;
       case "mark": return !!marks[visit];
       case "track": return matchesMark(0) && matchesMark(1);
+      case "practice": return data.positions.every((_, i) => matchesMark(i));
       case "close-look": return !!marks[0] && !!marks[1];
       case "difference": return moving || tool === "difference";
       case "originals": return tool === "original" || tool === "contrast";
@@ -349,7 +406,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
     if (!MOVING_FILTERS[mode]) return true;
     if (!moving) return false;
     if (mode === "background") return current === "landmarks" || current === "track";
-    if (mode === "motion") return current === "difference" || current === "verify";
+    if (mode === "motion") return current === "difference" || current === "verify" || current === "practice";
     return true;
   }
 
@@ -357,10 +414,12 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
     const current = stage();
     const currentStep = steps[step];
     const found = current === "found";
-    const watching = moving && current === "landmarks";
+    const watching = (moving && current === "landmarks") || current === "practice";
     const canCompare = moving ? !watching : step >= 3;
     const maxVisit = watching || current === "verify" || found ? 2 : canCompare ? 1 : 0;
-    $(".first-star-progress").textContent = `Step ${step + 1} of ${steps.length + 1}`;
+    $(".first-star-progress").textContent = current === "practice"
+      ? `${data.positions.filter((_, i) => matchesMark(i)).length} of ${observations.length} frames marked`
+      : brownDwarf && found ? "" : `Step ${step + 1} of ${steps.length + 1}`;
     const text = found ? foundMessage : currentStep.prompt;
     if (prompt.textContent !== text) prompt.textContent = text;
     const canContinue = ready();
@@ -368,8 +427,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
       trackInstruction.hidden = current !== "track";
       if (current === "track") {
         const same = matchesMark(1 - visit);
-        const target = asteroid ? (same ? "the same point" : "the moving point")
-          : same ? "the same object’s head" : "the bright head";
+        const target = same ? "the same object’s head" : "the bright head";
         trackInstruction.textContent = `Mark ${target} in ${frame(visit)}.`;
       }
     }
@@ -377,17 +435,12 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
     next.textContent = action;
     next.disabled = !canContinue;
     next.hidden = !action;
-    if (nextRound) {
-      nextRound.hidden = !revealed;
-      next.classList.toggle("btn-primary", !found);
-      next.classList.toggle("btn-ghost", found);
-    }
     $(".first-star-actions").classList.toggle("is-complete", found);
     control("undo").hidden = current !== "landmarks" || !landmarks.length;
     control("undo").textContent = moving ? "Remove landmark" : "Undo landmark";
     control("focus").hidden = current !== "close-look";
     const hint = control("hint");
-    hint.hidden = (moving ? current !== "track" && current !== "verify" : step < 4) || found || hints >= 2;
+    hint.hidden = (moving ? current !== "track" && current !== "verify" && current !== "practice" : step < 4) || found || hints >= 2;
     hint.textContent = hints === 1 ? "Narrow the search" : "Show a hint";
     const filtersAvailable = (moving || step >= 2) && !found;
     $(".first-star-filters").hidden = !filtersAvailable;
@@ -450,7 +503,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
     intensityKey.hidden = tool !== "intensity";
 
     const observed = observations[visit];
-    const calibration = moving ? observed.calibration : `CALWF3 ${observed.calibration.split(" ")[0]}`;
+    const calibration = !hubble ? observed.calibration : `CALWF3 ${observed.calibration.split(" ")[0]}`;
     const exposureInfo = showingBackground
       ? `The three exposure midpoints are ${observations.map((_, i) => utc(i)).join(" · ")}. ${asteroid ? "SPHEREx data release" : "Calibration used"} ${calibration}.`
       : asteroid ? `The exposure midpoint is ${utc(visit)}. This frame covers ${band(visit)} µm. SPHEREx data release ${calibration}.`
@@ -465,24 +518,26 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
       : "The original views use the same display stretch on every image.";
     $("#first-star-processing").textContent = `${exposureInfo} ${processing}`;
     $(".first-star-discovery").hidden = !revealed;
-    $(".first-star-archive").hidden = !revealed;
+    $(".first-star-archive").hidden = hubble && !revealed;
     field.draw();
   }
 
   function selectPoint(at: Point) {
     const current = stage();
-    if (moving && (current === "track" || current === "verify")) {
-      marks[visit] = at;
+    if (moving && (current === "track" || current === "verify" || current === "practice")) {
+      if (!matchesMark(visit)) marks[visit] = at;
       if (!matchesMark(visit)) {
-        feedback.textContent = asteroid
-          ? "Try again. Look for a point that shifts against the background stars."
-          : "Try again. Look for the bright head of the object that moved.";
+        feedback.textContent = comet
+          ? "Try again. Look for the bright head of the object that moved."
+          : "Try again. Look for a point that shifts against the background stars.";
         render();
       } else if (ready()) {
         advance();
       } else {
         const marked = frame(visit);
-        visit = 1 - visit;
+        do {
+          visit = (visit + 1) % (current === "track" ? 2 : observations.length);
+        } while (matchesMark(visit));
         feedback.textContent = `${marked} marked. ${frame(visit)} is now open.`;
         render();
       }
@@ -551,17 +606,22 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
     if (!ready()) return;
     stopPlayback();
     if (stage() === "found") {
+      if (flow) {
+        flow.restart();
+        return;
+      }
       step = visit = hints = 0;
       tool = "original";
       landmarks = [];
       marks = [];
       retryVisit = null;
       triedFilter = seenVisitTwo = revealed = false;
-      if (moreFilters) moreFilters.open = false;
-      if (differenceDetails) differenceDetails.open = false;
       field.reset();
-      if (reducedMotion && !reducedMotion.matches) startPlayback();
-    } else if (stage() === "verify") {
+    } else if (stage() === "verify" || stage() === "practice") {
+      if (flow?.advance) {
+        flow.advance();
+        return;
+      }
       const unmatched = moving ? -1 : data.positions.findIndex((_, i) => !matchesMark(i));
       if (unmatched !== -1) {
         retryVisit = unmatched;
@@ -574,7 +634,6 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
         tool = "original";
         visit = 2;
         revealed = true;
-        field.reset();
       } else {
         field.reset();
         field.focus(data.positions[1], 4);
@@ -655,13 +714,14 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
   };
   control("hint").onclick = () => {
     hints++;
-    field.reset();
+    if (!brownDwarf) field.reset();
     feedback.textContent = hints === 1
       ? "Try looking inside the outlined patch of sky."
-      : asteroid ? "Look for a single point that shifts inside the smaller box."
+      : asteroid || brownDwarf ? "Look for a single point that shifts inside the smaller box."
       : comet ? "Look for a bright head with a faint tail inside the smaller box."
       : "Look inside the smaller box. Do any faint points change position?";
     render();
   };
+  if (brownDwarf) field.zoom(2);
   render();
 }

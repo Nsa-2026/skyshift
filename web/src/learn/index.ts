@@ -285,7 +285,7 @@ function homeHtml(p: Progress, practice: PracticeState): string {
       <section class="ln-home-more" aria-labelledby="ln-more-h">
         <h2 id="ln-more-h" class="ln-sec-h">Practise, explore, teach</h2>
         <a class="ln-activity-entry ln-first-star-entry" href="${FIRST_STAR_ROUTE}"><span><strong>${FIRST_STAR_TITLE}</strong><span>Follow one clue at a time through real NASA observations and find a star for yourself.</span></span><span class="ln-activity-action">Start the session ↗</span></a>
-        <a class="ln-activity-entry ln-comet-entry" href="${COMET_ROUTE}"><span><strong>${COMET_TITLE}</strong><span>Track a comet in NASA TESS images, then find a moving point in NASA SPHEREx images.</span></span><span class="ln-activity-action">Start the session ↗</span></a>
+        <a class="ln-activity-entry ln-comet-entry" href="${COMET_ROUTE}"><span><strong>${COMET_TITLE}</strong><span>Track three moving objects in real TESS, SPHEREx and Hubble observations.</span></span><span class="ln-activity-action">Start the session ↗</span></a>
         <a class="ln-activity-entry ln-detective-entry" href="#/learn/detective"><span><span class="ln-card-k">NASA data, in your hands</span><strong>Sky detective: old clues, new light.</strong><span>Find a star by its neighbours, compare real visits and explore an infrared spectrum. Three investigations. One observation notebook.</span></span><span class="ln-activity-action">Start investigating ↗</span></a>
         ${cardsHtml(practice)}
       </section>
