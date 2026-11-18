@@ -88,6 +88,11 @@
 }
 .first-star-filters > span { font-size: .82rem; color: var(--ink-2); }
 .first-star-observation figcaption, .first-star-provenance { color: var(--ink-2); font-size: var(--step--1); }
+.first-star-filter-note {
+  margin: .35rem 0 0;
+  color: var(--ink-2);
+  font-size: var(--step--1);
+}
 .first-star-provenance { margin-top: .45rem; }
 .first-star-provenance summary { cursor: pointer; }
 .first-star-provenance p { margin: .5rem 0; }

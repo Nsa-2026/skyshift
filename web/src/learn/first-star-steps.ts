@@ -20,7 +20,7 @@ export const COMET_ROUTE = "#/learn/comet";
 export const COMET_STEPS = [
   { id: "look", prompt: "Look around the star field. What shapes can you see?", action: "I’ve looked around" },
   { id: "landmarks", prompt: "Mark three stars you can use as landmarks.", action: "Keep these landmarks" },
-  { id: "contrast", prompt: "Try High contrast. Look for soft shapes among the sharp points.", action: "I can see more detail" },
+  { id: "contrast", prompt: "Try a filter. Which view makes the shapes easiest to see?", action: "I’ve tried a filter" },
   { id: "next-visit", prompt: "Open Frame 2. Can you find the same landmarks?", action: "I found my group" },
   { id: "compare", prompt: "Compare both frames. What has moved across the field?", action: "I’m ready to choose a point" },
   { id: "mark", prompt: "Mark the bright head of the object you think moved.", action: "Keep this mark" },

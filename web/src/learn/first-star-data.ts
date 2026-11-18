@@ -1,5 +1,6 @@
 import { psfSigmaPx, robustSigma, sigmaLimits, smooth, subtract } from "../blink/math";
 import { buildLut, diffIndex, paint, plainIndex, readPalette } from "../blink/paint";
+import { medianPlanes } from "../colour/rgb";
 import cutoutUrl from "./wise0855/f110w.f32?url";
 import hubbleMetadata from "./wise0855/observations.json";
 import tessUrl from "./comet/frames.f32?url";
@@ -20,7 +21,10 @@ export const TRACKING_IMAGES = {
 };
 export type TrackingLesson = keyof typeof TRACKING_IMAGES;
 export type TrackingImages = (typeof TRACKING_IMAGES)[TrackingLesson];
-export type StarTool = "original" | "contrast" | "difference";
+type BaseTool = "original" | "contrast" | "difference";
+type CometTool = "negative" | "background" | "motion";
+export type StarTool = BaseTool | CometTool;
+type TrackingPictures = Record<BaseTool, HTMLCanvasElement[]> & Partial<Record<CometTool, HTMLCanvasElement[]>>;
 
 export async function loadTrackingImages(source: TrackingImages, signal: AbortSignal) {
   const { width, height, observations, arcsecPerPixel } = source.field;
@@ -44,7 +48,7 @@ export async function loadTrackingImages(source: TrackingImages, signal: AbortSi
 
 export type TrackingData = Awaited<ReturnType<typeof loadTrackingImages>>;
 
-export function trackingPictures(source: TrackingImages, data: TrackingData, canvas: HTMLCanvasElement) {
+export function trackingPictures(source: TrackingImages, data: TrackingData, canvas: HTMLCanvasElement): TrackingPictures {
   const { width, height } = source.field;
   const palette = readPalette(canvas);
   const positive = buildLut(palette, false, true);
@@ -68,9 +72,24 @@ export function trackingPictures(source: TrackingImages, data: TrackingData, can
     return image;
   }
 
-  return {
+  const pictures = {
     original: data.originals.map(values => picture(values, positive, originalIndex)),
     contrast: data.smoothed.map(values => picture(values, positive, contrastIndex)),
     difference: data.differences.map(values => picture(values, signed, differenceIndex)),
+  };
+  if (source !== TRACKING_IMAGES.comet) return pictures;
+
+  const negative = buildLut(palette, false, false);
+  const background = medianPlanes(data.smoothed);
+  const backgroundPicture = picture(background, positive, contrastIndex);
+  const residuals = data.smoothed.map(values => subtract(values, background));
+  const residualNoise = robustSigma(residuals);
+  const residualIndex = plainIndex({ lo: 2 * residualNoise, hi: 18 * residualNoise }, "asinh");
+
+  return {
+    ...pictures,
+    negative: data.originals.map(values => picture(values, negative, originalIndex)),
+    background: data.originals.map(() => backgroundPicture),
+    motion: residuals.map(values => picture(values, positive, residualIndex)),
   };
 }

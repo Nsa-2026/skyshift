@@ -10,6 +10,12 @@ import {
 import { drawFirstStarPatch, mountFirstStarField } from "./first-star-field";
 import { COMET_STEPS, COMET_TITLE, FIRST_STAR_STEPS, FIRST_STAR_TITLE } from "./first-star-steps";
 
+const COMET_FILTERS: Partial<Record<StarTool, { label: string; description: string }>> = {
+  negative: { label: "Negative", description: "Bright areas turn dark. Look for the outline of the head and tail." },
+  background: { label: "Star background", description: "The middle light value at each pixel across all three frames keeps the steady star field visible." },
+  motion: { label: "Moving objects", description: "Subtract the star background from this frame. Bright patches show extra light at this moment." },
+};
+
 export function mountTrackingGuide(host: HTMLElement, signal: AbortSignal, lesson: TrackingLesson) {
   const comet = lesson === "comet";
   const mission = comet ? "TESS" : "Hubble";
@@ -130,10 +136,13 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
             <span>Add filters</span>
             <button type="button" class="btn" data-tool="original" aria-pressed="true">Original</button>
             <button type="button" class="btn" data-tool="contrast" aria-pressed="false">High contrast</button>
+            ${comet ? Object.entries(COMET_FILTERS).map(([mode, filter]) =>
+              `<button type="button" class="btn" data-tool="${mode}" aria-pressed="false" hidden>${filter.label}</button>`).join("") : ""}
             <button type="button" class="btn" data-tool="difference" aria-pressed="false">Difference</button>
           </div>
         </div>
         <figcaption id="first-star-caption"></figcaption>
+        <p class="first-star-filter-note" hidden></p>
         <details class="first-star-provenance">
           <summary>Observation data and processing</summary>
           <p>${sourceCaption}. The ${fieldSize} cutouts share a north-up grid of ${arcsecPerPixel}″ per pixel. ${comet
@@ -180,7 +189,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
   let landmarks: Point[] = [];
   let marks: (Point | undefined)[] = [];
   let retryVisit: number | null = null;
-  let shownContrast = false;
+  let triedFilter = false;
   let seenVisitTwo = false;
   let hints = 0;
   let revealed = false;
@@ -202,7 +211,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
     const clue = hints && current !== "found" ? clueRegion(data.positions, world, hints) : undefined;
     const visibleMarks = tool === "difference" ? marks.slice(0, 2) : [marks[visit]];
     return {
-      image: pictures[tool][visit],
+      image: pictures[tool]?.[visit] ?? pictures.original[visit],
       marks: revealed
         ? data.positions.map((at, i) => ({ at, kind: "archive" as const, label: frame(i) }))
         : [
@@ -233,16 +242,26 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
   function ready() {
     switch (stage()) {
       case "landmarks": return landmarks.length === 3;
-      case "contrast": return shownContrast;
+      case "contrast": return triedFilter;
       case "next-visit": return seenVisitTwo;
       case "mark": return !!marks[visit];
       case "close-look": return !!marks[0] && !!marks[1];
       case "difference": return tool === "difference";
-      case "originals": return tool !== "difference";
+      case "originals": return tool === "original" || tool === "contrast" || tool === "negative";
       case "verify": return visit === 2 && !!marks[2];
       case "found": return revealed;
       default: return true;
     }
+  }
+
+  function toolAvailable(mode: StarTool) {
+    const current = stage();
+    if (mode === "difference") return current === "difference" || current === "originals";
+    if (!COMET_FILTERS[mode]) return true;
+    if (!comet) return false;
+    if (mode === "background") return current === "contrast" || current === "compare";
+    if (mode === "motion") return current === "difference" || current === "originals" || current === "verify";
+    return true;
   }
 
   function render() {
@@ -265,13 +284,12 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
     hint.hidden = step < 4 || found || hints >= 2;
     hint.textContent = hints === 1 ? "Narrow the search" : "Show a hint";
     const filtersAvailable = step >= 2 && !found;
-    const differenceAvailable = current === "difference" || current === "originals";
     $(".first-star-filters").hidden = !filtersAvailable;
     const suggestedTool = current === "contrast" ? "contrast" : current === "difference" ? "difference"
       : current === "originals" ? "original" : null;
     toolButtons.forEach(button => {
-      const mode = button.dataset.tool;
-      button.hidden = mode === "difference" && !differenceAvailable;
+      const mode = button.dataset.tool as StarTool;
+      button.hidden = !toolAvailable(mode);
       button.setAttribute("aria-pressed", String(mode === tool));
       button.classList.toggle("is-suggested", !canContinue && mode === suggestedTool);
     });
@@ -283,38 +301,52 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
         (current === "next-visit" && !seenVisitTwo && i === 1) ||
         (current === "verify" && (retryVisit ?? 2) === i && visit !== i));
     });
-    $(".first-star-active-visit").textContent = tool === "difference"
-      ? `${frame(1)} − ${frame(0)}`
-      : `${frame(visit)} · ${imageTime(visit)}`;
     const showingDifference = tool === "difference";
-    const comparingCandidate = current === "close-look" || current === "originals" || showingDifference;
+    const showingBackground = tool === "background";
+    const filter = COMET_FILTERS[tool];
+    $(".first-star-active-visit").textContent = showingDifference ? `${frame(1)} − ${frame(0)}`
+      : showingBackground ? "Star background · 3 frames" : `${frame(visit)} · ${imageTime(visit)}`;
+    const comparingCandidate = current === "close-look" || current === "originals"
+      || current === "difference" && (showingDifference || tool === "motion");
     const patch = current === "compare" ? landmarkPatch()
       : comparingCandidate && marks.some(Boolean) ? candidatePatch() : undefined;
     comparison.hidden = !patch;
     guide.classList.toggle("has-comparison", !!patch);
     if (patch) {
-      comparisonHeading.textContent = showingDifference ? "How the Difference image is made" : comet ? "Same patch, two frames" : "Same patch, two visits";
+      comparisonHeading.textContent = showingDifference ? "How the Difference image is made"
+        : showingBackground ? "Original frames for comparison" : tool === "motion" ? "Moving objects in both frames"
+        : comet ? "Same patch, two frames" : "Same patch, two visits";
       originalComparison.hidden = showingDifference;
       differenceExplanation.hidden = !showingDifference;
       if (showingDifference) {
         const images = [pictures.original[1], pictures.original[0], pictures.difference[1]];
         differenceCutouts.forEach((detail, i) => drawFirstStarPatch(detail, images[i], patch));
       } else {
-        const images = pictures[tool];
+        const images = showingBackground ? pictures.original : pictures[tool] ?? pictures.original;
         originalCutouts.forEach((detail, i) => drawFirstStarPatch(detail, images[i], patch, marks[i]));
       }
     }
     const note = showingDifference ? ` · Difference from ${frame(0)} (${utc(0)})`
-      : tool === "contrast" ? " · High contrast" : "";
-    $("#first-star-caption").textContent = `${frame(visit)} · ${utc(visit)} · ${sourceCaption}${note}`;
+      : tool === "contrast" ? " · High contrast" : filter ? ` · ${filter.label}` : "";
+    $("#first-star-caption").textContent = showingBackground
+      ? `Median of three aligned frames · ${formatMjd(visitMidpoint(0))} UTC · ${sourceCaption}`
+      : `${frame(visit)} · ${utc(visit)} · ${sourceCaption}${note}`;
+    const filterNote = $(".first-star-filter-note");
+    filterNote.hidden = !filter;
+    filterNote.textContent = filter?.description ?? "";
+
     const observed = observations[visit];
     const calibration = comet ? observed.calibration : `CALWF3 ${observed.calibration.split(" ")[0]}`;
-    const exposureInfo = `The exposure midpoint is ${formatMjd(visitMidpoint(visit), true)}. Exposure duration was ${Math.round(observed.exposureSeconds)} seconds. Calibration used ${calibration}.`;
+    const exposureInfo = showingBackground
+      ? `The three exposure midpoints are ${observations.map((_, i) => utc(i)).join(" · ")}. Calibration used ${calibration}.`
+      : `The exposure midpoint is ${formatMjd(visitMidpoint(visit), true)}. Exposure duration was ${Math.round(observed.exposureSeconds)} seconds. Calibration used ${calibration}.`;
     const processing = showingDifference
       ? `SkyShift smooths both calibrated images and subtracts ${frame(0)} pixel by pixel. The colour scale mutes differences near the estimated noise level.`
-      : tool === "contrast"
-        ? "High contrast smooths the measured pixels and uses the same faint-detail stretch on every image."
-        : "The original views use the same display stretch on every image.";
+      : showingBackground ? "SkyShift smooths each aligned frame and takes the median at each pixel."
+      : tool === "motion" ? "SkyShift subtracts the pixel-wise median of the three smoothed frames and displays positive residuals above the estimated noise."
+      : tool === "negative" ? "SkyShift reverses the original display palette while keeping the same intensity stretch on every image."
+      : tool === "contrast" ? "High contrast smooths the measured pixels and uses the same faint-detail stretch on every image."
+      : "The original views use the same display stretch on every image.";
     $("#first-star-processing").textContent = `${exposureInfo} ${processing}`;
     $(".first-star-discovery").hidden = !revealed;
     $(".first-star-archive").hidden = !revealed;
@@ -361,7 +393,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
       landmarks = [];
       marks = [];
       retryVisit = null;
-      shownContrast = seenVisitTwo = revealed = false;
+      triedFilter = seenVisitTwo = revealed = false;
       field.reset();
     } else if (stage() === "verify") {
       const unmatched = data.positions.findIndex((position, i) => {
@@ -377,6 +409,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
         return;
       }
       step++;
+      if (tool === "motion") tool = "original";
       field.reset();
       if (!comet) field.focus(data.positions[1], 4);
       revealTimer = setTimeout(() => {
@@ -385,10 +418,11 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
       }, 1200);
     } else {
       step++;
+      if (!toolAvailable(tool)) tool = "original";
       const mark = marks[visit];
       if (stage() === "close-look" && mark) {
         visit = visit === 0 ? 1 : 0;
-        tool = "contrast";
+        if (!comet || tool === "original") tool = "contrast";
         if (comet) field.reset();
         else field.focus(mark, 3);
       }
@@ -402,8 +436,10 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
   visitButtons.forEach((button, i) => { button.onclick = () => showVisit(i); });
   toolButtons.forEach(button => {
     button.onclick = () => {
-      tool = button.dataset.tool as StarTool;
-      if (tool === "contrast") shownContrast = true;
+      const mode = button.dataset.tool as StarTool;
+      if (!toolAvailable(mode)) return;
+      tool = mode;
+      if (tool === "contrast" || COMET_FILTERS[tool]) triedFilter = true;
       if (tool === "difference" && visit === 0) visit = 1;
       render();
     };
