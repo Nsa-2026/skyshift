@@ -45,6 +45,10 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
   const [width, height] = size;
   const world = { width, height };
   const fieldArcmin = Math.round(width * first.set.frames.pixel_arcsec / 60);
+  const visitCutout = (i: number) => `<figure>
+    <canvas width="144" height="144" role="img" aria-label="Original SPHEREx detail from Visit ${i + 1}"></canvas>
+    <figcaption><strong>Visit ${i + 1}</strong><br>${formatMjd(data.originals[i].epoch.mjd_mid)}</figcaption>
+  </figure>`;
   body.innerHTML = `
     <section class="first-star-guide">
       <header class="first-star-instruction">
@@ -60,11 +64,24 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
       </header>
       <section class="first-star-comparison" aria-labelledby="first-star-comparison-heading" hidden>
         <h3 id="first-star-comparison-heading">Same patch, two visits</h3>
-        <div>
-          ${data.originals.slice(0, 2).map(({ epoch }, i) => `<figure>
-            <canvas width="144" height="144" role="img" aria-label="Original SPHEREx detail from Visit ${i + 1}"></canvas>
-            <figcaption><strong>Visit ${i + 1}</strong><br>${formatMjd(epoch.mjd_mid)}</figcaption>
-          </figure>`).join("")}
+        <div class="first-star-cutout-pair">${visitCutout(0)}${visitCutout(1)}</div>
+        <div class="first-star-difference-explanation" hidden>
+          <p>At each matching spot, SkyShift subtracts the infrared light measured in Visit 1 from the light measured in Visit 2.</p>
+          <div class="first-star-difference-equation">
+            ${visitCutout(1)}
+            <span aria-hidden="true">−</span>
+            ${visitCutout(0)}
+            <span aria-hidden="true">=</span>
+            <figure>
+              <canvas width="144" height="144" role="img" aria-label="Difference cutout showing Visit 2 minus Visit 1"></canvas>
+              <figcaption><strong>Difference</strong></figcaption>
+            </figure>
+          </div>
+          <ul class="first-star-difference-key" aria-label="Difference colour key">
+            <li><span class="first-star-swatch is-positive" aria-hidden="true">+</span><strong>Red</strong> · More light in Visit 2</li>
+            <li><span class="first-star-swatch is-negative" aria-hidden="true">−</span><strong>Blue</strong> · Less light in Visit 2</li>
+            <li><span class="first-star-swatch is-neutral" aria-hidden="true">≈</span><strong>Gray</strong> · Little or no clear change</li>
+          </ul>
         </div>
       </section>
       <figure class="first-star-observation" aria-labelledby="first-star-caption">
@@ -116,7 +133,11 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
   const canvas = $<HTMLCanvasElement>(".first-star-frame canvas");
   const guide = $(".first-star-guide");
   const comparison = $(".first-star-comparison");
-  const details = [...comparison.querySelectorAll("canvas")];
+  const comparisonHeading = $("#first-star-comparison-heading");
+  const originalComparison = $(".first-star-cutout-pair");
+  const differenceExplanation = $(".first-star-difference-explanation");
+  const originalCutouts = [...originalComparison.querySelectorAll("canvas")];
+  const differenceCutouts = [...differenceExplanation.querySelectorAll("canvas")];
   const pictures = firstStarPictures(data, canvas);
   const prompt = $(".first-star-prompt");
   const feedback = $(".first-star-feedback");
@@ -229,16 +250,24 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
     $(".first-star-active-visit").textContent = tool === "difference"
       ? `Visit ${visit + 1} − Visit 1`
       : `Visit ${visit + 1} · ${date(dataVisit)}`;
-    const comparingCandidate = current === "close-look" || current === "originals" && tool === "original";
+    const showingDifference = tool === "difference";
+    const comparingCandidate = current === "close-look" || current === "originals" || showingDifference;
     const patch = current === "compare" ? landmarkPatch()
       : comparingCandidate && candidate ? comparePatch(candidate) : undefined;
     comparison.hidden = !patch;
     guide.classList.toggle("has-comparison", !!patch);
-    if (patch) details.forEach((detail, i) => drawFirstStarPatch(detail, pictures.original[i], patch));
+    if (patch) {
+      comparisonHeading.textContent = showingDifference ? "How the Difference image is made" : "Same patch, two visits";
+      originalComparison.hidden = showingDifference;
+      differenceExplanation.hidden = !showingDifference;
+      const cutouts = showingDifference ? differenceCutouts : originalCutouts;
+      const images = showingDifference ? [pictures.original[1], pictures.original[0], pictures.difference[1]] : pictures.original;
+      cutouts.forEach((detail, i) => drawFirstStarPatch(detail, images[i], patch));
+    }
     const dateLine = `Visit ${visit + 1} · ${date(dataVisit)} UTC`;
     const bandLine = `${band} · ${dataVisit.epoch.um_min.toFixed(2)}–${dataVisit.epoch.um_max.toFixed(2)} µm · ${dataVisit.epoch.n_exposures} exposures`;
     const legend = tool === "colours" ? "Infrared channels mapped to blue (D1), green (D2), and red (D3)." :
-      tool === "difference" ? `${band} relative to ${date(first)} UTC. Red shows more light and blue shows less.` : bandLine;
+      showingDifference ? `${band} difference from Visit 1 (${date(first)} UTC)` : bandLine;
     $("#first-star-caption").textContent = `${dateLine} · ${legend} · NASA SPHEREx`;
     const processing = $("#first-star-processing");
     const colourDates = first.set.frames.epochs
@@ -247,7 +276,7 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
       .map(epoch => `D${epoch.det} · ${formatMjd(epoch.mjd_mid, true)}`)
       .join(" / ");
     processing.textContent = tool === "difference"
-      ? `Difference smooths the ${band} images to SPHEREx’s resolution, subtracts Visit 1 from the selected visit, and uses the same signed colour scale for both comparisons.`
+      ? `SkyShift uses two ${band} visit stacks on the same sky grid. It subtracts the median sky background from each stack, smooths both to SPHEREx’s resolution, and subtracts Visit 1 from Visit 2 pixel by pixel. The colour scale mutes differences near the estimated noise level.`
       : tool === "colours"
         ? `Star colours combines three infrared detector stacks to help you recognize the field. The stack midpoints are ${colourDates}.`
         : `The stack midpoint is ${formatMjd(dataVisit.epoch.mjd_mid, true)}. Blank pixels have no usable measurement.`;

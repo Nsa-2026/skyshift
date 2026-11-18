@@ -95,7 +95,7 @@
 
 .first-star-comparison { grid-area: comparison; max-width: 320px; }
 .first-star-comparison h3 { margin: 0 0 .4rem; font-size: .92rem; }
-.first-star-comparison > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; }
+.first-star-cutout-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; }
 .first-star-comparison figure { margin: 0; }
 .first-star-comparison canvas {
   display: block;
@@ -107,6 +107,42 @@
   border-radius: 6px;
 }
 .first-star-comparison figcaption { margin-top: .3rem; color: var(--ink-2); font-size: .8rem; }
+
+.first-star-difference-explanation p {
+  margin: 0 0 .65rem;
+  color: var(--ink-2);
+  font-size: .9rem;
+  line-height: 1.45;
+}
+.first-star-difference-equation {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: .35rem;
+}
+.first-star-difference-equation > span { align-self: center; font-weight: 700; }
+.first-star-difference-equation figcaption { text-align: center; }
+.first-star-difference-key {
+  list-style: none;
+  padding: 0;
+  margin: .75rem 0 0;
+  display: grid;
+  gap: .33rem;
+  font-size: .85rem;
+}
+.first-star-swatch {
+  display: inline-grid;
+  place-items: center;
+  width: 1.2rem;
+  height: 1.2rem;
+  border: 1px solid var(--hair);
+  border-radius: 3px;
+  margin-right: .3rem;
+  font-weight: 700;
+  vertical-align: middle;
+}
+.first-star-swatch.is-positive { background: var(--pencil-red); color: white; }
+.first-star-swatch.is-negative { background: var(--pencil-blue); color: white; }
+.first-star-swatch.is-neutral { background: var(--glass); color: var(--ink); }
 
 @media (max-width: 770px) {
   .first-star-guide {
