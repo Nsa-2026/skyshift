@@ -15,6 +15,7 @@ import {
 
 const FRAME_DELAY_MS = 1000;
 const CORRECT_MARK_HOLD_MS = 450;
+const NEXT_ROUND_DELAY_MS = 8000;
 // An isolated background star at the same measured position in all three Hubble images.
 const HUBBLE_REFERENCE: Point = { x: 68.2, y: 76.1 };
 
@@ -45,7 +46,7 @@ const GUIDES = {
     title: ASTEROID_TITLE, mission: "SPHEREx", steps: PRACTICE_STEPS, name: ELPIS_NAME,
     intro: "Watch the star field in three NASA SPHEREx images.",
     sourceCaption: "NASA SPHEREx · Detector 2",
-    found: "Congratulations! You found the moving point.",
+    found: "Congratulations! You tracked the asteroid.",
     preparation: "SkyShift cropped the same region from three calibrated SPHEREx images archived at NASA/IPAC IRSA and subtracted each cutout’s median sky background.",
   },
   "brown-dwarf": {
@@ -172,7 +173,20 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
     <canvas width="144" height="144" role="img" aria-label="${mission} detail from ${frame(i)}"></canvas>
     <figcaption><strong>${frame(i)}</strong><br>${imageTime(i)}</figcaption>
   </figure>`;
-  const story = `You tracked a cold brown dwarf across three Hubble visits. In these images it moved about ${observedShifts[0]}″, then another ${observedShifts[1]}″, passing close to a brighter point.`;
+  const first = data.positions[0];
+  const last = data.positions[data.positions.length - 1];
+  const pixels = Math.round(Math.hypot(last.x - first.x, last.y - first.y));
+  const hours = ((visitMidpoint(observations.length - 1) - visitMidpoint(0)) * 24).toFixed(1);
+  const story = comet
+    ? `This interstellar comet moved ${pixels} image pixels in ${hours} hours. You followed its bright head and faint tail across three NASA TESS images.`
+    : asteroid ? `Elpis is a main-belt asteroid. It moved ${pixels} image pixels in ${hours} hours across these three NASA SPHEREx images.`
+    : `You tracked a cold brown dwarf across three Hubble visits. In these images it moved about ${observedShifts[0]}″, then another ${observedShifts[1]}″, passing close to a brighter point.`;
+  const revealLinks = comet
+    ? `<p><a href="${TESS_COMET}">Watch NASA’s TESS sequence</a></p>`
+    : asteroid ? `<p><a href="${ELPIS_ORBIT}">See Elpis’s orbit at NASA/JPL</a></p>
+      <p><a href="?t=elpis&det=2#/explore">See more Elpis exposures in the SPHEREx Viewer</a></p>`
+    : `<p><a href="${WISE_DISCOVERY}">See NASA’s discovery animation</a></p>
+      <p><a href="${SPHEREX_WISE_VIEW}">Find it at longer wavelengths in the SPHEREx Viewer</a></p>`;
   const archiveSource = comet ? TESS_EPHEMERIS : asteroid ? IRSA_MOST : ASTROMETRY_ARTICLE;
   const archiveLabel = comet ? "TESS Science Support Center ephemeris"
     : asteroid ? "IRSA Moving Object Search Tool" : "Published astrometry and Hubble observations";
@@ -206,12 +220,14 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
         <h2 class="first-star-prompt" tabindex="-1"></h2>
         ${comet ? '<p class="first-star-track-instruction" hidden>Look for a bright head with a faint tail.</p>' : ""}
         <div class="first-star-discovery" hidden>
-          ${hubble ? `
-            ${flow ? `<p>You tracked ${flow.foundCount} moving objects.</p>` : ""}
-            <h3>Meet ${esc(name)}.</h3>
-            <p>${story}</p>
-            <p><a href="${WISE_DISCOVERY}">See NASA’s discovery animation</a></p>
-            <p><a href="${SPHEREX_WISE_VIEW}">Find it at longer wavelengths in the SPHEREx Viewer</a></p>` : ""}
+          ${brownDwarf && flow ? `<p>You tracked ${flow.foundCount} moving objects.</p>` : ""}
+          <h3>Meet ${esc(name)}.</h3>
+          <p>${story}</p>
+          ${revealLinks}
+          ${flow?.advance ? `<div class="first-star-secondary">
+            ${nextMarkup}
+            <button type="button" class="btn btn-ghost" data-control="round-timer" hidden></button>
+          </div>` : ""}
         </div>
       </header>
       <section class="first-star-comparison" aria-labelledby="first-star-comparison-heading" hidden>
@@ -248,7 +264,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
             ${differenceEquation}
           </details>
         </div>` : ""}
-        ${comet ? nextMarkup : ""}
+        ${comet ? '<button type="button" class="btn btn-primary" data-control="review-next" hidden></button>' : ""}
         <div class="first-star-toolbar">
           <div class="first-star-visits" role="group" aria-label="${moving ? "Observation frames" : "Observation visits"}">
             ${data.originals.map((_, i) => `<button type="button" class="btn" data-visit="${i}" aria-pressed="false">${frame(i)}</button>`).join("")}
@@ -284,7 +300,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
           <p>${sourceCaption}. The ${fieldSize} cutouts share a north-up grid of ${arcsecPerPixel}″ per pixel. ${preparation}</p>
           <p id="first-star-processing"></p>
           <div class="first-star-archive" hidden>
-            ${hubble ? "<p>The green trail connects positions measured in the three images, using published coordinates as references.</p>" : ""}
+            <p class="first-star-trail-note" hidden>The green trail connects positions measured in the three images, using published coordinates as references.</p>
             <p><a href="${archiveSource}">${archiveLabel}</a></p>
             <ul>${observations.map((o, i) => asteroid
               ? `<li>${frame(i)} · ${utc(i)} · ${band(i)} µm · ${esc(o.filename)}</li>`
@@ -294,7 +310,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
       </figure>
       <div class="first-star-actions">
         ${moving ? "" : feedbackMarkup}
-        ${comet ? "" : nextMarkup}
+        ${flow?.advance ? "" : nextMarkup}
         <div class="first-star-secondary">
           <button type="button" class="btn btn-ghost" data-control="undo" hidden>Undo landmark</button>
           <button type="button" class="btn btn-ghost" data-control="focus" hidden>Zoom to my marks</button>
@@ -320,6 +336,8 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
   const prompt = $(".first-star-prompt");
   const feedback = $(".first-star-feedback");
   const next = control("continue");
+  const reviewNext = body.querySelector<HTMLButtonElement>('[data-control="review-next"]');
+  const roundTimer = body.querySelector<HTMLButtonElement>('[data-control="round-timer"]');
   const playback = body.querySelector<HTMLButtonElement>('[data-control="playback"]');
   const reducedMotion = moving ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
   const toolButtons = buttons("[data-tool]");
@@ -336,6 +354,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
   let hints = 0;
   let revealed = false;
   let revealTimer: ReturnType<typeof setTimeout> | undefined;
+  let roundAdvanceTimer: ReturnType<typeof setTimeout> | undefined;
   let markAdvanceTimer: ReturnType<typeof setTimeout> | undefined;
   let playbackTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -367,7 +386,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
       image: pictures[tool]?.[visit] ?? pictures.original[visit],
       marks: revealed
         ? data.positions.map((at, i) => ({
-          at, kind: "archive" as const, label: brownDwarf ? String(i + 1) : frame(i), radius: brownDwarf ? 8 : undefined,
+          at, kind: "archive" as const, label: moving ? String(i + 1) : frame(i), radius: moving ? 9 : undefined,
         }))
         : [
           ...(!moving || showLandmarks ? landmarkMarks : []),
@@ -401,6 +420,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
     field.destroy();
     stopPlayback();
     clearTimeout(revealTimer);
+    clearTimeout(roundAdvanceTimer);
     clearTimeout(markAdvanceTimer);
   }, { once: true });
 
@@ -446,10 +466,20 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
     if (prompt.textContent !== text) prompt.textContent = text;
     const canContinue = ready();
     if (trackInstruction) trackInstruction.hidden = current !== "track";
-    const action = found ? revealed ? "Start again" : "" : "action" in currentStep ? currentStep.action : "";
+    const action = found ? revealed ? (flow?.advance ? "Next round" : "Start again") : ""
+      : "action" in currentStep ? currentStep.action : "";
+    const reviewing = reviewNext !== null && current === "difference";
     next.textContent = action;
     next.disabled = !canContinue;
-    next.hidden = !action;
+    next.hidden = !action || reviewing;
+    if (reviewNext) {
+      reviewNext.textContent = reviewing ? action : "";
+      reviewNext.hidden = !reviewing;
+    }
+    if (roundTimer) {
+      roundTimer.hidden = !revealed;
+      roundTimer.textContent = roundAdvanceTimer === undefined ? "Resume auto-advance" : "Pause auto-advance";
+    }
     $(".first-star-actions").classList.toggle("is-complete", found);
     control("undo").hidden = current !== "landmarks" || !landmarks.length;
     control("focus").hidden = current !== "close-look";
@@ -548,6 +578,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
     $("#first-star-processing").textContent = `${exposureInfo} ${processing}`;
     $(".first-star-discovery").hidden = !revealed;
     $(".first-star-archive").hidden = hubble && !revealed;
+    $(".first-star-trail-note").hidden = !revealed;
     field.draw();
   }
 
@@ -594,7 +625,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
   function advanceAfterMark() {
     markAdvanceTimer = undefined;
     if (ready()) {
-      if (stage() === "track" && matchesMark(2) && flow?.advance) flow.advance();
+      if (stage() === "track" && matchesMark(2)) revealMovingObject();
       else advance();
       return;
     }
@@ -640,12 +671,31 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
     render();
   }
 
+  function revealMovingObject() {
+    step = steps.length;
+    tool = "original";
+    visit = observations.length - 1;
+    revealed = true;
+    if (!brownDwarf) field.reset();
+    if (flow?.advance) roundAdvanceTimer = setTimeout(advance, NEXT_ROUND_DELAY_MS);
+    focusStep();
+  }
+
+  function focusStep() {
+    feedback.textContent = "";
+    render();
+    prompt.focus({ preventScroll: true });
+    if (window.matchMedia("(max-width: 770px)").matches) prompt.scrollIntoView({ block: "nearest" });
+  }
+
   function advance() {
     if (!ready()) return;
     stopPlayback();
     if (stage() === "found") {
       if (flow) {
-        flow.restart();
+        clearTimeout(roundAdvanceTimer);
+        if (flow.advance) flow.advance();
+        else flow.restart();
         return;
       }
       step = visit = hints = 0;
@@ -656,11 +706,11 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
       triedFilter = seenVisitTwo = revealed = false;
       field.reset();
     } else if (stage() === "verify" || stage() === "practice") {
-      if (flow?.advance) {
-        flow.advance();
+      if (moving) {
+        revealMovingObject();
         return;
       }
-      const unmatched = moving ? -1 : data.positions.findIndex((_, i) => !matchesMark(i));
+      const unmatched = data.positions.findIndex((_, i) => !matchesMark(i));
       if (unmatched !== -1) {
         retryVisit = unmatched;
         feedback.textContent = `Take another look at ${frame(unmatched)}. Check the faint points near your mark against the other dates.`;
@@ -668,18 +718,12 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
         return;
       }
       step++;
-      if (moving) {
-        tool = "original";
-        visit = 2;
+      field.reset();
+      field.focus(data.positions[1], 4);
+      revealTimer = setTimeout(() => {
         revealed = true;
-      } else {
-        field.reset();
-        field.focus(data.positions[1], 4);
-        revealTimer = setTimeout(() => {
-          revealed = true;
-          render();
-        }, 1200);
-      }
+        render();
+      }, 1200);
     } else {
       step++;
       if (!toolAvailable(tool)) tool = "original";
@@ -702,10 +746,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
         field.focus(mark, 3);
       }
     }
-    feedback.textContent = "";
-    render();
-    prompt.focus({ preventScroll: true });
-    if (window.matchMedia("(max-width: 770px)").matches) prompt.scrollIntoView({ block: "nearest" });
+    focusStep();
   }
 
   visitButtons.forEach((button, i) => { button.onclick = () => showVisit(i); });
@@ -734,6 +775,18 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
     if (!reducedMotion?.matches) startPlayback();
   }
   next.onclick = advance;
+  if (reviewNext) reviewNext.onclick = advance;
+  if (roundTimer) {
+    roundTimer.onclick = () => {
+      if (roundAdvanceTimer === undefined) {
+        roundAdvanceTimer = setTimeout(advance, NEXT_ROUND_DELAY_MS);
+      } else {
+        clearTimeout(roundAdvanceTimer);
+        roundAdvanceTimer = undefined;
+      }
+      render();
+    };
+  }
   control("zoom-in").onclick = () => { pauseForInspection(); field.zoom(1.5); };
   control("zoom-out").onclick = () => { pauseForInspection(); field.zoom(1 / 1.5); };
   control("reset-view").onclick = () => { pauseForInspection(); field.reset(); };
