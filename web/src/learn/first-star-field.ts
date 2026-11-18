@@ -18,7 +18,6 @@ export function mountFirstStarField(
   world: Size,
   read: () => FieldView,
   pick: (point: Point) => void,
-  onZoom: (magnification: number) => void,
 ) {
   const ctx = canvas.getContext("2d")!;
   const initial = { x: world.width / 2, y: world.height / 2, zoom: 1 };
@@ -137,7 +136,6 @@ export function mountFirstStarField(
   function zoom(factor: number, anchor = { x: screen.width / 2, y: screen.height / 2 }) {
     camera = zoomAt(camera, camera.zoom * factor, anchor, world, screen);
     draw();
-    onZoom(camera.zoom);
   }
 
   function move(x: number, y: number) {

@@ -16,7 +16,7 @@ export function mountFirstStar(host: HTMLElement, signal: AbortSignal) {
   host.innerHTML = `<article class="first-star" aria-labelledby="ln-h">
     <a class="first-star-back" href="#/learn">← Learn</a>
     <h1 id="ln-h" tabindex="-1">${FIRST_STAR_TITLE}</h1>
-    <p class="first-star-intro">Retrace the evidence for a known star using real NASA SPHEREx observations. About 8–10 minutes.</p>
+    <p class="first-star-intro">Retrace the evidence for a known star using real NASA SPHEREx observations at your own pace.</p>
     <div class="first-star-body"><p role="status">Loading three SPHEREx visits…</p></div>
   </article>`;
   const body = host.querySelector<HTMLElement>(".first-star-body")!;
@@ -58,6 +58,15 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
           <p><a href="?t=${FIRST_STAR.slug}&amp;det=${FIRST_STAR_DETECTOR}#/explore">Open this star in the Viewer</a></p>
         </div>
       </header>
+      <section class="first-star-comparison" aria-labelledby="first-star-comparison-heading" hidden>
+        <h3 id="first-star-comparison-heading">Same patch, two visits</h3>
+        <div>
+          ${data.originals.slice(0, 2).map(({ epoch }, i) => `<figure>
+            <canvas width="144" height="144" role="img" aria-label="Original SPHEREx detail from Visit ${i + 1}"></canvas>
+            <figcaption><strong>Visit ${i + 1}</strong><br>${formatMjd(epoch.mjd_mid)}</figcaption>
+          </figure>`).join("")}
+        </div>
+      </section>
       <figure class="first-star-observation" aria-labelledby="first-star-caption">
         <div class="first-star-frame">
           <canvas tabindex="0" aria-label="NASA SPHEREx infrared star field. Use arrow keys to pan, plus or minus to zoom, and Enter to mark the crosshair."></canvas>
@@ -99,21 +108,13 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
           <button type="button" class="btn btn-ghost" data-control="focus" hidden>Zoom to my mark</button>
           <button type="button" class="btn btn-ghost" data-control="hint" hidden>Show a hint</button>
         </div>
-        <section class="first-star-comparison" aria-labelledby="first-star-comparison-heading" hidden>
-          <h3 id="first-star-comparison-heading">Same patch, two visits</h3>
-          <div>
-            ${data.originals.slice(0, 2).map(({ epoch }, i) => `<figure>
-              <canvas width="144" height="144" role="img" aria-label="Original SPHEREx detail from Visit ${i + 1}"></canvas>
-              <figcaption><strong>Visit ${i + 1}</strong><br>${formatMjd(epoch.mjd_mid)}</figcaption>
-            </figure>`).join("")}
-          </div>
-        </section>
       </div>
     </section>`;
   const $ = <T extends HTMLElement = HTMLElement>(selector: string) => body.querySelector<T>(selector)!;
   const buttons = (selector: string) => [...body.querySelectorAll<HTMLButtonElement>(selector)];
   const control = (name: string) => $<HTMLButtonElement>(`[data-control="${name}"]`);
   const canvas = $<HTMLCanvasElement>(".first-star-frame canvas");
+  const guide = $(".first-star-guide");
   const comparison = $(".first-star-comparison");
   const details = [...comparison.querySelectorAll("canvas")];
   const pictures = firstStarPictures(data, canvas);
@@ -129,8 +130,7 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
   let candidate: Point | undefined;
   let thirdMark: Point | undefined;
   let shownColours = false;
-  let switches = 0;
-  let zoomed = false;
+  let seenVisitTwo = false;
   let hints = 0;
   let revealed = false;
   let revealTimer: ReturnType<typeof setTimeout> | undefined;
@@ -138,12 +138,14 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
   const stage = () => step === FIRST_STAR_STEPS.length ? "found" : FIRST_STAR_STEPS[step].id;
   const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
   const nearTarget = (at: Point, index: number) => distance(at, data.positions[index]) <= MATCH_RADIUS_PIXELS;
+  const landmarkPatch = () => cropAround(landmarks, size, 9, 24);
   const comparePatch = (at: Point) => cropAround([at], size, 12, 24);
   const field = mountFirstStarField(canvas, world, () => {
     const current = stage();
     const marks = landmarks.map((at, i) => ({ at, kind: "landmark" as const, label: String(i + 1) }));
     const activeMark = visit === 2 ? thirdMark : candidate;
-    const showLandmarks = (step > 0 && step <= 5) || current === "verify";
+    const showLandmarks = current === "landmarks" || current === "colours" || current === "next-visit" ||
+      current === "compare" || current === "verify";
     const showPatch = current === "mark" || current === "close-look" || current === "difference" || current === "originals";
     const clue = hints && current !== "found" ? clueRegion(data.positions, world, hints) : undefined;
     return {
@@ -155,7 +157,7 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
       ],
       guides: [
         ...(showLandmarks && landmarks.length ? [{
-          patch: cropAround(landmarks, size, 9, 24), label: "Your landmarks", kind: "landmarks" as const,
+          patch: landmarkPatch(), label: "Your landmarks", kind: "landmarks" as const,
         }] : []),
         ...(showPatch && candidate ? [{
           patch: comparePatch(candidate), label: "Compare this patch", kind: "compare" as const,
@@ -167,12 +169,7 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
         }] : []),
       ],
     };
-  }, selectPoint, magnification => {
-    if (stage() === "close-look" && magnification >= 2) {
-      zoomed = true;
-      render();
-    }
-  });
+  }, selectPoint);
 
   signal.addEventListener("abort", () => { field.destroy(); clearTimeout(revealTimer); }, { once: true });
 
@@ -180,13 +177,10 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
     switch (stage()) {
       case "landmarks": return landmarks.length === 3;
       case "colours": return shownColours;
-      case "next-visit": return visit === 1;
-      case "first-visit": return visit === 0;
-      case "compare": return switches >= 2;
+      case "next-visit": return seenVisitTwo;
       case "mark": return !!candidate;
-      case "close-look": return zoomed && switches > 0;
       case "difference": return tool === "difference";
-      case "originals": return tool === "original" && switches > 0;
+      case "originals": return tool === "original";
       case "verify": return visit === 2 && !!thirdMark;
       case "found": return revealed;
       default: return true;
@@ -201,26 +195,33 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
     const text = found ? "Congratulations! You found your first star." : FIRST_STAR_STEPS[step].prompt;
     if (prompt.textContent !== text) prompt.textContent = text;
     next.textContent = found ? "Start again" : FIRST_STAR_STEPS[step].action;
-    next.disabled = !ready();
+    const canContinue = ready();
+    next.disabled = !canContinue;
     next.hidden = found && !revealed;
     $(".first-star-actions").classList.toggle("is-complete", found);
     control("undo").hidden = current !== "landmarks" || !landmarks.length;
     control("focus").hidden = current !== "close-look";
     const hint = control("hint");
-    hint.hidden = step < 5 || found || hints >= 2;
+    hint.hidden = step < 4 || found || hints >= 2;
     hint.textContent = hints === 1 ? "Narrow the search" : "Show a hint";
     const coloursAvailable = current === "colours" || current === "next-visit";
     const differenceAvailable = current === "difference" || current === "originals";
     $(".first-star-filters").hidden = !(coloursAvailable || differenceAvailable);
+    const suggestedTool = current === "colours" ? "colours" : current === "difference" ? "difference"
+      : current === "originals" ? "original" : null;
     toolButtons.forEach(button => {
       const mode = button.dataset.tool;
       button.hidden = mode === "colours" ? !coloursAvailable : mode === "difference" && !differenceAvailable;
       button.setAttribute("aria-pressed", String(mode === tool));
+      button.classList.toggle("is-suggested", !canContinue && mode === suggestedTool);
     });
     visitButtons.forEach((button, i) => {
       button.hidden = i > maxVisit;
       button.disabled = found || (tool === "difference" && i === 0);
       button.setAttribute("aria-pressed", String(i === visit));
+      button.classList.toggle("is-suggested",
+        (current === "next-visit" && !seenVisitTwo && i === 1) ||
+        (current === "verify" && visit !== 2 && i === 2));
     });
     const date = ({ epoch }: FirstStarData["originals"][number]) => formatMjd(epoch.mjd_mid);
     const dataVisit = data.originals[visit];
@@ -228,9 +229,11 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
     $(".first-star-active-visit").textContent = tool === "difference"
       ? `Visit ${visit + 1} − Visit 1`
       : `Visit ${visit + 1} · ${date(dataVisit)}`;
-    const patch = candidate && (current === "close-look" && zoomed || current === "originals" && tool === "original")
-      ? comparePatch(candidate) : undefined;
+    const comparingCandidate = current === "close-look" || current === "originals" && tool === "original";
+    const patch = current === "compare" ? landmarkPatch()
+      : comparingCandidate && candidate ? comparePatch(candidate) : undefined;
     comparison.hidden = !patch;
+    guide.classList.toggle("has-comparison", !!patch);
     if (patch) details.forEach((detail, i) => drawFirstStarPatch(detail, pictures.original[i], patch));
     const dateLine = `Visit ${visit + 1} · ${date(dataVisit)} UTC`;
     const bandLine = `${band} · ${dataVisit.epoch.um_min.toFixed(2)}–${dataVisit.epoch.um_max.toFixed(2)} µm · ${dataVisit.epoch.n_exposures} exposures`;
@@ -278,7 +281,7 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
   function showVisit(index: number) {
     if (index === visit) return;
     visit = index;
-    switches++;
+    if (stage() === "next-visit" && index === 1) seenVisitTwo = true;
     feedback.textContent = "";
     render();
   }
@@ -290,7 +293,7 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
       tool = "original";
       landmarks = [];
       candidate = thirdMark = undefined;
-      shownColours = zoomed = revealed = false;
+      shownColours = seenVisitTwo = revealed = false;
       field.reset();
     } else if (stage() === "verify") {
       if (!candidate || !thirdMark || !nearTarget(candidate, 0) || !nearTarget(thirdMark, 2)) {
@@ -305,9 +308,9 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
       }, 1200);
     } else {
       step++;
-      if (stage() === "first-visit") tool = "original";
+      if (stage() === "compare") tool = "original";
+      if (stage() === "close-look" && candidate) field.focus(candidate, 3);
     }
-    switches = 0;
     feedback.textContent = "";
     render();
     prompt.focus({ preventScroll: true });
@@ -332,18 +335,13 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
     feedback.textContent = `${landmarks.length} of 3 landmarks marked.`;
     render();
   };
-  control("focus").onclick = () => {
-    if (!candidate) return;
-    field.focus(candidate, 3);
-    zoomed = true;
-    render();
-  };
+  control("focus").onclick = () => { if (candidate) field.focus(candidate, 3); };
   control("hint").onclick = () => {
     hints++;
     field.reset();
     feedback.textContent = hints === 1
       ? "Try looking inside the outlined patch of sky."
-      : "Try the smaller box. What changes when you switch visits?";
+      : "Look inside the smaller box. What looks different between the visits?";
     render();
   };
   render();

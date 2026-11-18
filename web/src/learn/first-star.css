@@ -18,6 +18,11 @@
   gap: var(--s3) clamp(1rem, 4vw, 3rem);
 }
 
+.first-star-guide.has-comparison {
+  grid-template-rows: auto auto 1fr;
+  grid-template-areas: "instruction observation" "comparison observation" "actions observation";
+}
+
 .first-star-instruction { grid-area: instruction; }
 .first-star .first-star-prompt {
   margin: .45rem 0 0;
@@ -77,6 +82,10 @@
   border-color: var(--ink-2);
   box-shadow: inset 0 -2px 0 var(--ink-2);
 }
+.first-star-toolbar .btn.is-suggested {
+  border-color: var(--pencil-blue);
+  box-shadow: 0 0 0 1px var(--pencil-blue);
+}
 .first-star-filters > span { font-size: .82rem; color: var(--ink-2); }
 .first-star-observation figcaption, .first-star-provenance { color: var(--ink-2); font-size: var(--step--1); }
 .first-star-provenance { margin-top: .45rem; }
@@ -84,7 +93,7 @@
 .first-star-provenance p { margin: .5rem 0; }
 .first-star button:disabled { opacity: .56; cursor: default; }
 
-.first-star-comparison { margin-top: 1rem; max-width: 320px; }
+.first-star-comparison { grid-area: comparison; max-width: 320px; }
 .first-star-comparison h3 { margin: 0 0 .4rem; font-size: .92rem; }
 .first-star-comparison > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; }
 .first-star-comparison figure { margin: 0; }
@@ -104,6 +113,10 @@
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto;
     grid-template-areas: "instruction" "observation" "actions";
+  }
+  .first-star-guide.has-comparison {
+    grid-template-rows: auto;
+    grid-template-areas: "instruction" "comparison" "observation" "actions";
   }
   .first-star-back { margin-bottom: var(--s2); }
   .first-star-intro { margin-bottom: var(--s4); }
