@@ -2,9 +2,10 @@ import "./first-star.css";
 import { visitOf, VISIT_DETS } from "../colour/visit";
 import { formatMjd, formatRaDec } from "../app/astro";
 import { clueRegion, type Point } from "../play/hunt-model";
+import { cropAround } from "./data";
 import { esc } from "./glossary";
 import { FIRST_STAR, FIRST_STAR_DETECTOR, firstStarPictures, loadFirstStar, type FirstStarData, type StarTool } from "./first-star-data";
-import { mountFirstStarField } from "./first-star-field";
+import { drawFirstStarPatch, mountFirstStarField } from "./first-star-field";
 import { FIRST_STAR_STEPS, FIRST_STAR_TITLE } from "./first-star-steps";
 
 const ARCHIVE = "https://irsa.ipac.caltech.edu/Missions/spherex.html";
@@ -40,7 +41,8 @@ export function mountFirstStar(host: HTMLElement, signal: AbortSignal) {
 
 function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
   const first = data.originals[0];
-  const [width, height] = first.set.frames.size;
+  const size = first.set.frames.size;
+  const [width, height] = size;
   const world = { width, height };
   const fieldArcmin = Math.round(width * first.set.frames.pixel_arcsec / 60);
   body.innerHTML = `
@@ -59,6 +61,7 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
       <figure class="first-star-observation" aria-labelledby="first-star-caption">
         <div class="first-star-frame">
           <canvas tabindex="0" aria-label="NASA SPHEREx infrared star field. Use arrow keys to pan, plus or minus to zoom, and Enter to mark the crosshair."></canvas>
+          <span class="first-star-active-visit" aria-hidden="true"></span>
           <span class="first-star-compass" aria-hidden="true">N ↑ · E ←</span>
           <div class="first-star-zoom" role="group" aria-label="Image zoom">
             <button class="btn" type="button" data-control="zoom-in" aria-label="Zoom in">+</button>
@@ -96,12 +99,23 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
           <button type="button" class="btn btn-ghost" data-control="focus" hidden>Zoom to my mark</button>
           <button type="button" class="btn btn-ghost" data-control="hint" hidden>Show a hint</button>
         </div>
+        <section class="first-star-comparison" aria-labelledby="first-star-comparison-heading" hidden>
+          <h3 id="first-star-comparison-heading">Same patch, two visits</h3>
+          <div>
+            ${data.originals.slice(0, 2).map(({ epoch }, i) => `<figure>
+              <canvas width="144" height="144" role="img" aria-label="Original SPHEREx detail from Visit ${i + 1}"></canvas>
+              <figcaption><strong>Visit ${i + 1}</strong><br>${formatMjd(epoch.mjd_mid)}</figcaption>
+            </figure>`).join("")}
+          </div>
+        </section>
       </div>
     </section>`;
   const $ = <T extends HTMLElement = HTMLElement>(selector: string) => body.querySelector<T>(selector)!;
   const buttons = (selector: string) => [...body.querySelectorAll<HTMLButtonElement>(selector)];
   const control = (name: string) => $<HTMLButtonElement>(`[data-control="${name}"]`);
-  const canvas = $<HTMLCanvasElement>("canvas");
+  const canvas = $<HTMLCanvasElement>(".first-star-frame canvas");
+  const comparison = $(".first-star-comparison");
+  const details = [...comparison.querySelectorAll("canvas")];
   const pictures = firstStarPictures(data, canvas);
   const prompt = $(".first-star-prompt");
   const feedback = $(".first-star-feedback");
@@ -124,9 +138,14 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
   const stage = () => step === FIRST_STAR_STEPS.length ? "found" : FIRST_STAR_STEPS[step].id;
   const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
   const nearTarget = (at: Point, index: number) => distance(at, data.positions[index]) <= MATCH_RADIUS_PIXELS;
+  const comparePatch = (at: Point) => cropAround([at], size, 12, 24);
   const field = mountFirstStarField(canvas, world, () => {
+    const current = stage();
     const marks = landmarks.map((at, i) => ({ at, kind: "landmark" as const, label: String(i + 1) }));
     const activeMark = visit === 2 ? thirdMark : candidate;
+    const showLandmarks = (step > 0 && step <= 5) || current === "verify";
+    const showPatch = current === "mark" || current === "close-look" || current === "difference" || current === "originals";
+    const clue = hints && current !== "found" ? clueRegion(data.positions, world, hints) : undefined;
     return {
       image: pictures[tool][visit],
       marks: [
@@ -134,7 +153,19 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
         ...(activeMark ? [{ at: activeMark, kind: "candidate" as const, label: "Your mark" }] : []),
         ...(revealed ? [{ at: data.positions[visit], kind: "archive" as const, label: "Archive position" }] : []),
       ],
-      clue: hints && stage() !== "found" ? clueRegion(data.positions, world, 1) : undefined,
+      guides: [
+        ...(showLandmarks && landmarks.length ? [{
+          patch: cropAround(landmarks, size, 9, 24), label: "Your landmarks", kind: "landmarks" as const,
+        }] : []),
+        ...(showPatch && candidate ? [{
+          patch: comparePatch(candidate), label: "Compare this patch", kind: "compare" as const,
+        }] : []),
+        ...(clue ? [{
+          patch: { x: clue.x, y: clue.y, w: clue.width, h: clue.height },
+          label: hints === 1 ? "Search here" : "Look closer",
+          kind: "hint" as const,
+        }] : []),
+      ],
     };
   }, selectPoint, magnification => {
     if (stage() === "close-look" && magnification >= 2) {
@@ -175,7 +206,9 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
     $(".first-star-actions").classList.toggle("is-complete", found);
     control("undo").hidden = current !== "landmarks" || !landmarks.length;
     control("focus").hidden = current !== "close-look";
-    control("hint").hidden = step < 5 || found || hints >= 2;
+    const hint = control("hint");
+    hint.hidden = step < 5 || found || hints >= 2;
+    hint.textContent = hints === 1 ? "Narrow the search" : "Show a hint";
     const coloursAvailable = current === "colours" || current === "next-visit";
     const differenceAvailable = current === "difference" || current === "originals";
     $(".first-star-filters").hidden = !(coloursAvailable || differenceAvailable);
@@ -192,6 +225,13 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
     const date = ({ epoch }: FirstStarData["originals"][number]) => formatMjd(epoch.mjd_mid);
     const dataVisit = data.originals[visit];
     const band = `D${FIRST_STAR_DETECTOR}`;
+    $(".first-star-active-visit").textContent = tool === "difference"
+      ? `Visit ${visit + 1} − Visit 1`
+      : `Visit ${visit + 1} · ${date(dataVisit)}`;
+    const patch = candidate && (current === "close-look" && zoomed || current === "originals" && tool === "original")
+      ? comparePatch(candidate) : undefined;
+    comparison.hidden = !patch;
+    if (patch) details.forEach((detail, i) => drawFirstStarPatch(detail, pictures.original[i], patch));
     const dateLine = `Visit ${visit + 1} · ${date(dataVisit)} UTC`;
     const bandLine = `${band} · ${dataVisit.epoch.um_min.toFixed(2)}–${dataVisit.epoch.um_max.toFixed(2)} µm · ${dataVisit.epoch.n_exposures} exposures`;
     const legend = tool === "colours" ? "Infrared channels mapped to blue (D1), green (D2), and red (D3)." :
@@ -300,12 +340,10 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
   };
   control("hint").onclick = () => {
     hints++;
-    if (hints === 1) {
-      field.reset();
-      feedback.textContent = "Try looking inside the outlined patch of sky.";
-    } else {
-      feedback.textContent = "Switch visits and compare how bright each star looks beside its neighbours.";
-    }
+    field.reset();
+    feedback.textContent = hints === 1
+      ? "Try looking inside the outlined patch of sky."
+      : "Try the smaller box. What changes when you switch visits?";
     render();
   };
   render();

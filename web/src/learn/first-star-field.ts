@@ -1,7 +1,17 @@
 import { clampCamera, mapScale, toScreen, toWorld, zoomAt, type Camera, type Point, type Size } from "../play/hunt-model";
 
 type Mark = { at: Point; label: string; kind: "landmark" | "candidate" | "archive" };
-type FieldView = { image: HTMLCanvasElement; marks: Mark[]; clue?: Point & Size };
+type Patch = Point & { w: number; h: number };
+type Guide = { patch: Patch; label: string; kind: "landmarks" | "compare" | "hint" };
+type FieldView = { image: HTMLCanvasElement; marks: Mark[]; guides: Guide[] };
+
+export function drawFirstStarPatch(canvas: HTMLCanvasElement, image: HTMLCanvasElement, patch: Patch) {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(image, patch.x, patch.y, patch.w, patch.h, 0, 0, canvas.width, canvas.height);
+}
 
 export function mountFirstStarField(
   canvas: HTMLCanvasElement,
@@ -20,7 +30,7 @@ export function mountFirstStarField(
   const { signal } = listeners;
 
   function draw() {
-    const { image, marks, clue } = read();
+    const { image, marks, guides } = read();
     ctx.setTransform(canvas.width / screen.width, 0, 0, canvas.height / screen.height, 0, 0);
     ctx.fillStyle = "#141d28";
     ctx.fillRect(0, 0, screen.width, screen.height);
@@ -32,14 +42,7 @@ export function mountFirstStarField(
     ctx.beginPath();
     ctx.rect(origin.x, origin.y, world.width * scale, world.height * scale);
     ctx.clip();
-    if (clue) {
-      const point = toScreen(clue, camera, world, screen);
-      ctx.setLineDash([6, 5]);
-      ctx.strokeStyle = "#af5600";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(point.x, point.y, clue.width * scale, clue.height * scale);
-      ctx.setLineDash([]);
-    }
+    for (const guide of guides) drawGuide(guide, origin, scale);
     ctx.font = "600 12px system-ui";
     for (const mark of marks) {
       const point = toScreen(mark.at, camera, world, screen);
@@ -77,6 +80,47 @@ export function mountFirstStarField(
       ctx.stroke();
     }
     ctx.restore();
+  }
+
+  function drawGuide({ patch, label, kind }: Guide, origin: Point, scale: number) {
+    const left = origin.x + patch.x * scale;
+    const top = origin.y + patch.y * scale;
+    const right = left + patch.w * scale;
+    const bottom = top + patch.h * scale;
+    const corners = Math.min(18, patch.w * scale / 3, patch.h * scale / 3);
+    const color = kind === "landmarks" ? "#9bdbff" : "#ffdc91";
+
+    ctx.beginPath();
+    if (kind === "hint") {
+      ctx.rect(left, top, right - left, bottom - top);
+      ctx.setLineDash([6, 5]);
+    } else {
+      for (const [x, y, dx, dy] of [[left, top, 1, 1], [right, top, -1, 1], [left, bottom, 1, -1], [right, bottom, -1, -1]]) {
+        ctx.moveTo(x + dx * corners, y);
+        ctx.lineTo(x, y);
+        ctx.lineTo(x, y + dy * corners);
+      }
+    }
+    ctx.strokeStyle = "#19222c";
+    ctx.lineWidth = 4;
+    ctx.stroke();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.font = "600 12px system-ui";
+    const labelWidth = ctx.measureText(label).width + 12;
+    const canPlace = left >= Math.max(origin.x, 0) && left + labelWidth <= Math.min(origin.x + world.width * scale, screen.width);
+    const labelY = kind === "hint" ? bottom + 5
+      : top >= Math.max(origin.y, 0) + 24 ? top - 24 : top + 5;
+    const insideImage = labelY >= Math.max(origin.y, 0) && labelY + 19 <= Math.min(origin.y + world.height * scale, screen.height);
+    if (canPlace && insideImage) {
+      ctx.fillStyle = "#19222c";
+      ctx.fillRect(left, labelY, labelWidth, 19);
+      ctx.fillStyle = color;
+      ctx.fillText(label, left + 6, labelY + 13);
+    }
   }
 
   function resize() {
