@@ -194,6 +194,8 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
       <li><span class="first-star-swatch is-neutral" aria-hidden="true">≈</span><strong>Gray</strong> · Little or no clear change</li>
     </ul>`;
   const feedbackMarkup = '<p class="first-star-feedback" role="status"></p>';
+  const nextMarkup = '<button type="button" class="btn btn-primary" data-control="continue"></button>';
+  const hintMarkup = '<button type="button" class="btn btn-ghost" data-control="hint" hidden>Show a hint</button>';
   const filterButton = (mode: StarTool, label: string) =>
     `<button type="button" class="btn" data-tool="${mode}" aria-pressed="false" hidden>${label}</button>`;
 
@@ -202,7 +204,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
       <header class="first-star-instruction">
         <p class="first-star-progress"></p>
         <h2 class="first-star-prompt" tabindex="-1"></h2>
-        ${moving ? '<p class="first-star-track-instruction" hidden></p>' : ""}
+        ${comet ? '<p class="first-star-track-instruction" hidden>Look for a bright head with a faint tail.</p>' : ""}
         <div class="first-star-discovery" hidden>
           ${hubble ? `
             ${flow ? `<p>You tracked ${flow.foundCount} moving objects.</p>` : ""}
@@ -223,6 +225,10 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
         </div>`}
       </section>
       <figure class="first-star-observation" aria-labelledby="first-star-caption">
+        ${moving ? `<div class="first-star-image-actions" aria-label="Image controls" role="group">
+          <button type="button" class="btn" data-control="playback">Play frames</button>
+          ${hintMarkup}
+        </div>` : ""}
         <div class="first-star-frame">
           <canvas tabindex="0" aria-label="${sourceCaption} star field. Use arrow keys to pan, plus or minus to zoom, and Enter to mark the crosshair."></canvas>
           <span class="first-star-active-visit" aria-hidden="true"></span>
@@ -242,16 +248,16 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
             ${differenceEquation}
           </details>
         </div>` : ""}
+        ${comet ? nextMarkup : ""}
         <div class="first-star-toolbar">
           <div class="first-star-visits" role="group" aria-label="${moving ? "Observation frames" : "Observation visits"}">
-            ${moving ? '<button type="button" class="btn" data-control="playback">Play frames</button>' : ""}
             ${data.originals.map((_, i) => `<button type="button" class="btn" data-visit="${i}" aria-pressed="false">${frame(i)}</button>`).join("")}
           </div>
           <div class="first-star-filters" role="group" aria-label="Viewer filters">
             ${moving ? "" : "<span>Add filters</span>"}
             <button type="button" class="btn" data-tool="original" aria-pressed="true">Original</button>
             ${moving ? `
-              ${brownDwarf ? filterButton("motion", "Motion clues") : ""}
+              ${filterButton("motion", brownDwarf ? "Motion clues" : "Moving objects")}
               ${filterButton("intensity", "Intensity colours")}
               ${filterButton("difference", "Difference")}
               <details class="first-star-more-filters">
@@ -259,7 +265,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
                 <div>
                   ${filterButton("contrast", "High contrast")}
                   ${Object.entries(MOVING_FILTERS)
-                    .filter(([mode]) => mode !== "intensity" && !(brownDwarf && mode === "motion"))
+                    .filter(([mode]) => mode !== "intensity" && mode !== "motion")
                     .map(([mode, filter]) =>
                     filterButton(mode as StarTool, filter.label)).join("")}
                 </div>
@@ -288,11 +294,11 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
       </figure>
       <div class="first-star-actions">
         ${moving ? "" : feedbackMarkup}
-        <button type="button" class="btn btn-primary" data-control="continue"></button>
+        ${comet ? "" : nextMarkup}
         <div class="first-star-secondary">
           <button type="button" class="btn btn-ghost" data-control="undo" hidden>Undo landmark</button>
           <button type="button" class="btn btn-ghost" data-control="focus" hidden>Zoom to my marks</button>
-          <button type="button" class="btn btn-ghost" data-control="hint" hidden>Show a hint</button>
+          ${moving ? "" : hintMarkup}
         </div>
       </div>
     </section>`;
@@ -340,16 +346,16 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
     const mark = marks[index];
     return !!mark && withinTarget(mark, index);
   };
-  const landmarkPatch = () => cropAround(landmarks, size, 9, moving ? 20 : 48);
+  const landmarkPatch = () => cropAround(landmarks, size, 9, 48);
   const candidatePatch = () => {
     const selected = marks.slice(0, 2).filter((mark): mark is Point => !!mark);
-    return cropAround(moving && stage() === "track" ? [] : selected, size, 14, 56);
+    return cropAround(selected, size, 14, 56);
   };
   const field = mountFirstStarField(canvas, world, () => {
     const current = stage();
-    const landmarkMarks = landmarks.map((at, i) => ({ at, kind: "landmark" as const, label: moving ? "" : String(i + 1) }));
+    const landmarkMarks = landmarks.map((at, i) => ({ at, kind: "landmark" as const, label: String(i + 1) }));
     const showLandmarks = current === "landmarks" || current === "contrast" || current === "next-visit" ||
-      current === "compare" || current === "track" || current === "verify";
+      current === "compare" || current === "verify";
     const showPatch = moving ? current === "difference"
       : current === "mark" || current === "close-look" || current === "difference" || current === "originals";
     const hubblePractice = brownDwarf && current === "practice";
@@ -369,7 +375,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
           ...visibleMarks.flatMap((at, i) => at ? [{
             at,
             kind: moving ? "correct" as const : "candidate" as const,
-            label: tool === "difference" ? `${frame(i)} mark` : moving ? "" : "Your mark",
+            label: tool === "difference" ? (moving ? String(i + 1) : `${frame(i)} mark`) : moving ? "" : "Your mark",
           }] : []),
           ...(rejected ? [{ at: rejected, kind: "incorrect" as const, label: "" }] : []),
         ],
@@ -377,7 +383,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
       guides: [
         ...(showLandmarks && landmarks.length ? [{
           patch: landmarkPatch(),
-          label: moving ? "Your landmark" : "Your landmarks", kind: "landmarks" as const,
+          label: "Your landmarks", kind: "landmarks" as const,
         }] : []),
         ...(showPatch && marks.some(Boolean) ? [{
           patch: candidatePatch(), label: "Compare this patch", kind: "compare" as const,
@@ -400,7 +406,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
 
   function ready() {
     switch (stage()) {
-      case "landmarks": return moving || landmarks.length === 3;
+      case "landmarks": return landmarks.length === 3;
       case "contrast": return triedFilter;
       case "next-visit": return seenVisitTwo;
       case "mark": return !!marks[visit];
@@ -420,8 +426,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
     if (mode === "difference") return current === "difference" || current === "originals";
     if (!MOVING_FILTERS[mode]) return true;
     if (!moving) return false;
-    if (mode === "background") return current === "landmarks" || current === "track";
-    if (mode === "motion") return current === "difference" || current === "verify" || current === "practice";
+    if (mode === "background") return current === "difference";
     return true;
   }
 
@@ -429,37 +434,32 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
     const current = stage();
     const currentStep = steps[step];
     const found = current === "found";
-    const watching = (moving && current === "landmarks") || current === "practice";
+    const watching = current === "track" || current === "practice";
     const canCompare = moving ? !watching : step >= 3;
     const maxVisit = watching || current === "verify" || found ? 2 : canCompare ? 1 : 0;
-    $(".first-star-progress").textContent = current === "practice"
-      ? `${data.positions.filter((_, i) => matchesMark(i)).length} of ${observations.length} frames marked`
-      : brownDwarf && found ? "" : `Step ${step + 1} of ${steps.length + 1}`;
+    $(".first-star-progress").textContent = moving
+      ? found ? "" : `${data.positions.filter((_, i) => matchesMark(i)).length} of ${observations.length} frames marked`
+      : `Step ${step + 1} of ${steps.length + 1}`;
     const text = found ? foundMessage
       : brownDwarf && tool === "motion" ? "Mark the amber point that shifts between frames."
       : currentStep.prompt;
     if (prompt.textContent !== text) prompt.textContent = text;
     const canContinue = ready();
-    if (trackInstruction) {
-      trackInstruction.hidden = current !== "track";
-      if (current === "track") {
-        const same = matchesMark(1 - visit);
-        const target = same ? "the same object’s head" : "the bright head";
-        trackInstruction.textContent = `Mark ${target} in ${frame(visit)}.`;
-      }
-    }
+    if (trackInstruction) trackInstruction.hidden = current !== "track";
     const action = found ? revealed ? "Start again" : "" : "action" in currentStep ? currentStep.action : "";
     next.textContent = action;
     next.disabled = !canContinue;
     next.hidden = !action;
     $(".first-star-actions").classList.toggle("is-complete", found);
     control("undo").hidden = current !== "landmarks" || !landmarks.length;
-    control("undo").textContent = moving ? "Remove landmark" : "Undo landmark";
     control("focus").hidden = current !== "close-look";
     const hint = control("hint");
-    hint.hidden = (moving ? current !== "track" && current !== "verify" && current !== "practice" : step < 4)
-      || found || hints >= (brownDwarf ? 1 : 2);
-    hint.textContent = hints === 1 ? "Narrow the search" : "Show a hint";
+    const maxHints = brownDwarf ? 1 : 2;
+    hint.hidden = moving ? current !== "track" && current !== "verify" && current !== "practice"
+      : step < 4 || found || hints >= maxHints;
+    hint.disabled = moving && hints >= maxHints;
+    hint.textContent = hint.disabled ? "Hint shown" : hints === 1 ? "Narrow the search" : "Show a hint";
+    if (moving) $(".first-star-image-actions").hidden = hint.hidden && !watching;
     const filtersAvailable = (moving || step >= 2) && !found;
     $(".first-star-filters").hidden = !filtersAvailable;
     const suggestedTool = current === "contrast" ? "contrast" : current === "difference" ? "difference"
@@ -474,6 +474,12 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
       button.hidden = i > maxVisit;
       button.disabled = found || markAdvanceTimer !== undefined || (tool === "difference" && i === 0);
       button.setAttribute("aria-pressed", String(i === visit));
+      if (moving) {
+        const marked = matchesMark(i);
+        button.textContent = marked ? `${frame(i)} ✓` : frame(i);
+        button.setAttribute("aria-label", marked ? `${frame(i)}, marked` : frame(i));
+        button.classList.toggle("is-marked", marked);
+      }
       button.classList.toggle("is-suggested",
         (current === "next-visit" && !seenVisitTwo && i === 1) ||
         (current === "verify" && (retryVisit ?? 2) === i && visit !== i));
@@ -491,7 +497,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
       : MOVING_FILTERS[tool];
     $(".first-star-active-visit").textContent = showingDifference ? `${frame(1)} − ${frame(0)}`
       : showingBackground ? "Star background · 3 frames" : `${frame(visit)} · ${imageTime(visit)}`;
-    const comparingCandidate = current === "track" || current === "close-look" || current === "originals"
+    const comparingCandidate = current === "close-look" || current === "originals"
       || current === "difference" && (moving || showingDifference);
     const patch = current === "compare" ? landmarkPatch()
       : comparingCandidate ? candidatePatch() : undefined;
@@ -506,7 +512,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
         differenceCutouts.forEach((detail, i) => drawFirstStarPatch(detail, images[i], patch));
       } else {
         comparisonHeading.textContent = showingBackground ? "Original frames for comparison"
-          : tool === "motion" ? "Moving objects in both frames" : current === "track" ? "Compare the same sky"
+          : tool === "motion" ? "Moving objects in both frames"
           : moving ? "Same patch, two frames" : "Same patch, two visits";
         const images = showingBackground ? pictures.original : pictures[tool] ?? pictures.original;
         originalCutouts.forEach((detail, i) =>
@@ -558,8 +564,9 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
         markAdvanceTimer = setTimeout(advanceAfterMark, CORRECT_MARK_HOLD_MS);
       } else {
         rejectedMarks[visit] = at;
-        feedback.textContent = comet
-          ? "Try again. Look for the bright head of the object that moved."
+        feedback.textContent = brownDwarf && tool === "motion"
+          ? "Try again. Follow the amber point inside the box."
+          : comet ? "Try again. Look for the bright head of the object that moved."
           : "Try again. Look for a point that shifts against the background stars.";
       }
       render();
@@ -568,15 +575,9 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
 
     switch (current) {
       case "landmarks":
-        if (moving) {
-          stopPlayback();
-          landmarks = [at];
-          feedback.textContent = "Landmark placed.";
-        } else {
-          if (landmarks.length === 3 || landmarks.some(mark => distance(at, mark) < 4)) return;
-          landmarks.push(at);
-          feedback.textContent = `${landmarks.length} of 3 landmarks marked.`;
-        }
+        if (landmarks.length === 3 || landmarks.some(mark => distance(at, mark) < 4)) return;
+        landmarks.push(at);
+        feedback.textContent = `${landmarks.length} of 3 landmarks marked.`;
         break;
       case "mark":
       case "close-look":
@@ -593,12 +594,13 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
   function advanceAfterMark() {
     markAdvanceTimer = undefined;
     if (ready()) {
-      advance();
+      if (stage() === "track" && matchesMark(2) && flow?.advance) flow.advance();
+      else advance();
       return;
     }
     const marked = frame(visit);
     do {
-      visit = (visit + 1) % (stage() === "track" ? 2 : observations.length);
+      visit = (visit + 1) % observations.length;
     } while (matchesMark(visit));
     feedback.textContent = `${marked} marked. ${frame(visit)} is now open.`;
     render();
@@ -681,10 +683,6 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
     } else {
       step++;
       if (!toolAvailable(tool)) tool = "original";
-      if (stage() === "track") {
-        visit = 0;
-        field.reset();
-      }
       if (moving && stage() === "difference") {
         visit = 1;
         hints = 0;
@@ -741,7 +739,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
   control("reset-view").onclick = () => { pauseForInspection(); field.reset(); };
   control("undo").onclick = () => {
     landmarks.pop();
-    feedback.textContent = moving ? "Landmark removed." : `${landmarks.length} of 3 landmarks marked.`;
+    feedback.textContent = `${landmarks.length} of 3 landmarks marked.`;
     render();
   };
   control("focus").onclick = () => {
@@ -749,6 +747,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
     field.focus({ x: patch.x + patch.w / 2, y: patch.y + patch.h / 2 }, 3);
   };
   control("hint").onclick = () => {
+    stopPlayback();
     hints++;
     if (!brownDwarf) field.reset();
     feedback.textContent = brownDwarf ? "Look for a small bright point inside the smaller box."

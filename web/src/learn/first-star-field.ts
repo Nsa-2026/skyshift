@@ -7,7 +7,7 @@ const MARK_STYLE: Record<MarkKind, { color: string; radius: number; symbol?: str
   landmark: { color: "#71caff", radius: 10 },
   candidate: { color: "#ffd485", radius: 15 },
   correct: { color: "#8ff0bd", radius: 15, symbol: "✓" },
-  incorrect: { color: "#ff747c", radius: 15, symbol: "×" },
+  incorrect: { color: "#ffe27a", radius: 15, symbol: "×" },
   archive: { color: "#8ff0bd", radius: 21 },
 };
 type Patch = Point & { w: number; h: number };

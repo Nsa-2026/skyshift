@@ -91,6 +91,10 @@
   box-shadow: 0 0 0 1px var(--pencil-blue);
 }
 .first-star-filters > span { font-size: .82rem; color: var(--ink-2); }
+.first-star-image-actions { display: flex; flex-wrap: wrap; gap: .35rem; margin-bottom: .45rem; }
+.first-star-image-actions .btn { min-height: 36px; font-size: .9rem; padding: .3rem .65rem; }
+.first-star-observation > [data-control="continue"] { margin: .55rem 0 .1rem; }
+.first-star-visits .btn.is-marked { color: var(--ink); border-color: #438463; }
 .first-star-moving .first-star-toolbar { gap: .45rem .8rem; }
 .first-star-more-filters summary, .first-star-difference-details summary {
   cursor: pointer;
