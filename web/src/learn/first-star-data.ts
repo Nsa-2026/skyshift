@@ -1,30 +1,39 @@
 import { psfSigmaPx, robustSigma, sigmaLimits, smooth, subtract } from "../blink/math";
 import { buildLut, diffIndex, paint, plainIndex, readPalette } from "../blink/paint";
 import cutoutUrl from "./wise0855/f110w.f32?url";
-import metadata from "./wise0855/observations.json";
+import hubbleMetadata from "./wise0855/observations.json";
+import tessUrl from "./comet/frames.f32?url";
+import tessMetadata from "./comet/observations.json";
 
 export const WISE_NAME = "WISE 0855−0714";
-export const HST_FIELD = metadata;
+export const TESS_COMET = "https://science.nasa.gov/blogs/3iatlas/2026/01/27/nasas-tess-reobserves-comet-3i-atlas/";
+export const TESS_EPHEMERIS = "https://github.com/tessgi/tess-3i/blob/main/data/2026/3iatlas_ephem_sector1751_20260326.csv";
 export const ASTROMETRY_ARTICLE = "https://doi.org/10.1051/0004-6361/201628662";
 export const WISE_DISCOVERY = "https://www.jpl.nasa.gov/images/pia18002-cold-and-quick-a-fast-moving-brown-dwarf/";
 export const SPHEREX_WISE_VIEW = "?t=wise0855&det=6#/explore";
-export const mastImage = (filename: string) =>
-  `https://mast.stsci.edu/api/v0.1/Download/file?uri=mast:HST/product/${filename}`;
+export const mastImage = (collection: "HST" | "TESS", filename: string) =>
+  `https://mast.stsci.edu/api/v0.1/Download/file?uri=mast:${collection}/product/${filename}`;
 
+export const TRACKING_IMAGES = {
+  star: { field: hubbleMetadata, url: cutoutUrl, smoothingArcsec: .22 },
+  comet: { field: tessMetadata, url: tessUrl, smoothingArcsec: 33 },
+};
+export type TrackingLesson = keyof typeof TRACKING_IMAGES;
+export type TrackingImages = (typeof TRACKING_IMAGES)[TrackingLesson];
 export type StarTool = "original" | "contrast" | "difference";
 
-export async function loadFirstStar(signal: AbortSignal) {
-  const { width, height, observations, arcsecPerPixel } = HST_FIELD;
-  const response = await fetch(cutoutUrl, { signal });
-  if (!response.ok) throw new Error("The Hubble image cutouts are unavailable.");
+export async function loadTrackingImages(source: TrackingImages, signal: AbortSignal) {
+  const { width, height, observations, arcsecPerPixel } = source.field;
+  const response = await fetch(source.url, { signal });
+  if (!response.ok) throw new Error("The image cutouts are unavailable.");
   const buffer = await response.arrayBuffer();
   const planeBytes = width * height * Float32Array.BYTES_PER_ELEMENT;
   if (buffer.byteLength !== observations.length * planeBytes) {
-    throw new Error("The Hubble cutouts have an unexpected size.");
+    throw new Error("The image cutouts have an unexpected size.");
   }
   const originals = observations.map((_, index) => new Float32Array(buffer, index * planeBytes, width * height));
-  const hstPsfArcsec = .22;
-  const smoothed = originals.map(values => smooth(values, width, height, psfSigmaPx(hstPsfArcsec, arcsecPerPixel)));
+  const sigma = psfSigmaPx(source.smoothingArcsec, arcsecPerPixel);
+  const smoothed = originals.map(values => smooth(values, width, height, sigma));
   return {
     originals,
     smoothed,
@@ -33,10 +42,10 @@ export async function loadFirstStar(signal: AbortSignal) {
   };
 }
 
-export type FirstStarData = Awaited<ReturnType<typeof loadFirstStar>>;
+export type TrackingData = Awaited<ReturnType<typeof loadTrackingImages>>;
 
-export function firstStarPictures(data: FirstStarData, canvas: HTMLCanvasElement) {
-  const { width, height } = HST_FIELD;
+export function trackingPictures(source: TrackingImages, data: TrackingData, canvas: HTMLCanvasElement) {
+  const { width, height } = source.field;
   const palette = readPalette(canvas);
   const positive = buildLut(palette, false, true);
   const signed = buildLut(palette, true, false);

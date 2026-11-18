@@ -4,34 +4,37 @@ import { clueRegion, type Point } from "../play/hunt-model";
 import { cropAround } from "./data";
 import { esc } from "./glossary";
 import {
-  ASTROMETRY_ARTICLE, HST_FIELD, SPHEREX_WISE_VIEW, WISE_DISCOVERY, WISE_NAME, firstStarPictures,
-  loadFirstStar, mastImage, type FirstStarData, type StarTool,
+  ASTROMETRY_ARTICLE, SPHEREX_WISE_VIEW, TESS_COMET, TESS_EPHEMERIS, TRACKING_IMAGES, WISE_DISCOVERY, WISE_NAME,
+  loadTrackingImages, mastImage, trackingPictures, type StarTool, type TrackingData, type TrackingLesson,
 } from "./first-star-data";
 import { drawFirstStarPatch, mountFirstStarField } from "./first-star-field";
-import { FIRST_STAR_STEPS, FIRST_STAR_TITLE } from "./first-star-steps";
+import { COMET_STEPS, COMET_TITLE, FIRST_STAR_STEPS, FIRST_STAR_TITLE } from "./first-star-steps";
 
-const STEP_COUNT = FIRST_STAR_STEPS.length + 1;
-const MATCH_RADIUS_PIXELS = 2.25;
-
-export function mountFirstStar(host: HTMLElement, signal: AbortSignal) {
+export function mountTrackingGuide(host: HTMLElement, signal: AbortSignal, lesson: TrackingLesson) {
+  const comet = lesson === "comet";
+  const mission = comet ? "TESS" : "Hubble";
+  const title = comet ? COMET_TITLE : FIRST_STAR_TITLE;
+  const intro = comet
+    ? "Follow a comet across three real NASA TESS images. Its name is revealed at the end."
+    : "Follow a faint point across three real Hubble images. Find out what you tracked at the end.";
   host.innerHTML = `<article class="first-star" aria-labelledby="ln-h">
     <a class="first-star-back" href="#/learn">← Learn</a>
-    <h1 id="ln-h" tabindex="-1">${FIRST_STAR_TITLE}</h1>
-    <p class="first-star-intro">Follow a faint point across three real Hubble images. Find out what you tracked at the end.</p>
-    <div class="first-star-body"><p role="status">Loading three Hubble visits…</p></div>
+    <h1 id="ln-h" tabindex="-1">${title}</h1>
+    <p class="first-star-intro">${intro}</p>
+    <div class="first-star-body"><p role="status">Loading ${mission} images…</p></div>
   </article>`;
   const body = host.querySelector<HTMLElement>(".first-star-body")!;
 
   async function load() {
     try {
-      const data = await loadFirstStar(signal);
-      if (!signal.aborted) runGuide(body, data, signal);
+      const data = await loadTrackingImages(TRACKING_IMAGES[lesson], signal);
+      if (!signal.aborted) runGuide(body, data, signal, lesson);
     } catch (error) {
       if (signal.aborted) return;
-      console.warn("Learn: first star observations failed to load", error);
-      body.innerHTML = '<p role="alert">Couldn’t load the Hubble observations.</p><button type="button" class="btn btn-primary">Try again</button>';
+      console.warn("Learn: tracking images failed to load", error);
+      body.innerHTML = `<p role="alert">Couldn’t load the ${mission} images.</p><button type="button" class="btn btn-primary">Try again</button>`;
       body.querySelector("button")!.onclick = () => {
-        body.innerHTML = '<p role="status">Loading three Hubble visits…</p>';
+        body.innerHTML = `<p role="status">Loading ${mission} images…</p>`;
         void load();
       };
     }
@@ -40,59 +43,77 @@ export function mountFirstStar(host: HTMLElement, signal: AbortSignal) {
   void load();
 }
 
-function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
-  const { width, height, observations, arcsecPerPixel, program } = HST_FIELD;
+function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, lesson: TrackingLesson) {
+  const comet = lesson === "comet";
+  const source = TRACKING_IMAGES[lesson];
+  const steps = comet ? COMET_STEPS : FIRST_STAR_STEPS;
+  const { width, height, observations, arcsecPerPixel } = source.field;
+  const frame = (i: number) => `${comet ? "Frame" : "Visit"} ${i + 1}`;
+  const sourceCaption = comet ? "NASA TESS · Sector 1751 · Camera 2, CCD 3" : "NASA/ESA Hubble · WFC3/IR F110W";
   const size: [number, number] = [width, height];
   const world = { width, height };
-  const fieldArcsec = (width * arcsecPerPixel).toFixed(1);
+  const fieldSize = comet ? `${(width * arcsecPerPixel / 60).toFixed(0)}′` : `${(width * arcsecPerPixel).toFixed(1)}″`;
   const observedShifts = data.positions.slice(1).map((position, i) => {
     const back = data.positions[i];
     return (Math.hypot(position.x - back.x, position.y - back.y) * arcsecPerPixel).toFixed(1);
   });
   const visitMidpoint = (i: number) => (observations[i].startMjd + observations[i].endMjd) / 2;
-  const visitDate = (i: number) => formatMjd(visitMidpoint(i));
-  const visitCutout = (i: number) => `<figure>
-    <canvas width="144" height="144" role="img" aria-label="Hubble detail from Visit ${i + 1}"></canvas>
-    <figcaption><strong>Visit ${i + 1}</strong><br>${visitDate(i)}</figcaption>
+  const imageTime = (i: number) => formatMjd(visitMidpoint(i), comet);
+  const utc = (i: number) => comet ? imageTime(i) : `${imageTime(i)} UTC`;
+  const cutout = (i: number) => `<figure>
+    <canvas width="144" height="144" role="img" aria-label="${comet ? "TESS" : "Hubble"} detail from ${frame(i)}"></canvas>
+    <figcaption><strong>${frame(i)}</strong><br>${imageTime(i)}</figcaption>
   </figure>`;
+  const first = data.positions[0];
+  const last = data.positions[data.positions.length - 1];
+  const totalPixels = Math.round(Math.hypot(last.x - first.x, last.y - first.y));
+  const hours = ((visitMidpoint(2) - visitMidpoint(0)) * 24).toFixed(1);
+  const story = comet
+    ? `This interstellar comet crossed ${totalPixels} image pixels in ${hours} hours. Its bright head and diffuse tail moved past the same background stars in three TESS exposures.`
+    : `You tracked a cold brown dwarf across three Hubble visits. In these images it moved about ${observedShifts[0]}″, then another ${observedShifts[1]}″, passing close to a brighter point.`;
+  const revealLinks = comet
+    ? `<p><a href="${TESS_COMET}">Watch NASA’s TESS sequence</a></p>`
+    : `<p><a href="${WISE_DISCOVERY}">See NASA’s discovery animation</a></p>
+      <p><a href="${SPHEREX_WISE_VIEW}">Find it at longer wavelengths in the SPHEREx Viewer</a></p>`;
+  const archiveSource = comet ? TESS_EPHEMERIS : ASTROMETRY_ARTICLE;
+  const archiveLabel = comet ? "TESS Science Support Center ephemeris" : "Published astrometry and Hubble observations";
   body.innerHTML = `
     <section class="first-star-guide">
       <header class="first-star-instruction">
         <p class="first-star-progress"></p>
         <h2 class="first-star-prompt" tabindex="-1"></h2>
         <div class="first-star-discovery" hidden>
-          <h3>Meet ${esc(WISE_NAME)}.</h3>
-          <p>You tracked a cold brown dwarf across three Hubble visits. In these images it moved about ${observedShifts[0]}″, then another ${observedShifts[1]}″, passing close to a brighter point.</p>
-          <p><a href="${WISE_DISCOVERY}">See NASA’s discovery animation</a></p>
-          <p><a href="${SPHEREX_WISE_VIEW}">Find it at longer wavelengths in the SPHEREx Viewer</a></p>
+          <h3>Meet ${comet ? "3I/ATLAS" : esc(WISE_NAME)}.</h3>
+          <p>${story}</p>
+          ${revealLinks}
         </div>
       </header>
       <section class="first-star-comparison" aria-labelledby="first-star-comparison-heading" hidden>
-        <h3 id="first-star-comparison-heading">Same patch, two visits</h3>
-        <div class="first-star-cutout-pair">${visitCutout(0)}${visitCutout(1)}</div>
+        <h3 id="first-star-comparison-heading"></h3>
+        <div class="first-star-cutout-pair">${cutout(0)}${cutout(1)}</div>
         <div class="first-star-difference-explanation" hidden>
-          <p>At each matching spot, SkyShift subtracts the infrared light measured in Visit 1 from the light measured in Visit 2.</p>
+          <p>At each matching spot, SkyShift subtracts the light measured in ${frame(0)} from the light measured in ${frame(1)}.</p>
           <div class="first-star-difference-equation">
-            ${visitCutout(1)}
+            ${cutout(1)}
             <span aria-hidden="true">−</span>
-            ${visitCutout(0)}
+            ${cutout(0)}
             <span aria-hidden="true">=</span>
             <figure>
-              <canvas width="144" height="144" role="img" aria-label="Difference cutout showing Visit 2 minus Visit 1"></canvas>
+              <canvas width="144" height="144" role="img" aria-label="Difference cutout showing ${frame(1)} minus ${frame(0)}"></canvas>
               <figcaption><strong>Difference</strong></figcaption>
             </figure>
           </div>
           <ul class="first-star-difference-key" aria-label="Difference colour key">
-            <li><span class="first-star-swatch is-positive" aria-hidden="true">+</span><strong>Red</strong> · More light in Visit 2</li>
-            <li><span class="first-star-swatch is-negative" aria-hidden="true">−</span><strong>Blue</strong> · Less light in Visit 2</li>
+            <li><span class="first-star-swatch is-positive" aria-hidden="true">+</span><strong>Red</strong> · More light in ${frame(1)}</li>
+            <li><span class="first-star-swatch is-negative" aria-hidden="true">−</span><strong>Blue</strong> · Less light in ${frame(1)}</li>
             <li><span class="first-star-swatch is-neutral" aria-hidden="true">≈</span><strong>Gray</strong> · Little or no clear change</li>
           </ul>
-          <p class="first-star-difference-note">Bright stars can leave coloured streaks when the telescope turns. Use the two marks and the original images to check the shift.</p>
+          <p class="first-star-difference-note">${comet ? "Compare blue near the first mark with red near the later mark. Check both positions in the original frames." : "Bright stars can leave coloured streaks when the telescope turns. Use the two marks and the original images to check the shift."}</p>
         </div>
       </section>
       <figure class="first-star-observation" aria-labelledby="first-star-caption">
         <div class="first-star-frame">
-          <canvas tabindex="0" aria-label="NASA/ESA Hubble infrared star field. Use arrow keys to pan, plus or minus to zoom, and Enter to mark the crosshair."></canvas>
+          <canvas tabindex="0" aria-label="${comet ? "NASA TESS" : "NASA/ESA Hubble infrared"} star field. Use arrow keys to pan, plus or minus to zoom, and Enter to mark the crosshair."></canvas>
           <span class="first-star-active-visit" aria-hidden="true"></span>
           <span class="first-star-compass" aria-hidden="true">N ↑ · E ←</span>
           <div class="first-star-zoom" role="group" aria-label="Image zoom">
@@ -102,8 +123,8 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
           </div>
         </div>
         <div class="first-star-toolbar">
-          <div class="first-star-visits" role="group" aria-label="Observation visits">
-            ${data.originals.map((_, i) => `<button type="button" class="btn" data-visit="${i}" aria-pressed="false">Visit ${i + 1}</button>`).join("")}
+          <div class="first-star-visits" role="group" aria-label="${comet ? "Observation frames" : "Observation visits"}">
+            ${data.originals.map((_, i) => `<button type="button" class="btn" data-visit="${i}" aria-pressed="false">${frame(i)}</button>`).join("")}
           </div>
           <div class="first-star-filters" role="group" aria-label="Viewer filters">
             <span>Add filters</span>
@@ -115,12 +136,14 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
         <figcaption id="first-star-caption"></figcaption>
         <details class="first-star-provenance">
           <summary>Observation data and processing</summary>
-          <p>NASA/ESA Hubble · WFC3/IR · F110W (near 1.15 µm) · MAST programme ${program}. The ${fieldArcsec}″ cutouts share a north-up grid of ${arcsecPerPixel}″ per pixel. SkyShift used the calibrated drizzle products, aligned stationary field sources and subtracted each cutout’s median sky background.</p>
+          <p>${sourceCaption}. The ${fieldSize} cutouts share a north-up grid of ${arcsecPerPixel}″ per pixel. ${comet
+            ? "SkyShift reprojected MAST’s calibrated full-frame images onto that grid and subtracted each cutout’s median sky background."
+            : "The F110W filter is centred near 1.15 µm. SkyShift used MAST programme 13802’s calibrated drizzle products, aligned stationary field sources and subtracted each cutout’s median sky background."}</p>
           <p id="first-star-processing"></p>
           <div class="first-star-archive" hidden>
-            <p>The green trail connects the positions measured in those three visits, using published coordinates as references.</p>
-            <p><a href="${ASTROMETRY_ARTICLE}">Published astrometry and Hubble observations</a></p>
-            <ul>${observations.map((o, i) => `<li><a href="${mastImage(o.filename)}">Visit ${i + 1} · ${esc(o.filename)}</a> · ${visitDate(i)} UTC</li>`).join("")}</ul>
+            <p>The green trail connects positions measured in the three images, using published coordinates as references.</p>
+            <p><a href="${archiveSource}">${archiveLabel}</a></p>
+            <ul>${observations.map((o, i) => `<li><a href="${mastImage(comet ? "TESS" : "HST", o.filename)}">${frame(i)} FITS</a> · ${utc(i)}</li>`).join("")}</ul>
           </div>
         </details>
       </figure>
@@ -145,7 +168,7 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
   const differenceExplanation = $(".first-star-difference-explanation");
   const originalCutouts = [...originalComparison.querySelectorAll("canvas")];
   const differenceCutouts = [...differenceExplanation.querySelectorAll("canvas")];
-  const pictures = firstStarPictures(data, canvas);
+  const pictures = trackingPictures(source, data, canvas);
   const prompt = $(".first-star-prompt");
   const feedback = $(".first-star-feedback");
   const next = control("continue");
@@ -163,10 +186,13 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
   let revealed = false;
   let revealTimer: ReturnType<typeof setTimeout> | undefined;
 
-  const stage = () => step === FIRST_STAR_STEPS.length ? "found" : FIRST_STAR_STEPS[step].id;
+  const stage = () => step === steps.length ? "found" : steps[step].id;
   const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
-  const landmarkPatch = () => cropAround(landmarks, size, 9, 48);
-  const candidatePatch = () => cropAround(marks.slice(0, 2).filter((mark): mark is Point => !!mark), size, 14, 56);
+  const landmarkPatch = () => cropAround(landmarks, size, 9, comet ? 124 : 48);
+  const candidatePatch = () => {
+    const selected = marks.slice(0, 2).filter((mark): mark is Point => !!mark);
+    return cropAround(comet && selected.length < 2 ? [] : selected, size, 14, 56);
+  };
   const field = mountFirstStarField(canvas, world, () => {
     const current = stage();
     const landmarkMarks = landmarks.map((at, i) => ({ at, kind: "landmark" as const, label: String(i + 1) }));
@@ -178,11 +204,11 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
     return {
       image: pictures[tool][visit],
       marks: revealed
-        ? data.positions.map((at, i) => ({ at, kind: "archive" as const, label: `Visit ${i + 1}` }))
+        ? data.positions.map((at, i) => ({ at, kind: "archive" as const, label: frame(i) }))
         : [
           ...landmarkMarks,
           ...visibleMarks.flatMap((at, i) => at ? [{
-            at, kind: "candidate" as const, label: tool === "difference" ? `Visit ${i + 1} mark` : "Your mark",
+            at, kind: "candidate" as const, label: tool === "difference" ? `${frame(i)} mark` : "Your mark",
           }] : []),
         ],
       trail: revealed ? data.positions : undefined,
@@ -223,10 +249,12 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
     const current = stage();
     const found = current === "found";
     const maxVisit = step < 3 ? 0 : current === "verify" || found ? 2 : 1;
-    $(".first-star-progress").textContent = `Step ${step + 1} of ${STEP_COUNT}`;
-    const text = found ? "Congratulations! You found your first star." : FIRST_STAR_STEPS[step].prompt;
+    $(".first-star-progress").textContent = `Step ${step + 1} of ${steps.length + 1}`;
+    const text = found
+      ? comet ? "Congratulations! You tracked the comet." : "Congratulations! You found your first star."
+      : steps[step].prompt;
     if (prompt.textContent !== text) prompt.textContent = text;
-    next.textContent = found ? "Start again" : FIRST_STAR_STEPS[step].action;
+    next.textContent = found ? "Start again" : steps[step].action;
     const canContinue = ready();
     next.disabled = !canContinue;
     next.hidden = found && !revealed;
@@ -256,8 +284,8 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
         (current === "verify" && (retryVisit ?? 2) === i && visit !== i));
     });
     $(".first-star-active-visit").textContent = tool === "difference"
-      ? "Visit 2 − Visit 1"
-      : `Visit ${visit + 1} · ${visitDate(visit)}`;
+      ? `${frame(1)} − ${frame(0)}`
+      : `${frame(visit)} · ${imageTime(visit)}`;
     const showingDifference = tool === "difference";
     const comparingCandidate = current === "close-look" || current === "originals" || showingDifference;
     const patch = current === "compare" ? landmarkPatch()
@@ -265,7 +293,7 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
     comparison.hidden = !patch;
     guide.classList.toggle("has-comparison", !!patch);
     if (patch) {
-      comparisonHeading.textContent = showingDifference ? "How the Difference image is made" : "Same patch, two visits";
+      comparisonHeading.textContent = showingDifference ? "How the Difference image is made" : comet ? "Same patch, two frames" : "Same patch, two visits";
       originalComparison.hidden = showingDifference;
       differenceExplanation.hidden = !showingDifference;
       if (showingDifference) {
@@ -276,18 +304,17 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
         originalCutouts.forEach((detail, i) => drawFirstStarPatch(detail, images[i], patch, marks[i]));
       }
     }
-    const dateLine = `Visit ${visit + 1} · ${visitDate(visit)} UTC`;
-    const source = "NASA/ESA Hubble · WFC3/IR F110W";
-    const note = showingDifference ? ` · Difference from Visit 1 (${visitDate(0)} UTC)`
+    const note = showingDifference ? ` · Difference from ${frame(0)} (${utc(0)})`
       : tool === "contrast" ? " · High contrast" : "";
-    $("#first-star-caption").textContent = `${dateLine} · ${source}${note}`;
+    $("#first-star-caption").textContent = `${frame(visit)} · ${utc(visit)} · ${sourceCaption}${note}`;
     const observed = observations[visit];
-    const exposureInfo = `The exposure midpoint is ${formatMjd(visitMidpoint(visit), true)}. Integration time was ${Math.round(observed.exposureSeconds)} seconds. MAST calibrated this product with CALWF3 ${observed.calibration.split(" ")[0]}.`;
+    const calibration = comet ? observed.calibration : `CALWF3 ${observed.calibration.split(" ")[0]}`;
+    const exposureInfo = `The exposure midpoint is ${formatMjd(visitMidpoint(visit), true)}. Exposure duration was ${Math.round(observed.exposureSeconds)} seconds. Calibration used ${calibration}.`;
     const processing = showingDifference
-      ? "SkyShift smooths both calibrated images at Hubble’s resolution and subtracts Visit 1 pixel by pixel. The colour scale mutes differences near the estimated noise level."
+      ? `SkyShift smooths both calibrated images and subtracts ${frame(0)} pixel by pixel. The colour scale mutes differences near the estimated noise level.`
       : tool === "contrast"
-        ? "High contrast smooths the measured pixels at Hubble’s resolution and uses the same faint-detail stretch on every date."
-        : "The original views use the same display stretch on every date.";
+        ? "High contrast smooths the measured pixels and uses the same faint-detail stretch on every image."
+        : "The original views use the same display stretch on every image.";
     $("#first-star-processing").textContent = `${exposureInfo} ${processing}`;
     $(".first-star-discovery").hidden = !revealed;
     $(".first-star-archive").hidden = !revealed;
@@ -306,7 +333,7 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
       case "verify":
         marks[visit] = at;
         retryVisit = null;
-        feedback.textContent = `Visit ${visit + 1} mark placed. Select another point to move it.`;
+        feedback.textContent = `${frame(visit)} mark placed. Select another point to move it.`;
         break;
       default: return;
     }
@@ -318,7 +345,10 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
     visit = index;
     if (stage() === "next-visit" && index === 1) seenVisitTwo = true;
     const lastMark = marks[1];
-    if (stage() === "verify" && index === 2 && lastMark) field.focus(lastMark, 4);
+    if (stage() === "verify" && index === 2) {
+      if (comet) field.reset();
+      else if (lastMark) field.focus(lastMark, 4);
+    }
     feedback.textContent = "";
     render();
   }
@@ -336,17 +366,19 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
     } else if (stage() === "verify") {
       const unmatched = data.positions.findIndex((position, i) => {
         const mark = marks[i];
-        return !mark || distance(mark, position) > MATCH_RADIUS_PIXELS;
+        return !mark || distance(mark, position) > (comet ? 2.5 : 2.25);
       });
       if (unmatched !== -1) {
         retryVisit = unmatched;
-        feedback.textContent = `Take another look at Visit ${unmatched + 1}. Check the faint points near your mark against the other dates.`;
+        feedback.textContent = comet
+          ? `Take another look at ${frame(unmatched)}. Check the object’s bright head against the background stars.`
+          : `Take another look at ${frame(unmatched)}. Check the faint points near your mark against the other dates.`;
         render();
         return;
       }
       step++;
       field.reset();
-      field.focus(data.positions[1], 4);
+      if (!comet) field.focus(data.positions[1], 4);
       revealTimer = setTimeout(() => {
         revealed = true;
         render();
@@ -357,7 +389,8 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
       if (stage() === "close-look" && mark) {
         visit = visit === 0 ? 1 : 0;
         tool = "contrast";
-        field.focus(mark, 3);
+        if (comet) field.reset();
+        else field.focus(mark, 3);
       }
     }
     feedback.textContent = "";

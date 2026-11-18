@@ -35,6 +35,7 @@ describe("lesson routes", () => {
     const all: LearnRoute[] = [
       { view: "home" },
       { view: "first-star" },
+      { view: "comet" },
       { view: "lesson", n: 4 },
       { view: "glossary", slug: null },
       { view: "glossary", slug: "ghost" },
