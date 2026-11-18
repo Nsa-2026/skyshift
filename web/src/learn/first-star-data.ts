@@ -153,7 +153,12 @@ export function trackingPictures(lesson: TrackingLesson, data: TrackingData, can
   const contrastIndex = plainIndex({ lo: .9 * smoothedNoise, hi: 14 * smoothedNoise }, "asinh");
   const differenceIndex = diffIndex(sigmaLimits([data.differences[1]], .26));
 
-  function picture(values: Float32Array, lut: Uint8ClampedArray, index: (value: number) => number) {
+  function picture(
+    values: Float32Array,
+    lut: Uint8ClampedArray,
+    index: (value: number) => number,
+    highlights?: Uint8Array,
+  ) {
     const image = document.createElement("canvas");
     image.width = width;
     image.height = height;
@@ -161,6 +166,18 @@ export function trackingPictures(lesson: TrackingLesson, data: TrackingData, can
     if (ctx) {
       const pixels = ctx.createImageData(width, height);
       paint(values, pixels.data, lut, index);
+      if (highlights) {
+        const amber: RGB = [255, 193, 94];
+        for (let i = 0; i < highlights.length; i++) {
+          const amount = highlights[i] / 255;
+          if (!amount) continue;
+          const offset = i * 4;
+          for (let channel = 0; channel < amber.length; channel++) {
+            const grayscale = pixels.data[offset + channel];
+            pixels.data[offset + channel] = grayscale + (amber[channel] - grayscale) * amount;
+          }
+        }
+      }
       ctx.putImageData(pixels, 0, 0);
     }
     return image;
@@ -181,11 +198,29 @@ export function trackingPictures(lesson: TrackingLesson, data: TrackingData, can
   const residualNoise = robustSigma(residuals);
   const residualIndex = plainIndex({ lo: 2 * residualNoise, hi: 18 * residualNoise }, "asinh");
 
+  let motion: HTMLCanvasElement[];
+  if (lesson === "brown-dwarf") {
+    // Bright Hubble spikes rotate between visits. Weight positive residuals by the
+    // local reference brightness and a wider glare estimate before overlaying them.
+    const light = background.map(value => Math.max(value, 0));
+    const localLight = smooth(light, width, height, 2.1);
+    const glare = smooth(light, width, height, 7);
+    const muted = buildLut({ ...palette, glass: lerp(palette.ink, palette.glass, .38) }, false, true);
+    const highlightIndex = plainIndex({ lo: 2.8, hi: 6.5 }, "linear");
+    motion = residuals.map(values => {
+      const highlights = Uint8Array.from(values, (value, i) =>
+        highlightIndex(value / (2 * residualNoise + .20 * localLight[i] + .25 * glare[i])));
+      return picture(background, muted, originalIndex, highlights);
+    });
+  } else {
+    motion = residuals.map(values => picture(values, positive, residualIndex));
+  }
+
   return {
     ...pictures,
     intensity: data.originals.map(values => picture(values, intensity, originalIndex)),
     negative: data.originals.map(values => picture(values, negative, originalIndex)),
     background: data.originals.map(() => backgroundPicture),
-    motion: residuals.map(values => picture(values, positive, residualIndex)),
+    motion,
   };
 }

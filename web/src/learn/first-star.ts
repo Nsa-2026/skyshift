@@ -15,6 +15,8 @@ import {
 
 const FRAME_DELAY_MS = 1000;
 const CORRECT_MARK_HOLD_MS = 450;
+// An isolated background star at the same measured position in all three Hubble images.
+const HUBBLE_REFERENCE: Point = { x: 68.2, y: 76.1 };
 
 const MOVING_FILTERS: Partial<Record<StarTool, { label: string; description: string }>> = {
   intensity: { label: "Intensity colours", description: "Colours show the brightness measured in this image." },
@@ -49,7 +51,7 @@ const GUIDES = {
   "brown-dwarf": {
     ...HUBBLE_GUIDE,
     title: "Follow a Faint Point", steps: PRACTICE_STEPS,
-    intro: "Follow a faint point through three infrared images from Hubble.",
+    intro: "Use the blue reference star to see which faint point shifts inside the box.",
     found: "Practice complete!",
   },
   star: {
@@ -249,13 +251,16 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
             ${moving ? "" : "<span>Add filters</span>"}
             <button type="button" class="btn" data-tool="original" aria-pressed="true">Original</button>
             ${moving ? `
+              ${brownDwarf ? filterButton("motion", "Motion clues") : ""}
               ${filterButton("intensity", "Intensity colours")}
               ${filterButton("difference", "Difference")}
               <details class="first-star-more-filters">
                 <summary>More filters</summary>
                 <div>
                   ${filterButton("contrast", "High contrast")}
-                  ${Object.entries(MOVING_FILTERS).filter(([mode]) => mode !== "intensity").map(([mode, filter]) =>
+                  ${Object.entries(MOVING_FILTERS)
+                    .filter(([mode]) => mode !== "intensity" && !(brownDwarf && mode === "motion"))
+                    .map(([mode, filter]) =>
                     filterButton(mode as StarTool, filter.label)).join("")}
                 </div>
               </details>` : `${filterButton("contrast", "High contrast")}${filterButton("difference", "Difference")}`}
@@ -315,7 +320,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
   const visitButtons = buttons("[data-visit]");
   let step = 0;
   let visit = 0;
-  let tool: StarTool = "original";
+  let tool: StarTool = brownDwarf ? "motion" : "original";
   let landmarks: Point[] = [];
   let marks: (Point | undefined)[] = [];
   const rejectedMarks: (Point | undefined)[] = [];
@@ -347,7 +352,9 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
       current === "compare" || current === "track" || current === "verify";
     const showPatch = moving ? current === "difference"
       : current === "mark" || current === "close-look" || current === "difference" || current === "originals";
-    const clue = hints && current !== "found" ? clueRegion(data.positions, world, hints) : undefined;
+    const hubblePractice = brownDwarf && current === "practice";
+    const clue = hubblePractice ? clueRegion(hints ? [data.positions[visit]] : data.positions, world, 2)
+      : hints && current !== "found" ? clueRegion(data.positions, world, hints) : undefined;
     const visibleMarks = tool === "difference" ? marks.slice(0, 2) : [marks[visit]];
     const rejected = tool === "difference" ? undefined : rejectedMarks[visit];
     return {
@@ -358,6 +365,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
         }))
         : [
           ...(!moving || showLandmarks ? landmarkMarks : []),
+          ...(hubblePractice ? [{ at: HUBBLE_REFERENCE, kind: "landmark" as const, label: "Fixed star" }] : []),
           ...visibleMarks.flatMap((at, i) => at ? [{
             at,
             kind: moving ? "correct" as const : "candidate" as const,
@@ -376,7 +384,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
         }] : []),
         ...(clue ? [{
           patch: { x: clue.x, y: clue.y, w: clue.width, h: clue.height },
-          label: hints === 1 ? "Search here" : "Look closer",
+          label: hubblePractice ? (hints ? "Look closer" : "Search area") : hints === 1 ? "Search here" : "Look closer",
           kind: "hint" as const,
         }] : []),
       ],
@@ -427,7 +435,9 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
     $(".first-star-progress").textContent = current === "practice"
       ? `${data.positions.filter((_, i) => matchesMark(i)).length} of ${observations.length} frames marked`
       : brownDwarf && found ? "" : `Step ${step + 1} of ${steps.length + 1}`;
-    const text = found ? foundMessage : currentStep.prompt;
+    const text = found ? foundMessage
+      : brownDwarf && tool === "motion" ? "Mark the amber point that shifts between frames."
+      : currentStep.prompt;
     if (prompt.textContent !== text) prompt.textContent = text;
     const canContinue = ready();
     if (trackInstruction) {
@@ -447,7 +457,8 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
     control("undo").textContent = moving ? "Remove landmark" : "Undo landmark";
     control("focus").hidden = current !== "close-look";
     const hint = control("hint");
-    hint.hidden = (moving ? current !== "track" && current !== "verify" && current !== "practice" : step < 4) || found || hints >= 2;
+    hint.hidden = (moving ? current !== "track" && current !== "verify" && current !== "practice" : step < 4)
+      || found || hints >= (brownDwarf ? 1 : 2);
     hint.textContent = hints === 1 ? "Narrow the search" : "Show a hint";
     const filtersAvailable = (moving || step >= 2) && !found;
     $(".first-star-filters").hidden = !filtersAvailable;
@@ -475,7 +486,9 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
       playback.disabled = markAdvanceTimer !== undefined;
       playback.textContent = playbackTimer === undefined ? "Play frames" : "Pause frames";
     }
-    const filter = MOVING_FILTERS[tool];
+    const filter = brownDwarf && tool === "motion"
+      ? { label: "Motion clues", description: "Gray shows the same reference field each time. Amber shows where this frame is brighter." }
+      : MOVING_FILTERS[tool];
     $(".first-star-active-visit").textContent = showingDifference ? `${frame(1)} − ${frame(0)}`
       : showingBackground ? "Star background · 3 frames" : `${frame(visit)} · ${imageTime(visit)}`;
     const comparingCandidate = current === "track" || current === "close-look" || current === "originals"
@@ -520,6 +533,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
     const processing = showingDifference
       ? `SkyShift smooths both calibrated images and subtracts ${frame(0)} pixel by pixel. The colour scale mutes differences near the estimated noise level.`
       : showingBackground ? "SkyShift smooths each aligned frame and takes the median at each pixel."
+      : tool === "motion" && brownDwarf ? "SkyShift uses the pixel-wise median of the three smoothed frames as a fixed reference. Amber shows positive differences from that reference after reducing the effect of glare around bright stars and suppressing small changes."
       : tool === "motion" ? "SkyShift subtracts the pixel-wise median of the three smoothed frames and displays positive residuals above the estimated noise."
       : tool === "negative" ? "SkyShift reverses the original display palette while keeping the same intensity stretch on every image."
       : tool === "intensity" ? "SkyShift maps measured brightness to a colour scale. All frames use the same intensity stretch as Original."
@@ -737,9 +751,9 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
   control("hint").onclick = () => {
     hints++;
     if (!brownDwarf) field.reset();
-    feedback.textContent = hints === 1
-      ? "Try looking inside the outlined patch of sky."
-      : asteroid || brownDwarf ? "Look for a single point that shifts inside the smaller box."
+    feedback.textContent = brownDwarf ? "Look for a small bright point inside the smaller box."
+      : hints === 1 ? "Try looking inside the outlined patch of sky."
+      : asteroid ? "Look for a single point that shifts inside the smaller box."
       : comet ? "Look for a bright head with a faint tail inside the smaller box."
       : "Look inside the smaller box. Do any faint points change position?";
     render();
