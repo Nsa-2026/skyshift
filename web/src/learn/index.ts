@@ -20,19 +20,24 @@ import { LESSONS, LESSON_COUNT, type Lesson } from "./lessons";
 import { markDone, markOpened, nextLesson, readProgress, resetProgress, safeStorage, type KV, type Progress } from "./progress";
 import { STORY_PARTS, isStoryPart, type StoryPart } from "./stories-route";
 import { fillAnswerKey, teachersHtml } from "./teachers";
-import { COMET_ROUTE, COMET_TITLE, FIRST_STAR_ROUTE, FIRST_STAR_TITLE } from "./first-star-steps";
+import { ASTEROID_ROUTE, ASTEROID_TITLE, COMET_ROUTE, COMET_TITLE, FIRST_STAR_ROUTE, FIRST_STAR_TITLE } from "./first-star-steps";
 
 export type LearnRoute =
   | { view: "home" }
   | { view: "hunt" }
   | { view: "first-star" }
   | { view: "comet" }
+  | { view: "asteroid" }
   | { view: "detective" }
   | { view: "lesson"; n: number }
   | { view: "glossary"; slug: string | null }
   | { view: "teachers" }
   | { view: "stories"; part: StoryPart; arg: string | null };
 type StoriesRoute = Extract<LearnRoute, { view: "stories" }>;
+type TrackingRoute = Extract<LearnRoute, { view: "first-star" | "comet" | "asteroid" }>;
+
+const isTrackingRoute = (route: LearnRoute): route is TrackingRoute =>
+  route.view === "first-star" || route.view === "comet" || route.view === "asteroid";
 
 /** Read the route argument. Anything unknown goes to the course list. */
 export function parseLearnRoute(param: string | null | undefined): LearnRoute {
@@ -41,7 +46,7 @@ export function parseLearnRoute(param: string | null | undefined): LearnRoute {
   if (!head) return { view: "home" };
   if (head === "hunt" || head === "play") return { view: "hunt" };
   if (head === "first-star") return { view: "first-star" };
-  if (head === "comet") return { view: "comet" };
+  if (head === "comet") return { view: rest[0] === "asteroid" ? "asteroid" : "comet" };
   if (head === "detective") return { view: "detective" };
   if (/^\d+$/.test(head)) {
     const n = Number(head);
@@ -58,7 +63,8 @@ export function parseLearnRoute(param: string | null | undefined): LearnRoute {
 }
 
 export const learnHref = (r: LearnRoute): string =>
-  r.view === "comet" ? COMET_ROUTE
+  r.view === "asteroid" ? ASTEROID_ROUTE
+    : r.view === "comet" ? COMET_ROUTE
     : r.view === "first-star"
     ? FIRST_STAR_ROUTE
     : r.view === "home"
@@ -78,7 +84,8 @@ export const learnHref = (r: LearnRoute): string =>
 /** The browser tab's name for a route (the shell names the page "Learn" before show()). */
 export function learnTitle(r: LearnRoute): string {
   const name =
-    r.view === "comet" ? COMET_TITLE
+    r.view === "asteroid" ? ASTEROID_TITLE
+      : r.view === "comet" ? COMET_TITLE
       : r.view === "first-star"
       ? FIRST_STAR_TITLE
       : r.view === "hunt"
@@ -278,7 +285,7 @@ function homeHtml(p: Progress, practice: PracticeState): string {
       <section class="ln-home-more" aria-labelledby="ln-more-h">
         <h2 id="ln-more-h" class="ln-sec-h">Practise, explore, teach</h2>
         <a class="ln-activity-entry ln-first-star-entry" href="${FIRST_STAR_ROUTE}"><span><strong>${FIRST_STAR_TITLE}</strong><span>Follow one clue at a time through real NASA observations and find a star for yourself.</span></span><span class="ln-activity-action">Start the session ↗</span></a>
-        <a class="ln-activity-entry ln-comet-entry" href="${COMET_ROUTE}"><span><strong>${COMET_TITLE}</strong><span>Follow a comet as it crosses a star field in three real NASA TESS images.</span></span><span class="ln-activity-action">Start the session ↗</span></a>
+        <a class="ln-activity-entry ln-comet-entry" href="${COMET_ROUTE}"><span><strong>${COMET_TITLE}</strong><span>Track a comet in NASA TESS images, then find a moving point in NASA SPHEREx images.</span></span><span class="ln-activity-action">Start the session ↗</span></a>
         <a class="ln-activity-entry ln-detective-entry" href="#/learn/detective"><span><span class="ln-card-k">NASA data, in your hands</span><strong>Sky detective: old clues, new light.</strong><span>Find a star by its neighbours, compare real visits and explore an infrared spectrum. Three investigations. One observation notebook.</span></span><span class="ln-activity-action">Start investigating ↗</span></a>
         ${cardsHtml(practice)}
       </section>
@@ -396,7 +403,7 @@ export const mountLearn: MountPage = (el, ctx: PageContext): PageHandle => {
 
     if (r.view === "home") {
       el.innerHTML = `<div class="ln ln-is-home">${homeHtml(p, practiceState(kv))}</div>`;
-    } else if (r.view === "first-star" || r.view === "comet") {
+    } else if (isTrackingRoute(r)) {
       el.innerHTML = `<div class="ln ln-is-home"><div class="ln-first-star-host"><p role="status">Loading the session…</p></div></div>`;
     } else if (r.view === "hunt") {
       el.innerHTML = `<div class="ln ln-is-home ln-is-hunt"><div class="ln-hunt-host"><p role="status">Loading Sky hunt…</p></div></div>`;
@@ -444,7 +451,7 @@ export const mountLearn: MountPage = (el, ctx: PageContext): PageHandle => {
     }
     if (r.view === "stories") void openStories(r, host.signal);
     if (r.view === "hunt") void openHunt(host.signal);
-    if (r.view === "first-star" || r.view === "comet") void openTrackingGuide(r, host.signal);
+    if (isTrackingRoute(r)) void openTrackingGuide(r, host.signal);
     if (r.view === "detective") void openDetective(host.signal);
     el.querySelector(".ln-reset")?.addEventListener("click", () => {
       resetProgress(kv);
@@ -453,13 +460,13 @@ export const mountLearn: MountPage = (el, ctx: PageContext): PageHandle => {
     });
   }
 
-  async function openTrackingGuide(r: Extract<LearnRoute, { view: "first-star" | "comet" }>, signal: AbortSignal) {
+  async function openTrackingGuide(r: TrackingRoute, signal: AbortSignal) {
     const body = el.querySelector<HTMLElement>(".ln-first-star-host");
     if (!body) return;
     try {
       const { mountTrackingGuide } = await import("./first-star");
       if (signal.aborted) return;
-      mountTrackingGuide(body, signal, r.view === "comet" ? "comet" : "star");
+      mountTrackingGuide(body, signal, r.view === "first-star" ? "star" : r.view);
       focusTarget(r, true);
     } catch (e) {
       if (signal.aborted) return;
@@ -551,7 +558,7 @@ export const mountLearn: MountPage = (el, ctx: PageContext): PageHandle => {
     },
     hide() {
       visible = false;
-      if (lastRoute?.view === "first-star" || lastRoute?.view === "comet") ctl?.abort();
+      if (lastRoute && isTrackingRoute(lastRoute)) ctl?.abort();
       hunt?.hide?.();
       detective?.hide?.();
       host?.plates.forEach((p) => p.suspend());

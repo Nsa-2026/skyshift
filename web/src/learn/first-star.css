@@ -89,7 +89,7 @@
   box-shadow: 0 0 0 1px var(--pencil-blue);
 }
 .first-star-filters > span { font-size: .82rem; color: var(--ink-2); }
-.first-star-comet .first-star-toolbar { gap: .45rem .8rem; }
+.first-star-moving .first-star-toolbar { gap: .45rem .8rem; }
 .first-star-more-filters summary, .first-star-difference-details summary {
   cursor: pointer;
   color: var(--ink-2);
@@ -98,13 +98,14 @@
 .first-star-more-filters summary { padding: .55rem .35rem; }
 .first-star-more-filters[open] { flex: 1 0 100%; }
 .first-star-more-filters > div { display: flex; flex-wrap: wrap; gap: .35rem; }
-.first-star-comet-difference .first-star-difference-key {
+.first-star-moving-difference .first-star-difference-key {
   display: flex;
   flex-wrap: wrap;
   gap: .35rem .85rem;
   margin: .45rem 0;
 }
 .first-star-difference-details { max-width: 360px; }
+.first-star-difference-details summary { padding: .35rem 0; touch-action: manipulation; }
 .first-star-difference-details[open] summary { margin-bottom: .45rem; }
 .first-star-observation figcaption, .first-star-provenance { color: var(--ink-2); font-size: var(--step--1); }
 .first-star-filter-note {
@@ -193,7 +194,7 @@
     grid-template-rows: auto;
     grid-template-areas: "instruction" "comparison" "observation" "actions";
   }
-  .first-star-comet .first-star-comparison { max-width: 240px; }
+  .first-star-moving .first-star-comparison { max-width: 240px; }
   .first-star-back { margin-bottom: var(--s2); }
   .first-star-intro { margin-bottom: var(--s4); }
   .first-star .first-star-prompt { max-width: none; scroll-margin-top: 8.5rem; }

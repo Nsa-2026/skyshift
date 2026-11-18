@@ -17,9 +17,21 @@ export const FIRST_STAR_STEPS = [
 export const COMET_TITLE = "Track a Comet";
 export const COMET_ROUTE = "#/learn/comet";
 
-export const COMET_STEPS = [
+export const ASTEROID_TITLE = "Find the Moving Point";
+export const ASTEROID_ROUTE = "#/learn/comet/asteroid";
+
+const MOVING_STEPS = [
   { id: "landmarks", prompt: "Watch what moves across the three frames.", action: "Mark what moved" },
   { id: "track", prompt: "What moved between the two frames?" },
   { id: "difference", prompt: "Do the red and blue patches match your marks?", action: "Check Frame 3" },
+] as const;
+
+export const COMET_STEPS = [
+  ...MOVING_STEPS,
   { id: "verify", prompt: "Where did the comet go next? Mark its head in Frame 3." },
+] as const;
+
+export const ASTEROID_STEPS = [
+  ...MOVING_STEPS,
+  { id: "verify", prompt: "Which point followed the same path into Frame 3? Mark it." },
 ] as const;

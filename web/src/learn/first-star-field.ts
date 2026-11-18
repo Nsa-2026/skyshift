@@ -1,6 +1,6 @@
 import { clampCamera, mapScale, toScreen, toWorld, zoomAt, type Camera, type Point, type Size } from "../play/hunt-model";
 
-type Mark = { at: Point; label: string; kind: "landmark" | "candidate" | "archive" };
+type Mark = { at: Point; label: string; kind: "landmark" | "candidate" | "archive"; radius?: number };
 type Patch = Point & { w: number; h: number };
 type Guide = { patch: Patch; label: string; kind: "landmarks" | "compare" | "hint" };
 type FieldView = { image: HTMLCanvasElement; marks: Mark[]; guides: Guide[]; trail?: Point[] };
@@ -36,6 +36,7 @@ export function mountFirstStarField(
   let camera: Camera = initial;
   let screen: Size = { width: 1, height: 1 };
   let drag: { id: number; start: Point; last: Point; moved: boolean } | undefined;
+  let pendingPick: Point | undefined;
   let keyboard = false;
   const listeners = new AbortController();
   const { signal } = listeners;
@@ -69,7 +70,7 @@ export function mountFirstStarField(
     ctx.font = "600 12px system-ui";
     for (const mark of marks) {
       const point = toScreen(mark.at, camera, world, screen);
-      const radius = mark.kind === "landmark" ? 10 : mark.kind === "archive" ? 21 : 15;
+      const radius = mark.radius ?? (mark.kind === "landmark" ? 10 : mark.kind === "archive" ? 21 : 15);
       const color = mark.kind === "landmark" ? "#71caff" : mark.kind === "archive" ? "#8ff0bd" : "#ffd485";
       ctx.beginPath();
       ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
@@ -179,6 +180,7 @@ export function mountFirstStarField(
 
   canvas.addEventListener("pointerdown", event => {
     if (event.button !== 0 || !event.isPrimary) return;
+    pendingPick = undefined;
     canvas.focus({ preventScroll: true });
     canvas.setPointerCapture(event.pointerId);
     const at = local(event);
@@ -195,8 +197,15 @@ export function mountFirstStarField(
   }, { signal });
   canvas.addEventListener("pointerup", event => {
     if (drag?.id !== event.pointerId) return;
-    if (!drag.moved) select(toWorld(local(event), camera, world, screen));
+    if (!drag.moved) pendingPick = toWorld(local(event), camera, world, screen);
     drag = undefined;
+  }, { signal });
+  // A mark can change the lesson layout. Consume the tap before moving controls under it.
+  canvas.addEventListener("click", () => {
+    if (!pendingPick) return;
+    const at = pendingPick;
+    pendingPick = undefined;
+    select(at);
   }, { signal });
   canvas.addEventListener("lostpointercapture", () => { drag = undefined; }, { signal });
   canvas.addEventListener("wheel", event => {
