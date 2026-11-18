@@ -114,6 +114,10 @@
   font-size: .9rem;
   line-height: 1.45;
 }
+.first-star-difference-explanation .first-star-difference-note {
+  margin: .65rem 0 0;
+  font-size: .82rem;
+}
 .first-star-difference-equation {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);

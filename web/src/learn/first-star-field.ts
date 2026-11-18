@@ -3,14 +3,26 @@ import { clampCamera, mapScale, toScreen, toWorld, zoomAt, type Camera, type Poi
 type Mark = { at: Point; label: string; kind: "landmark" | "candidate" | "archive" };
 type Patch = Point & { w: number; h: number };
 type Guide = { patch: Patch; label: string; kind: "landmarks" | "compare" | "hint" };
-type FieldView = { image: HTMLCanvasElement; marks: Mark[]; guides: Guide[] };
+type FieldView = { image: HTMLCanvasElement; marks: Mark[]; guides: Guide[]; trail?: Point[] };
 
-export function drawFirstStarPatch(canvas: HTMLCanvasElement, image: HTMLCanvasElement, patch: Patch) {
+export function drawFirstStarPatch(canvas: HTMLCanvasElement, image: HTMLCanvasElement, patch: Patch, mark?: Point) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(image, patch.x, patch.y, patch.w, patch.h, 0, 0, canvas.width, canvas.height);
+  if (mark) {
+    const x = (mark.x - patch.x) * canvas.width / patch.w;
+    const y = (mark.y - patch.y) * canvas.height / patch.h;
+    ctx.beginPath();
+    ctx.arc(x, y, 6, 0, Math.PI * 2);
+    ctx.strokeStyle = "#19222c";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.strokeStyle = "#ffd485";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
 }
 
 export function mountFirstStarField(
@@ -29,7 +41,7 @@ export function mountFirstStarField(
   const { signal } = listeners;
 
   function draw() {
-    const { image, marks, guides } = read();
+    const { image, marks, guides, trail } = read();
     ctx.setTransform(canvas.width / screen.width, 0, 0, canvas.height / screen.height, 0, 0);
     ctx.fillStyle = "#141d28";
     ctx.fillRect(0, 0, screen.width, screen.height);
@@ -42,6 +54,18 @@ export function mountFirstStarField(
     ctx.rect(origin.x, origin.y, world.width * scale, world.height * scale);
     ctx.clip();
     for (const guide of guides) drawGuide(guide, origin, scale);
+    if (trail?.length) {
+      const [first, ...rest] = trail.map(at => toScreen(at, camera, world, screen));
+      ctx.beginPath();
+      ctx.moveTo(first.x, first.y);
+      for (const point of rest) ctx.lineTo(point.x, point.y);
+      ctx.strokeStyle = "#19222c";
+      ctx.lineWidth = 4;
+      ctx.stroke();
+      ctx.strokeStyle = "#8ff0bd";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
     ctx.font = "600 12px system-ui";
     for (const mark of marks) {
       const point = toScreen(mark.at, camera, world, screen);

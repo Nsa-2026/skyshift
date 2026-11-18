@@ -1,0 +1,51 @@
+{
+  "program": 13802,
+  "width": 192,
+  "height": 192,
+  "arcsecPerPixel": 0.1285,
+  "centreDegrees": [
+    133.785166666667,
+    -7.243847222222
+  ],
+  "observations": [
+    {
+      "filename": "icit01010_drz.fits",
+      "date": "2014-11-25",
+      "startMjd": 56986.76780326,
+      "endMjd": 56986.86566141,
+      "exposureSeconds": 5417.61,
+      "calibration": "3.7.3 (Jan-07-2026)",
+      "sourceSha256": "f69e4073ee19a19414d66ed986d01d814013d9fe5c6c1e4fd66afc7245b61587",
+      "mark": {
+        "x": 97.375,
+        "y": 109.48
+      }
+    },
+    {
+      "filename": "icit02010_drz.fits",
+      "date": "2015-03-03",
+      "startMjd": 57084.74115093,
+      "endMjd": 57084.89473834,
+      "exposureSeconds": 5417.61,
+      "calibration": "3.7.3 (Jan-07-2026)",
+      "sourceSha256": "2b9083b7abbe26d2d6de4d7aa1b5a85c4aa99ada1976e838f1be141379f4c6ee",
+      "mark": {
+        "x": 119.475,
+        "y": 107.373
+      }
+    },
+    {
+      "filename": "icit04010_drz.fits",
+      "date": "2015-04-11",
+      "startMjd": 57123.05798041,
+      "endMjd": 57123.27347745,
+      "exposureSeconds": 5417.61,
+      "calibration": "3.7.3 (Jan-07-2026)",
+      "sourceSha256": "c7d907a01a93b31da8e63725139f76af708060cd4cbdd47187b993217fb8e083",
+      "mark": {
+        "x": 127.339,
+        "y": 105.497
+      }
+    }
+  ]
+}

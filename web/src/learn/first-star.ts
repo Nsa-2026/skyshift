@@ -1,23 +1,24 @@
 import "./first-star.css";
-import { visitOf, VISIT_DETS } from "../colour/visit";
-import { formatMjd, formatRaDec } from "../app/astro";
+import { formatMjd } from "../app/astro";
 import { clueRegion, type Point } from "../play/hunt-model";
 import { cropAround } from "./data";
 import { esc } from "./glossary";
-import { FIRST_STAR, FIRST_STAR_DETECTOR, firstStarPictures, loadFirstStar, type FirstStarData, type StarTool } from "./first-star-data";
+import {
+  ASTROMETRY_ARTICLE, HST_FIELD, SPHEREX_WISE_VIEW, WISE_DISCOVERY, WISE_NAME, firstStarPictures,
+  loadFirstStar, mastImage, type FirstStarData, type StarTool,
+} from "./first-star-data";
 import { drawFirstStarPatch, mountFirstStarField } from "./first-star-field";
 import { FIRST_STAR_STEPS, FIRST_STAR_TITLE } from "./first-star-steps";
 
-const ARCHIVE = "https://irsa.ipac.caltech.edu/Missions/spherex.html";
 const STEP_COUNT = FIRST_STAR_STEPS.length + 1;
-const MATCH_RADIUS_PIXELS = 4;
+const MATCH_RADIUS_PIXELS = 2.25;
 
 export function mountFirstStar(host: HTMLElement, signal: AbortSignal) {
   host.innerHTML = `<article class="first-star" aria-labelledby="ln-h">
     <a class="first-star-back" href="#/learn">← Learn</a>
     <h1 id="ln-h" tabindex="-1">${FIRST_STAR_TITLE}</h1>
-    <p class="first-star-intro">Retrace the evidence for a known star using real NASA SPHEREx observations at your own pace.</p>
-    <div class="first-star-body"><p role="status">Loading three SPHEREx visits…</p></div>
+    <p class="first-star-intro">Follow a faint point across three real Hubble images. Find out what you tracked at the end.</p>
+    <div class="first-star-body"><p role="status">Loading three Hubble visits…</p></div>
   </article>`;
   const body = host.querySelector<HTMLElement>(".first-star-body")!;
 
@@ -28,9 +29,9 @@ export function mountFirstStar(host: HTMLElement, signal: AbortSignal) {
     } catch (error) {
       if (signal.aborted) return;
       console.warn("Learn: first star observations failed to load", error);
-      body.innerHTML = '<p role="alert">Couldn’t load the SPHEREx observations.</p><button type="button" class="btn btn-primary">Try again</button>';
+      body.innerHTML = '<p role="alert">Couldn’t load the Hubble observations.</p><button type="button" class="btn btn-primary">Try again</button>';
       body.querySelector("button")!.onclick = () => {
-        body.innerHTML = '<p role="status">Loading three SPHEREx visits…</p>';
+        body.innerHTML = '<p role="status">Loading three Hubble visits…</p>';
         void load();
       };
     }
@@ -40,14 +41,19 @@ export function mountFirstStar(host: HTMLElement, signal: AbortSignal) {
 }
 
 function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
-  const first = data.originals[0];
-  const size = first.set.frames.size;
-  const [width, height] = size;
+  const { width, height, observations, arcsecPerPixel, program } = HST_FIELD;
+  const size: [number, number] = [width, height];
   const world = { width, height };
-  const fieldArcmin = Math.round(width * first.set.frames.pixel_arcsec / 60);
+  const fieldArcsec = (width * arcsecPerPixel).toFixed(1);
+  const observedShifts = data.positions.slice(1).map((position, i) => {
+    const back = data.positions[i];
+    return (Math.hypot(position.x - back.x, position.y - back.y) * arcsecPerPixel).toFixed(1);
+  });
+  const visitMidpoint = (i: number) => (observations[i].startMjd + observations[i].endMjd) / 2;
+  const visitDate = (i: number) => formatMjd(visitMidpoint(i));
   const visitCutout = (i: number) => `<figure>
-    <canvas width="144" height="144" role="img" aria-label="Original SPHEREx detail from Visit ${i + 1}"></canvas>
-    <figcaption><strong>Visit ${i + 1}</strong><br>${formatMjd(data.originals[i].epoch.mjd_mid)}</figcaption>
+    <canvas width="144" height="144" role="img" aria-label="Hubble detail from Visit ${i + 1}"></canvas>
+    <figcaption><strong>Visit ${i + 1}</strong><br>${visitDate(i)}</figcaption>
   </figure>`;
   body.innerHTML = `
     <section class="first-star-guide">
@@ -55,11 +61,10 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
         <p class="first-star-progress"></p>
         <h2 class="first-star-prompt" tabindex="-1"></h2>
         <div class="first-star-discovery" hidden>
-          <h3>Meet ${esc(FIRST_STAR.name)}.</h3>
-          <p>This young variable star changes brightness. You retraced its position in three infrared visits and compared its changing light with nearby stars.</p>
-          <p>Sky position <strong>${esc(formatRaDec(data.archivePosition))}</strong></p>
-          <p>Bright stars can saturate some SPHEREx measurements. These images let you inspect the change without estimating how much the star brightened.</p>
-          <p><a href="?t=${FIRST_STAR.slug}&amp;det=${FIRST_STAR_DETECTOR}#/explore">Open this star in the Viewer</a></p>
+          <h3>Meet ${esc(WISE_NAME)}.</h3>
+          <p>You tracked a cold brown dwarf across three Hubble visits. In these images it moved about ${observedShifts[0]}″, then another ${observedShifts[1]}″, passing close to a brighter point.</p>
+          <p><a href="${WISE_DISCOVERY}">See NASA’s discovery animation</a></p>
+          <p><a href="${SPHEREX_WISE_VIEW}">Find it at longer wavelengths in the SPHEREx Viewer</a></p>
         </div>
       </header>
       <section class="first-star-comparison" aria-labelledby="first-star-comparison-heading" hidden>
@@ -82,11 +87,12 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
             <li><span class="first-star-swatch is-negative" aria-hidden="true">−</span><strong>Blue</strong> · Less light in Visit 2</li>
             <li><span class="first-star-swatch is-neutral" aria-hidden="true">≈</span><strong>Gray</strong> · Little or no clear change</li>
           </ul>
+          <p class="first-star-difference-note">Bright stars can leave coloured streaks when the telescope turns. Use the two marks and the original images to check the shift.</p>
         </div>
       </section>
       <figure class="first-star-observation" aria-labelledby="first-star-caption">
         <div class="first-star-frame">
-          <canvas tabindex="0" aria-label="NASA SPHEREx infrared star field. Use arrow keys to pan, plus or minus to zoom, and Enter to mark the crosshair."></canvas>
+          <canvas tabindex="0" aria-label="NASA/ESA Hubble infrared star field. Use arrow keys to pan, plus or minus to zoom, and Enter to mark the crosshair."></canvas>
           <span class="first-star-active-visit" aria-hidden="true"></span>
           <span class="first-star-compass" aria-hidden="true">N ↑ · E ←</span>
           <div class="first-star-zoom" role="group" aria-label="Image zoom">
@@ -102,18 +108,19 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
           <div class="first-star-filters" role="group" aria-label="Viewer filters">
             <span>Add filters</span>
             <button type="button" class="btn" data-tool="original" aria-pressed="true">Original</button>
-            <button type="button" class="btn" data-tool="colours" aria-pressed="false">Star colours</button>
+            <button type="button" class="btn" data-tool="contrast" aria-pressed="false">High contrast</button>
             <button type="button" class="btn" data-tool="difference" aria-pressed="false">Difference</button>
           </div>
         </div>
         <figcaption id="first-star-caption"></figcaption>
         <details class="first-star-provenance">
           <summary>Observation data and processing</summary>
-          <p>NASA/JPL-Caltech/IPAC · SPHEREx ${esc(first.set.frames.data_release)} · ${fieldArcmin}′ field. The original views are SkyShift median stacks with the sky background subtracted and one shared display stretch.</p>
+          <p>NASA/ESA Hubble · WFC3/IR · F110W (near 1.15 µm) · MAST programme ${program}. The ${fieldArcsec}″ cutouts share a north-up grid of ${arcsecPerPixel}″ per pixel. SkyShift used the calibrated drizzle products, aligned stationary field sources and subtracted each cutout’s median sky background.</p>
           <p id="first-star-processing"></p>
           <div class="first-star-archive" hidden>
-            <p>The dashed green circle marks the archived position projected onto the observation grid.</p>
-            <p><a href="${esc(first.set.jsonUrl)}">Visit metadata and image arrays</a> · <a href="${ARCHIVE}">SPHEREx archive</a></p>
+            <p>The green trail connects the positions measured in those three visits, using published coordinates as references.</p>
+            <p><a href="${ASTROMETRY_ARTICLE}">Published astrometry and Hubble observations</a></p>
+            <ul>${observations.map((o, i) => `<li><a href="${mastImage(o.filename)}">Visit ${i + 1} · ${esc(o.filename)}</a> · ${visitDate(i)} UTC</li>`).join("")}</ul>
           </div>
         </details>
       </figure>
@@ -122,7 +129,7 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
         <button type="button" class="btn btn-primary" data-control="continue"></button>
         <div class="first-star-secondary">
           <button type="button" class="btn btn-ghost" data-control="undo" hidden>Undo landmark</button>
-          <button type="button" class="btn btn-ghost" data-control="focus" hidden>Zoom to my mark</button>
+          <button type="button" class="btn btn-ghost" data-control="focus" hidden>Zoom to my marks</button>
           <button type="button" class="btn btn-ghost" data-control="hint" hidden>Show a hint</button>
         </div>
       </div>
@@ -148,9 +155,9 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
   let visit = 0;
   let tool: StarTool = "original";
   let landmarks: Point[] = [];
-  let candidate: Point | undefined;
-  let thirdMark: Point | undefined;
-  let shownColours = false;
+  let marks: (Point | undefined)[] = [];
+  let retryVisit: number | null = null;
+  let shownContrast = false;
   let seenVisitTwo = false;
   let hints = 0;
   let revealed = false;
@@ -158,30 +165,33 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
 
   const stage = () => step === FIRST_STAR_STEPS.length ? "found" : FIRST_STAR_STEPS[step].id;
   const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
-  const nearTarget = (at: Point, index: number) => distance(at, data.positions[index]) <= MATCH_RADIUS_PIXELS;
-  const landmarkPatch = () => cropAround(landmarks, size, 9, 24);
-  const comparePatch = (at: Point) => cropAround([at], size, 12, 24);
+  const landmarkPatch = () => cropAround(landmarks, size, 9, 48);
+  const candidatePatch = () => cropAround(marks.slice(0, 2).filter((mark): mark is Point => !!mark), size, 14, 56);
   const field = mountFirstStarField(canvas, world, () => {
     const current = stage();
-    const marks = landmarks.map((at, i) => ({ at, kind: "landmark" as const, label: String(i + 1) }));
-    const activeMark = visit === 2 ? thirdMark : candidate;
-    const showLandmarks = current === "landmarks" || current === "colours" || current === "next-visit" ||
+    const landmarkMarks = landmarks.map((at, i) => ({ at, kind: "landmark" as const, label: String(i + 1) }));
+    const showLandmarks = current === "landmarks" || current === "contrast" || current === "next-visit" ||
       current === "compare" || current === "verify";
     const showPatch = current === "mark" || current === "close-look" || current === "difference" || current === "originals";
     const clue = hints && current !== "found" ? clueRegion(data.positions, world, hints) : undefined;
+    const visibleMarks = tool === "difference" ? marks.slice(0, 2) : [marks[visit]];
     return {
       image: pictures[tool][visit],
-      marks: [
-        ...marks,
-        ...(activeMark ? [{ at: activeMark, kind: "candidate" as const, label: "Your mark" }] : []),
-        ...(revealed ? [{ at: data.positions[visit], kind: "archive" as const, label: "Archive position" }] : []),
-      ],
+      marks: revealed
+        ? data.positions.map((at, i) => ({ at, kind: "archive" as const, label: `Visit ${i + 1}` }))
+        : [
+          ...landmarkMarks,
+          ...visibleMarks.flatMap((at, i) => at ? [{
+            at, kind: "candidate" as const, label: tool === "difference" ? `Visit ${i + 1} mark` : "Your mark",
+          }] : []),
+        ],
+      trail: revealed ? data.positions : undefined,
       guides: [
         ...(showLandmarks && landmarks.length ? [{
           patch: landmarkPatch(), label: "Your landmarks", kind: "landmarks" as const,
         }] : []),
-        ...(showPatch && candidate ? [{
-          patch: comparePatch(candidate), label: "Compare this patch", kind: "compare" as const,
+        ...(showPatch && marks.some(Boolean) ? [{
+          patch: candidatePatch(), label: "Compare this patch", kind: "compare" as const,
         }] : []),
         ...(clue ? [{
           patch: { x: clue.x, y: clue.y, w: clue.width, h: clue.height },
@@ -197,12 +207,13 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
   function ready() {
     switch (stage()) {
       case "landmarks": return landmarks.length === 3;
-      case "colours": return shownColours;
+      case "contrast": return shownContrast;
       case "next-visit": return seenVisitTwo;
-      case "mark": return !!candidate;
+      case "mark": return !!marks[visit];
+      case "close-look": return !!marks[0] && !!marks[1];
       case "difference": return tool === "difference";
-      case "originals": return tool === "original";
-      case "verify": return visit === 2 && !!thirdMark;
+      case "originals": return tool !== "difference";
+      case "verify": return visit === 2 && !!marks[2];
       case "found": return revealed;
       default: return true;
     }
@@ -225,14 +236,14 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
     const hint = control("hint");
     hint.hidden = step < 4 || found || hints >= 2;
     hint.textContent = hints === 1 ? "Narrow the search" : "Show a hint";
-    const coloursAvailable = current === "colours" || current === "next-visit";
+    const filtersAvailable = step >= 2 && !found;
     const differenceAvailable = current === "difference" || current === "originals";
-    $(".first-star-filters").hidden = !(coloursAvailable || differenceAvailable);
-    const suggestedTool = current === "colours" ? "colours" : current === "difference" ? "difference"
+    $(".first-star-filters").hidden = !filtersAvailable;
+    const suggestedTool = current === "contrast" ? "contrast" : current === "difference" ? "difference"
       : current === "originals" ? "original" : null;
     toolButtons.forEach(button => {
       const mode = button.dataset.tool;
-      button.hidden = mode === "colours" ? !coloursAvailable : mode === "difference" && !differenceAvailable;
+      button.hidden = mode === "difference" && !differenceAvailable;
       button.setAttribute("aria-pressed", String(mode === tool));
       button.classList.toggle("is-suggested", !canContinue && mode === suggestedTool);
     });
@@ -242,44 +253,42 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
       button.setAttribute("aria-pressed", String(i === visit));
       button.classList.toggle("is-suggested",
         (current === "next-visit" && !seenVisitTwo && i === 1) ||
-        (current === "verify" && visit !== 2 && i === 2));
+        (current === "verify" && (retryVisit ?? 2) === i && visit !== i));
     });
-    const date = ({ epoch }: FirstStarData["originals"][number]) => formatMjd(epoch.mjd_mid);
-    const dataVisit = data.originals[visit];
-    const band = `D${FIRST_STAR_DETECTOR}`;
     $(".first-star-active-visit").textContent = tool === "difference"
-      ? `Visit ${visit + 1} − Visit 1`
-      : `Visit ${visit + 1} · ${date(dataVisit)}`;
+      ? "Visit 2 − Visit 1"
+      : `Visit ${visit + 1} · ${visitDate(visit)}`;
     const showingDifference = tool === "difference";
     const comparingCandidate = current === "close-look" || current === "originals" || showingDifference;
     const patch = current === "compare" ? landmarkPatch()
-      : comparingCandidate && candidate ? comparePatch(candidate) : undefined;
+      : comparingCandidate && marks.some(Boolean) ? candidatePatch() : undefined;
     comparison.hidden = !patch;
     guide.classList.toggle("has-comparison", !!patch);
     if (patch) {
       comparisonHeading.textContent = showingDifference ? "How the Difference image is made" : "Same patch, two visits";
       originalComparison.hidden = showingDifference;
       differenceExplanation.hidden = !showingDifference;
-      const cutouts = showingDifference ? differenceCutouts : originalCutouts;
-      const images = showingDifference ? [pictures.original[1], pictures.original[0], pictures.difference[1]] : pictures.original;
-      cutouts.forEach((detail, i) => drawFirstStarPatch(detail, images[i], patch));
+      if (showingDifference) {
+        const images = [pictures.original[1], pictures.original[0], pictures.difference[1]];
+        differenceCutouts.forEach((detail, i) => drawFirstStarPatch(detail, images[i], patch));
+      } else {
+        const images = pictures[tool];
+        originalCutouts.forEach((detail, i) => drawFirstStarPatch(detail, images[i], patch, marks[i]));
+      }
     }
-    const dateLine = `Visit ${visit + 1} · ${date(dataVisit)} UTC`;
-    const bandLine = `${band} · ${dataVisit.epoch.um_min.toFixed(2)}–${dataVisit.epoch.um_max.toFixed(2)} µm · ${dataVisit.epoch.n_exposures} exposures`;
-    const legend = tool === "colours" ? "Infrared channels mapped to blue (D1), green (D2), and red (D3)." :
-      showingDifference ? `${band} difference from Visit 1 (${date(first)} UTC)` : bandLine;
-    $("#first-star-caption").textContent = `${dateLine} · ${legend} · NASA SPHEREx`;
-    const processing = $("#first-star-processing");
-    const colourDates = first.set.frames.epochs
-      .filter(epoch => VISIT_DETS.nir.includes(epoch.det) && visitOf(epoch.id) === visitOf(dataVisit.epoch.id))
-      .sort((a, b) => a.det - b.det)
-      .map(epoch => `D${epoch.det} · ${formatMjd(epoch.mjd_mid, true)}`)
-      .join(" / ");
-    processing.textContent = tool === "difference"
-      ? `SkyShift uses two ${band} visit stacks on the same sky grid. It subtracts the median sky background from each stack, smooths both to SPHEREx’s resolution, and subtracts Visit 1 from Visit 2 pixel by pixel. The colour scale mutes differences near the estimated noise level.`
-      : tool === "colours"
-        ? `Star colours combines three infrared detector stacks to help you recognize the field. The stack midpoints are ${colourDates}.`
-        : `The stack midpoint is ${formatMjd(dataVisit.epoch.mjd_mid, true)}. Blank pixels have no usable measurement.`;
+    const dateLine = `Visit ${visit + 1} · ${visitDate(visit)} UTC`;
+    const source = "NASA/ESA Hubble · WFC3/IR F110W";
+    const note = showingDifference ? ` · Difference from Visit 1 (${visitDate(0)} UTC)`
+      : tool === "contrast" ? " · High contrast" : "";
+    $("#first-star-caption").textContent = `${dateLine} · ${source}${note}`;
+    const observed = observations[visit];
+    const exposureInfo = `The exposure midpoint is ${formatMjd(visitMidpoint(visit), true)}. Integration time was ${Math.round(observed.exposureSeconds)} seconds. MAST calibrated this product with CALWF3 ${observed.calibration.split(" ")[0]}.`;
+    const processing = showingDifference
+      ? "SkyShift smooths both calibrated images at Hubble’s resolution and subtracts Visit 1 pixel by pixel. The colour scale mutes differences near the estimated noise level."
+      : tool === "contrast"
+        ? "High contrast smooths the measured pixels at Hubble’s resolution and uses the same faint-detail stretch on every date."
+        : "The original views use the same display stretch on every date.";
+    $("#first-star-processing").textContent = `${exposureInfo} ${processing}`;
     $(".first-star-discovery").hidden = !revealed;
     $(".first-star-archive").hidden = !revealed;
     field.draw();
@@ -294,13 +303,10 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
         break;
       case "mark":
       case "close-look":
-        candidate = at;
-        feedback.textContent = "Mark placed. You can move it by selecting another spot.";
-        break;
       case "verify":
-        if (visit === 2) thirdMark = at;
-        else { candidate = at; thirdMark = undefined; }
-        feedback.textContent = visit === 2 ? "Third-visit mark placed." : "Earlier mark updated. Check Visit 3 again when ready.";
+        marks[visit] = at;
+        retryVisit = null;
+        feedback.textContent = `Visit ${visit + 1} mark placed. Select another point to move it.`;
         break;
       default: return;
     }
@@ -311,6 +317,8 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
     if (index === visit) return;
     visit = index;
     if (stage() === "next-visit" && index === 1) seenVisitTwo = true;
+    const lastMark = marks[1];
+    if (stage() === "verify" && index === 2 && lastMark) field.focus(lastMark, 4);
     feedback.textContent = "";
     render();
   }
@@ -321,24 +329,36 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
       step = visit = hints = 0;
       tool = "original";
       landmarks = [];
-      candidate = thirdMark = undefined;
-      shownColours = seenVisitTwo = revealed = false;
+      marks = [];
+      retryVisit = null;
+      shownContrast = seenVisitTwo = revealed = false;
       field.reset();
     } else if (stage() === "verify") {
-      if (!candidate || !thirdMark || !nearTarget(candidate, 0) || !nearTarget(thirdMark, 2)) {
-        feedback.textContent = "Those marks need another look. Compare Visits 1 and 2 again, then try the third visit.";
+      const unmatched = data.positions.findIndex((position, i) => {
+        const mark = marks[i];
+        return !mark || distance(mark, position) > MATCH_RADIUS_PIXELS;
+      });
+      if (unmatched !== -1) {
+        retryVisit = unmatched;
+        feedback.textContent = `Take another look at Visit ${unmatched + 1}. Check the faint points near your mark against the other dates.`;
+        render();
         return;
       }
       step++;
-      field.focus(data.positions[2], 4);
+      field.reset();
+      field.focus(data.positions[1], 4);
       revealTimer = setTimeout(() => {
         revealed = true;
         render();
       }, 1200);
     } else {
       step++;
-      if (stage() === "compare") tool = "original";
-      if (stage() === "close-look" && candidate) field.focus(candidate, 3);
+      const mark = marks[visit];
+      if (stage() === "close-look" && mark) {
+        visit = visit === 0 ? 1 : 0;
+        tool = "contrast";
+        field.focus(mark, 3);
+      }
     }
     feedback.textContent = "";
     render();
@@ -350,7 +370,7 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
   toolButtons.forEach(button => {
     button.onclick = () => {
       tool = button.dataset.tool as StarTool;
-      if (tool === "colours") shownColours = true;
+      if (tool === "contrast") shownContrast = true;
       if (tool === "difference" && visit === 0) visit = 1;
       render();
     };
@@ -364,13 +384,16 @@ function runGuide(body: HTMLElement, data: FirstStarData, signal: AbortSignal) {
     feedback.textContent = `${landmarks.length} of 3 landmarks marked.`;
     render();
   };
-  control("focus").onclick = () => { if (candidate) field.focus(candidate, 3); };
+  control("focus").onclick = () => {
+    const patch = candidatePatch();
+    field.focus({ x: patch.x + patch.w / 2, y: patch.y + patch.h / 2 }, 3);
+  };
   control("hint").onclick = () => {
     hints++;
     field.reset();
     feedback.textContent = hints === 1
       ? "Try looking inside the outlined patch of sky."
-      : "Look inside the smaller box. What looks different between the visits?";
+      : "Look inside the smaller box. Do any faint points change position?";
     render();
   };
   render();
