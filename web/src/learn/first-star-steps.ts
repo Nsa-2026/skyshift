@@ -14,7 +14,7 @@ export const FIRST_STAR_STEPS = [
   { id: "verify", prompt: "Open Visit 3. Find the same point and leave your final mark.", action: "Confirm my find" },
 ] as const;
 
-export const COMET_TITLE = "Track a Comet";
+export const COMET_TITLE = "Discovering the Moving Sky";
 export const COMET_ROUTE = "#/learn/comet";
 
 export const ASTEROID_TITLE = "Find the Moving Point";
