@@ -24,7 +24,7 @@ export function mountTrackingGuide(host: HTMLElement, signal: AbortSignal, lesso
   const intro = comet
     ? "Follow a comet across three real NASA TESS images. Its name is revealed at the end."
     : "Follow a faint point across three real Hubble images. Find out what you tracked at the end.";
-  host.innerHTML = `<article class="first-star" aria-labelledby="ln-h">
+  host.innerHTML = `<article class="first-star${comet ? " first-star-comet" : ""}" aria-labelledby="ln-h">
     <a class="first-star-back" href="#/learn">← Learn</a>
     <h1 id="ln-h" tabindex="-1">${title}</h1>
     <p class="first-star-intro">${intro}</p>
@@ -84,11 +84,32 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
       <p><a href="${SPHEREX_WISE_VIEW}">Find it at longer wavelengths in the SPHEREx Viewer</a></p>`;
   const archiveSource = comet ? TESS_EPHEMERIS : ASTROMETRY_ARTICLE;
   const archiveLabel = comet ? "TESS Science Support Center ephemeris" : "Published astrometry and Hubble observations";
+  const differenceEquation = `
+    <div class="first-star-difference-equation">
+      ${cutout(1)}
+      <span aria-hidden="true">−</span>
+      ${cutout(0)}
+      <span aria-hidden="true">=</span>
+      <figure>
+        <canvas width="144" height="144" role="img" aria-label="Difference cutout showing ${frame(1)} minus ${frame(0)}"></canvas>
+        <figcaption><strong>Difference</strong></figcaption>
+      </figure>
+    </div>`;
+  const differenceKey = `
+    <ul class="first-star-difference-key" aria-label="Difference colour key">
+      <li><span class="first-star-swatch is-positive" aria-hidden="true">+</span><strong>Red</strong> · More light in ${frame(1)}</li>
+      <li><span class="first-star-swatch is-negative" aria-hidden="true">−</span><strong>Blue</strong> · Less light in ${frame(1)}</li>
+      <li><span class="first-star-swatch is-neutral" aria-hidden="true">≈</span><strong>Gray</strong> · Little or no clear change</li>
+    </ul>`;
+  const filterButton = (mode: StarTool, label: string) =>
+    `<button type="button" class="btn" data-tool="${mode}" aria-pressed="false" hidden>${label}</button>`;
+
   body.innerHTML = `
     <section class="first-star-guide">
       <header class="first-star-instruction">
         <p class="first-star-progress"></p>
         <h2 class="first-star-prompt" tabindex="-1"></h2>
+        ${comet ? '<p class="first-star-track-instruction" hidden></p>' : ""}
         <div class="first-star-discovery" hidden>
           <h3>Meet ${comet ? "3I/ATLAS" : esc(WISE_NAME)}.</h3>
           <p>${story}</p>
@@ -98,25 +119,12 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
       <section class="first-star-comparison" aria-labelledby="first-star-comparison-heading" hidden>
         <h3 id="first-star-comparison-heading"></h3>
         <div class="first-star-cutout-pair">${cutout(0)}${cutout(1)}</div>
-        <div class="first-star-difference-explanation" hidden>
+        ${comet ? "" : `<div class="first-star-difference-explanation" hidden>
           <p>At each matching spot, SkyShift subtracts the light measured in ${frame(0)} from the light measured in ${frame(1)}.</p>
-          <div class="first-star-difference-equation">
-            ${cutout(1)}
-            <span aria-hidden="true">−</span>
-            ${cutout(0)}
-            <span aria-hidden="true">=</span>
-            <figure>
-              <canvas width="144" height="144" role="img" aria-label="Difference cutout showing ${frame(1)} minus ${frame(0)}"></canvas>
-              <figcaption><strong>Difference</strong></figcaption>
-            </figure>
-          </div>
-          <ul class="first-star-difference-key" aria-label="Difference colour key">
-            <li><span class="first-star-swatch is-positive" aria-hidden="true">+</span><strong>Red</strong> · More light in ${frame(1)}</li>
-            <li><span class="first-star-swatch is-negative" aria-hidden="true">−</span><strong>Blue</strong> · Less light in ${frame(1)}</li>
-            <li><span class="first-star-swatch is-neutral" aria-hidden="true">≈</span><strong>Gray</strong> · Little or no clear change</li>
-          </ul>
-          <p class="first-star-difference-note">${comet ? "Compare blue near the first mark with red near the later mark. Check both positions in the original frames." : "Bright stars can leave coloured streaks when the telescope turns. Use the two marks and the original images to check the shift."}</p>
-        </div>
+          ${differenceEquation}
+          ${differenceKey}
+          <p class="first-star-difference-note">Bright stars can leave coloured streaks when the telescope turns. Use the two marks and the original images to check the shift.</p>
+        </div>`}
       </section>
       <figure class="first-star-observation" aria-labelledby="first-star-caption">
         <div class="first-star-frame">
@@ -129,17 +137,32 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
             <button class="btn" type="button" data-control="reset-view">Full field</button>
           </div>
         </div>
+        ${comet ? `<div class="first-star-difference-explanation first-star-comet-difference" hidden>
+          ${differenceKey}
+          <details class="first-star-difference-details">
+            <summary>How the Difference image is made</summary>
+            <p>SkyShift subtracts Frame 1’s light from Frame 2’s at each matching spot.</p>
+            ${differenceEquation}
+          </details>
+        </div>` : ""}
         <div class="first-star-toolbar">
           <div class="first-star-visits" role="group" aria-label="${comet ? "Observation frames" : "Observation visits"}">
             ${data.originals.map((_, i) => `<button type="button" class="btn" data-visit="${i}" aria-pressed="false">${frame(i)}</button>`).join("")}
           </div>
           <div class="first-star-filters" role="group" aria-label="Viewer filters">
-            <span>Add filters</span>
+            ${comet ? "" : "<span>Add filters</span>"}
             <button type="button" class="btn" data-tool="original" aria-pressed="true">Original</button>
-            <button type="button" class="btn" data-tool="contrast" aria-pressed="false">High contrast</button>
-            ${comet ? Object.entries(COMET_FILTERS).map(([mode, filter]) =>
-              `<button type="button" class="btn" data-tool="${mode}" aria-pressed="false" hidden>${filter.label}</button>`).join("") : ""}
-            <button type="button" class="btn" data-tool="difference" aria-pressed="false">Difference</button>
+            ${comet ? `
+              ${filterButton("intensity", "Intensity colours")}
+              ${filterButton("difference", "Difference")}
+              <details class="first-star-more-filters">
+                <summary>More filters</summary>
+                <div>
+                  ${filterButton("contrast", "High contrast")}
+                  ${Object.entries(COMET_FILTERS).filter(([mode]) => mode !== "intensity").map(([mode, filter]) =>
+                    filterButton(mode as StarTool, filter.label)).join("")}
+                </div>
+              </details>` : `${filterButton("contrast", "High contrast")}${filterButton("difference", "Difference")}`}
           </div>
         </div>
         <figcaption id="first-star-caption"></figcaption>
@@ -185,6 +208,9 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
   const differenceExplanation = $(".first-star-difference-explanation");
   const originalCutouts = [...originalComparison.querySelectorAll("canvas")];
   const differenceCutouts = [...differenceExplanation.querySelectorAll("canvas")];
+  const differenceDetails = body.querySelector<HTMLDetailsElement>(".first-star-difference-details");
+  const moreFilters = body.querySelector<HTMLDetailsElement>(".first-star-more-filters");
+  const trackInstruction = body.querySelector<HTMLElement>(".first-star-track-instruction");
   const pictures = trackingPictures(source, data, canvas);
   const prompt = $(".first-star-prompt");
   const feedback = $(".first-star-feedback");
@@ -205,17 +231,18 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
 
   const stage = () => step === steps.length ? "found" : steps[step].id;
   const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
-  const landmarkPatch = () => cropAround(landmarks, size, 9, comet ? 124 : 48);
+  const landmarkPatch = () => cropAround(landmarks, size, 9, comet ? 20 : 48);
   const candidatePatch = () => {
     const selected = marks.slice(0, 2).filter((mark): mark is Point => !!mark);
     return cropAround(comet && selected.length < 2 ? [] : selected, size, 14, 56);
   };
   const field = mountFirstStarField(canvas, world, () => {
     const current = stage();
-    const landmarkMarks = landmarks.map((at, i) => ({ at, kind: "landmark" as const, label: String(i + 1) }));
+    const landmarkMarks = landmarks.map((at, i) => ({ at, kind: "landmark" as const, label: comet ? "" : String(i + 1) }));
     const showLandmarks = current === "landmarks" || current === "contrast" || current === "next-visit" ||
-      current === "compare" || current === "verify";
-    const showPatch = current === "mark" || current === "close-look" || current === "difference" || current === "originals";
+      current === "compare" || current === "track" || current === "verify";
+    const showPatch = comet ? (current === "track" || current === "difference") && !!marks[0] && !!marks[1]
+      : current === "mark" || current === "close-look" || current === "difference" || current === "originals";
     const clue = hints && current !== "found" ? clueRegion(data.positions, world, hints) : undefined;
     const visibleMarks = tool === "difference" ? marks.slice(0, 2) : [marks[visit]];
     return {
@@ -223,7 +250,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
       marks: revealed
         ? data.positions.map((at, i) => ({ at, kind: "archive" as const, label: frame(i) }))
         : [
-          ...landmarkMarks,
+          ...(!comet || showLandmarks ? landmarkMarks : []),
           ...visibleMarks.flatMap((at, i) => at ? [{
             at, kind: "candidate" as const, label: tool === "difference" ? `${frame(i)} mark` : "Your mark",
           }] : []),
@@ -231,7 +258,8 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
       trail: revealed ? data.positions : undefined,
       guides: [
         ...(showLandmarks && landmarks.length ? [{
-          patch: landmarkPatch(), label: "Your landmarks", kind: "landmarks" as const,
+          patch: landmarkPatch(),
+          label: comet ? "Your landmark" : "Your landmarks", kind: "landmarks" as const,
         }] : []),
         ...(showPatch && marks.some(Boolean) ? [{
           patch: candidatePatch(), label: "Compare this patch", kind: "compare" as const,
@@ -249,14 +277,15 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
 
   function ready() {
     switch (stage()) {
-      case "landmarks": return landmarks.length === 3;
+      case "landmarks": return comet || landmarks.length === 3;
       case "contrast": return triedFilter;
       case "next-visit": return seenVisitTwo;
       case "mark": return !!marks[visit];
+      case "track":
       case "close-look": return !!marks[0] && !!marks[1];
-      case "difference": return tool === "difference";
-      case "originals": return tool === "original" || tool === "contrast" || tool === "negative" || tool === "intensity";
-      case "verify": return visit === 2 && !!marks[2];
+      case "difference": return comet || tool === "difference";
+      case "originals": return tool === "original" || tool === "contrast";
+      case "verify": return (comet || visit === 2) && !!marks[2];
       case "found": return revealed;
       default: return true;
     }
@@ -267,31 +296,40 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
     if (mode === "difference") return current === "difference" || current === "originals";
     if (!COMET_FILTERS[mode]) return true;
     if (!comet) return false;
-    if (mode === "background") return current === "contrast" || current === "compare";
-    if (mode === "motion") return current === "difference" || current === "originals" || current === "verify";
+    if (mode === "background") return current === "landmarks" || current === "track";
+    if (mode === "motion") return current === "difference" || current === "verify";
     return true;
   }
 
   function render() {
     const current = stage();
     const found = current === "found";
-    const maxVisit = step < 3 ? 0 : current === "verify" || found ? 2 : 1;
+    const canCompare = comet ? current !== "landmarks" : step >= 3;
+    const maxVisit = current === "verify" || found ? 2 : canCompare ? 1 : 0;
     $(".first-star-progress").textContent = `Step ${step + 1} of ${steps.length + 1}`;
+    const reviewingEarlierFrame = comet && current === "verify" && visit !== 2;
     const text = found
       ? comet ? "Congratulations! You tracked the comet." : "Congratulations! You found your first star."
-      : steps[step].prompt;
+      : reviewingEarlierFrame ? `Check your mark in ${frame(visit)}.` : steps[step].prompt;
     if (prompt.textContent !== text) prompt.textContent = text;
-    next.textContent = found ? "Start again" : steps[step].action;
     const canContinue = ready();
+    if (trackInstruction) {
+      trackInstruction.hidden = current !== "track" || canContinue;
+      trackInstruction.textContent = marks[1 - visit]
+        ? `Mark the same object’s head in ${frame(visit)}.`
+        : `Mark the bright head in ${frame(visit)}.`;
+    }
+    next.textContent = found ? "Start again" : steps[step].action;
     next.disabled = !canContinue;
     next.hidden = found && !revealed;
     $(".first-star-actions").classList.toggle("is-complete", found);
     control("undo").hidden = current !== "landmarks" || !landmarks.length;
+    control("undo").textContent = comet ? "Remove landmark" : "Undo landmark";
     control("focus").hidden = current !== "close-look";
     const hint = control("hint");
-    hint.hidden = step < 4 || found || hints >= 2;
+    hint.hidden = (comet ? current !== "track" && current !== "verify" : step < 4) || found || hints >= 2;
     hint.textContent = hints === 1 ? "Narrow the search" : "Show a hint";
-    const filtersAvailable = step >= 2 && !found;
+    const filtersAvailable = (comet || step >= 2) && !found;
     $(".first-star-filters").hidden = !filtersAvailable;
     const suggestedTool = current === "contrast" ? "contrast" : current === "difference" ? "difference"
       : current === "originals" ? "original" : null;
@@ -311,25 +349,27 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
     });
     const showingDifference = tool === "difference";
     const showingBackground = tool === "background";
+    $(".first-star-visits").hidden = comet && (!canCompare || found || showingDifference);
     const filter = COMET_FILTERS[tool];
     $(".first-star-active-visit").textContent = showingDifference ? `${frame(1)} − ${frame(0)}`
       : showingBackground ? "Star background · 3 frames" : `${frame(visit)} · ${imageTime(visit)}`;
-    const comparingCandidate = current === "close-look" || current === "originals"
-      || current === "difference" && (showingDifference || tool === "motion");
+    const comparingCandidate = current === "track" || current === "close-look" || current === "originals"
+      || current === "difference" && (comet || showingDifference);
     const patch = current === "compare" ? landmarkPatch()
-      : comparingCandidate && marks.some(Boolean) ? candidatePatch() : undefined;
-    comparison.hidden = !patch;
-    guide.classList.toggle("has-comparison", !!patch);
+      : comparingCandidate ? candidatePatch() : undefined;
+    comparison.hidden = !patch || (comet && showingDifference);
+    guide.classList.toggle("has-comparison", !comparison.hidden);
+    differenceExplanation.hidden = !showingDifference;
     if (patch) {
-      comparisonHeading.textContent = showingDifference ? "How the Difference image is made"
-        : showingBackground ? "Original frames for comparison" : tool === "motion" ? "Moving objects in both frames"
-        : comet ? "Same patch, two frames" : "Same patch, two visits";
       originalComparison.hidden = showingDifference;
-      differenceExplanation.hidden = !showingDifference;
       if (showingDifference) {
+        if (!comet) comparisonHeading.textContent = "How the Difference image is made";
         const images = [pictures.original[1], pictures.original[0], pictures.difference[1]];
         differenceCutouts.forEach((detail, i) => drawFirstStarPatch(detail, images[i], patch));
       } else {
+        comparisonHeading.textContent = showingBackground ? "Original frames for comparison"
+          : tool === "motion" ? "Moving objects in both frames" : current === "track" ? "Compare the same sky"
+          : comet ? "Same patch, two frames" : "Same patch, two visits";
         const images = showingBackground ? pictures.original : pictures[tool] ?? pictures.original;
         originalCutouts.forEach((detail, i) => drawFirstStarPatch(detail, images[i], patch, marks[i]));
       }
@@ -366,17 +406,31 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
   function selectPoint(at: Point) {
     switch (stage()) {
       case "landmarks":
-        if (landmarks.length === 3 || landmarks.some(mark => distance(at, mark) < 4)) return;
-        landmarks.push(at);
-        feedback.textContent = `${landmarks.length} of 3 landmarks marked.`;
+        if (comet) {
+          landmarks = [at];
+          feedback.textContent = "Landmark placed.";
+        } else {
+          if (landmarks.length === 3 || landmarks.some(mark => distance(at, mark) < 4)) return;
+          landmarks.push(at);
+          feedback.textContent = `${landmarks.length} of 3 landmarks marked.`;
+        }
         break;
+      case "track":
       case "mark":
       case "close-look":
-      case "verify":
+      case "verify": {
         marks[visit] = at;
         retryVisit = null;
-        feedback.textContent = `${frame(visit)} mark placed. Select another point to move it.`;
+        const marked = frame(visit);
+        const other = 1 - visit;
+        if (stage() === "track" && !marks[other]) {
+          visit = other;
+          feedback.textContent = `${marked} marked. ${frame(visit)} is now open.`;
+        } else {
+          feedback.textContent = `${marked} mark placed. Select another point to move it.`;
+        }
         break;
+      }
       default: return;
     }
     render();
@@ -404,6 +458,8 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
       marks = [];
       retryVisit = null;
       triedFilter = seenVisitTwo = revealed = false;
+      if (moreFilters) moreFilters.open = false;
+      if (differenceDetails) differenceDetails.open = false;
       field.reset();
     } else if (stage() === "verify") {
       const unmatched = data.positions.findIndex((position, i) => {
@@ -412,6 +468,10 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
       });
       if (unmatched !== -1) {
         retryVisit = unmatched;
+        if (comet) {
+          visit = unmatched;
+          field.reset();
+        }
         feedback.textContent = comet
           ? `Take another look at ${frame(unmatched)}. Check the object’s bright head against the background stars.`
           : `Take another look at ${frame(unmatched)}. Check the faint points near your mark against the other dates.`;
@@ -419,7 +479,10 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
         return;
       }
       step++;
-      if (tool === "motion") tool = "original";
+      if (comet) {
+        tool = "original";
+        visit = 2;
+      }
       field.reset();
       if (!comet) field.focus(data.positions[1], 4);
       revealTimer = setTimeout(() => {
@@ -429,12 +492,23 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
     } else {
       step++;
       if (!toolAvailable(tool)) tool = "original";
+      if (comet && stage() === "difference") {
+        visit = 1;
+        hints = 0;
+        tool = "difference";
+        field.reset();
+      }
+      if (comet && stage() === "verify") {
+        visit = 2;
+        hints = 0;
+        tool = "original";
+        field.reset();
+      }
       const mark = marks[visit];
       if (stage() === "close-look" && mark) {
         visit = visit === 0 ? 1 : 0;
-        if (!comet || tool === "original") tool = "contrast";
-        if (comet) field.reset();
-        else field.focus(mark, 3);
+        tool = "contrast";
+        field.focus(mark, 3);
       }
     }
     feedback.textContent = "";
@@ -449,7 +523,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
       const mode = button.dataset.tool as StarTool;
       if (!toolAvailable(mode)) return;
       tool = mode;
-      if (tool === "contrast" || COMET_FILTERS[tool]) triedFilter = true;
+      if (tool === "contrast") triedFilter = true;
       if (tool === "difference" && visit === 0) visit = 1;
       render();
     };
@@ -460,7 +534,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
   control("reset-view").onclick = field.reset;
   control("undo").onclick = () => {
     landmarks.pop();
-    feedback.textContent = `${landmarks.length} of 3 landmarks marked.`;
+    feedback.textContent = comet ? "Landmark removed." : `${landmarks.length} of 3 landmarks marked.`;
     render();
   };
   control("focus").onclick = () => {
@@ -472,6 +546,7 @@ function runGuide(body: HTMLElement, data: TrackingData, signal: AbortSignal, le
     field.reset();
     feedback.textContent = hints === 1
       ? "Try looking inside the outlined patch of sky."
+      : comet ? "Look for a bright head with a faint tail inside the smaller box."
       : "Look inside the smaller box. Do any faint points change position?";
     render();
   };

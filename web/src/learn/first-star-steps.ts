@@ -18,14 +18,8 @@ export const COMET_TITLE = "Track a Comet";
 export const COMET_ROUTE = "#/learn/comet";
 
 export const COMET_STEPS = [
-  { id: "look", prompt: "Look around the star field. What shapes can you see?", action: "I’ve looked around" },
-  { id: "landmarks", prompt: "Mark three stars you can use as landmarks.", action: "Keep these landmarks" },
-  { id: "contrast", prompt: "Try a filter. Which view makes the shapes easiest to see?", action: "I’ve tried a filter" },
-  { id: "next-visit", prompt: "Open Frame 2. Can you find the same landmarks?", action: "I found my group" },
-  { id: "compare", prompt: "Compare both frames. What has moved across the field?", action: "I’m ready to choose a point" },
-  { id: "mark", prompt: "Mark the bright head of the object you think moved.", action: "Keep this mark" },
-  { id: "close-look", prompt: "Can you find that same object in the other frame? Mark its head again.", action: "I’ve marked both frames" },
-  { id: "difference", prompt: "Try Difference. What do you see near your two marks?", action: "I’ve checked the difference" },
-  { id: "originals", prompt: "Go back to Original. Can you trace the shift between the two frames?", action: "I’ve checked the images" },
-  { id: "verify", prompt: "Open Frame 3. Where did the object go next?", action: "Confirm my track" },
+  { id: "landmarks", prompt: "Look around Frame 1. Mark a bright star if you want a landmark.", action: "Compare frames" },
+  { id: "track", prompt: "What moved between the two frames?", action: "Check the difference" },
+  { id: "difference", prompt: "Do the red and blue patches match your marks?", action: "Check Frame 3" },
+  { id: "verify", prompt: "Where did the comet go next? Mark its head in Frame 3.", action: "Confirm my track" },
 ] as const;
