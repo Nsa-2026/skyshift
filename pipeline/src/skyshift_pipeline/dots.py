@@ -56,7 +56,8 @@ from skyshift_core.level2 import EPSF
 
 from . import config as C
 from . import forced_sky, log
-from .psf import dot_positions, gather, mf_at, mf_pass, psf_photometry, residual_companions
+from .psf import PEAK_EXCLUDED, PEAK_GUARD, PEAK_MIRROR, dot_positions, gather, mf_at, mf_pass, psf_photometry, \
+    residual_companions
 from .sky import cell_of
 from .store import Store, dots_rel, photolist_rel, results_rel
 
@@ -497,10 +498,16 @@ def _detections(l2, thresh: float, min_snr: float, timing: dict, ctx: PhotoConte
     return det, comp, ctx
 
 
+# the refused matched-filter peaks that become dots, and their sep_flag bits (config MF_REFUSED_DOTS)
+MF_REFUSED_FLAGS = {PEAK_GUARD: C.SEP_FLAG_MF_GUARD, PEAK_MIRROR: C.SEP_FLAG_MF_MIRROR,
+                    PEAK_EXCLUDED: C.SEP_FLAG_MF_EXCLUDED}
+
+
 def _mf_pass(l2, det: np.ndarray, comp: tuple | None, ctx: PhotoContext, s: C.DetectSettings, counts: dict,
              extras: dict | None, timing: dict, dsat: np.ndarray | None = None) -> tuple | None:
     """Extraction v2's matched-filter pass (psf.mf_pass) on the second pass's residual: its dots join the second
-    pass's (sep_flag SEP_FLAG_MF_PASS, measured on the residual); its peaks and depth map go to `extras`."""
+    pass's (sep_flag SEP_FLAG_MF_PASS, measured on the residual; refused peaks and low-S/N peaks with their bits,
+    config MF_REFUSED_DOTS, MF_DOT_LOW_SNR); its peaks and depth map go to `extras`."""
     t0 = time.perf_counter()
     shape = ctx.sub.shape
     model = comp[1] if comp is not None else None
@@ -520,7 +527,9 @@ def _mf_pass(l2, det: np.ndarray, comp: tuple | None, ctx: PhotoContext, s: C.De
         prim_x, prim_y = det["x"][use].astype(np.float64), det["y"][use].astype(np.float64)
     mp = mf_pass(resid, noise, ctx.bad, getattr(l2, "epsf", None), np.concatenate(xs), np.concatenate(ys),
                  primary_x=prim_x, primary_y=prim_y, sat_dist=dsat, sat_guard_px=s.sat_guard_px,
-                 min_snr=C.mf_pass_snr(getattr(l2, "detector", None)), normalise=C.MF_PASS_NORMALISE)
+                 min_snr=C.mf_pass_snr(getattr(l2, "detector", None)), normalise=C.MF_PASS_NORMALISE,
+                 refused_flags=MF_REFUSED_FLAGS if C.MF_REFUSED_DOTS else None,
+                 low_snr=C.MF_DOT_LOW_SNR, low_flag=C.SEP_FLAG_MF_LOW_SNR)
     md = mp.dots.copy()
     md["sep_flag"] = md["sep_flag"] | C.SEP_FLAG_MF_PASS
     info = dict(mp.info)
@@ -617,6 +626,14 @@ def glow_dots(l2, obs_id: str, detector: int, session: int, visit: int, thresh: 
     if comp is not None and len(comp[0]):
         cd = comp[0]
         cpiece = gl.near(cd["x"], cd["y"], C.GLOW_SELF_PX) >= 0
+        mfp = cpiece & ((cd["sep_flag"] & C.SEP_FLAG_MF_PASS) != 0)
+        counts["n_glow_pieces_mf"] = int(mfp.sum())
+        if C.MF_REFUSED_DOTS and mfp.any():
+            # rejected peaks (18 Nov): a matched-filter dot inside a glow star's own pixels stays, flagged (Rhea 11 px
+            # from Saturn's centre, inside its 12.6 px saturated core, was dropped here)
+            cd = cd.copy()
+            cd["sep_flag"][mfp] |= C.SEP_FLAG_MF_EXCLUDED
+            cpiece = cpiece & ~mfp
         n_piece += int(cpiece.sum())
         comp = (cd[~cpiece], comp[1])
     counts["n_glow_pieces"] = n_piece
@@ -1500,7 +1517,11 @@ def v2_meta(l2, ctx: PhotoContext | None, extras: dict) -> dict:
     out: dict = {"extraction": 2,
                  "mf": {"min_snr": C.mf_pass_snr(getattr(l2, "detector", None)), "peak_snr": C.MF_PEAK_SNR, "dedup_px": C.MF_PASS_DEDUP_PX,
                         "kernel_half_px": C.MF_KERNEL_HALF, "sep_flag": C.SEP_FLAG_MF_PASS,
-                        "normalise": str(C.MF_PASS_NORMALISE)}}
+                        "normalise": str(C.MF_PASS_NORMALISE),
+                        # rejected peaks (18 Nov): the bits of refused peaks kept as dots, the low-S/N dots' threshold
+                        "refused_flags": ({"guard": C.SEP_FLAG_MF_GUARD, "mirror": C.SEP_FLAG_MF_MIRROR,
+                                           "excluded": C.SEP_FLAG_MF_EXCLUDED} if C.MF_REFUSED_DOTS else None),
+                        "low_snr": C.MF_DOT_LOW_SNR, "low_snr_flag": C.SEP_FLAG_MF_LOW_SNR}}
     if extras.get("mf_stats"):
         st = dict(extras["mf_stats"])
         g = st.pop("sigma_grid", None)
