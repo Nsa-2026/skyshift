@@ -135,3 +135,97 @@ def test_stack_without_bright_stars_is_unchanged():
     assert m2 is m and len(centres[0]) == 0
     pk = S.peaks(m)
     pd.testing.assert_frame_equal(S.rim_peaks(pk, m, centres), pk)
+
+
+def _core_rows(df):
+    return df[(df.sep_flag.astype(int) & C.SEP_FLAG_SAT_CORE) != 0]
+
+
+def _sat_star(l2, x0, y0, amp, r_mask, beta=1.5, column=False):
+    """A saturated star with power-law wings amp (1 + r^2)^-beta at (x0, y0), masked (SUR_ERROR) within r_mask px,
+    OVERFLOW within 1 px; `column`: a masked bad column touching the core's right side pulls the hole's centre off."""
+    ny, nx = np.shape(l2.data)
+    yy, xx = np.mgrid[:ny, :nx]
+    r = np.hypot(xx - x0, yy - y0)
+    data = np.asarray(l2.data, np.float64) + amp / (1 + r ** 2) ** beta
+    hole = r < r_mask
+    if column:
+        hole |= (xx == int(round(x0 + r_mask))) & (np.abs(yy - y0) < r_mask + 3)
+    data[hole] = 3000.0
+    l2.data = data.astype(np.float32)
+    fl = np.asarray(l2.flags).copy()
+    fl[hole] |= SUR_ERROR
+    fl[r < 1.0] |= OVERFLOW
+    l2.flags = fl
+    l2.variance = (np.asarray(l2.variance, np.float64) + 5e-4 * amp / (1 + r ** 2) ** beta).astype(np.float32)
+
+
+def _two_saturated_stars(l2):
+    """A big saturated star at (X0, Y0) (hole r 4 px whose ring breaks into pieces, hole centre pulled ~1 px by a bad
+    column) and a small one at (X1, Y1) whose light is masked out to r = 2.6 px, so nothing is detected on it: only
+    add_core_dots can give it a dot."""
+    _sat_star(l2, X0, Y0, 2000.0, 4.0, column=True)
+    _sat_star(l2, X1, Y1, 400.0, 2.6)
+
+
+X1, Y1 = 20.4, 80.7
+
+
+def test_v2_every_saturated_core_gets_one_dot_on_the_star(tmp_path):
+    """Extraction v2 (18 Nov, dots.add_core_dots): each saturated star keeps exactly one dot, placed on the star by
+    its wings (not on a ring piece or the hole's centre), flagged saturated, with the wings fit's flux."""
+    l2 = _photo(tmp_path)
+    _two_saturated_stars(l2)
+    counts: dict = {}
+    df = D.dots_table(l2, "X", 1, settings=C.DOTS_V2_SETTINGS, counts=counts)
+    core = _core_rows(df)
+    assert counts["n_sat_cores"] >= 2 and len(core) == counts["n_sat_cores"]
+    for x0, y0 in ((X0, Y0), (X1, Y1)):
+        d = np.hypot(core.x - x0, core.y - y0).to_numpy()
+        k = int(np.argmin(d))
+        assert d[k] < 0.5
+        row = core.iloc[k]
+        assert int(row["flags_peak"]) & OVERFLOW and int(row["flags"]) & OVERFLOW
+        assert not row.psf_pos_ok and row.pos_err_arcsec > 0 and row.snr >= 5
+        if int(row.sep_flag) & C.SEP_FLAG_SAT_NOFIT:
+            assert np.isnan(row.flux_ujy)
+        else:
+            assert row.flux_ujy > 0 and row.flux_psf_ujy == pytest.approx(row.flux_ujy * C.SAT_CORE_APCORR, rel=1e-5)
+        assert int((np.hypot(df.x - x0, df.y - y0) < 2.0).sum()) == 1  # one dot on the core
+    f = df.flux_ujy.to_numpy()
+    assert np.all(np.diff(f[np.isfinite(f)]) <= 0)  # brightest first, NaN last
+    assert df.flux_ujy.isna().sum() == 0 or np.isnan(f[-1])
+
+
+def test_core_dots_only_in_v2_and_with_the_switch(tmp_path, monkeypatch):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    l2 = _photo(tmp_path / "a")
+    _two_saturated_stars(l2)
+    assert len(_core_rows(D.dots_table(l2, "X", 1, settings=FINE))) == 0  # the fine glow setting: as before
+    monkeypatch.setattr(C, "SAT_CORE_DOTS", False)
+    l2 = _photo(tmp_path / "b")
+    _two_saturated_stars(l2)
+    assert len(_core_rows(D.dots_table(l2, "X", 1, settings=C.DOTS_V2_SETTINGS))) == 0
+
+
+def test_add_core_dots_adds_a_row_where_nothing_was_detected(tmp_path):
+    l2 = _photo(tmp_path)
+    _two_saturated_stars(l2)
+    ctx = D.photo_context(l2)
+    from skyshift_core.glow import fit_glow
+    gl = fit_glow(l2.data, l2.flags, ctx.noise, epsf=l2.epsf)
+    counts: dict = {}
+    det, own, placed = D.add_core_dots(l2, ctx, gl, D._no_dets(), np.zeros(0, bool), counts, {})
+    assert len(det) == counts["n_sat_cores"] == counts["n_sat_core_dots_new"] == len(placed) >= 2 and own.all()
+    assert np.all(det["sep_flag"] & C.SEP_FLAG_SAT_CORE) and np.all(det["snr"] >= 50)
+    for x0, y0 in ((X0, Y0), (X1, Y1)):
+        assert np.min(np.hypot(det["x"] - x0, det["y"] - y0)) < 0.5
+    # with a detection on the ring (a piece 3 px out), that row becomes the star's dot: no second row
+    one = D._no_dets().copy()
+    one = np.zeros(1, one.dtype)
+    one["x"], one["y"], one["snr"], one["sep_flag"] = X0 + 3.0, Y0, 300.0, C.SEP_FLAG_CENTROID_FALLBACK | 1
+    det2, own2, _ = D.add_core_dots(l2, ctx, gl, one, np.zeros(1, bool), {}, {})
+    k = int(np.argmin(np.hypot(det2["x"] - X0, det2["y"] - Y0)))
+    assert len(det2) == len(det) and own2[k] and det2["sep_flag"][k] == (1 | C.SEP_FLAG_SAT_CORE)
+    assert np.hypot(det2["x"][k] - X0, det2["y"][k] - Y0) < 0.5

@@ -598,7 +598,10 @@ def glow_dots(l2, obs_id: str, detector: int, session: int, visit: int, thresh: 
     core and every peak >= GLOW_MIN_PEAK_SNR; detection (and the guard and second pass) runs on IMAGE minus the glow
     outside each star's own pixels, with the noise scaled by the glow's local scatter. Each modelled star's own dot
     (the detection nearest it within max(GLOW_SELF_PX, core radius + 1.5 px)) is measured on IMAGE as before; other
-    detections that close are pieces of it and dropped; the rest are measured on the glow-free image."""
+    detections that close are pieces of it and dropped; the rest are measured on the glow-free image.
+    Extraction v2 (18 Nov, SAT_CORE_DOTS): every saturated core then has exactly one dot on the star (add_core_dots:
+    the wings fit's position and flux, sep_flag SEP_FLAG_SAT_CORE; finish_core_dots), added where nothing was
+    detected; until then the kept own dot of a saturated star was the ring piece nearest the hole's centre."""
     t0 = time.perf_counter()
     ctx0 = ctx if ctx is not None else photo_context(l2, timing)
     gl = fit_glow(l2.data, l2.flags, ctx0.noise, epsf=getattr(l2, "epsf", None), r_max=C.GLOW_R_MAX_PX,
@@ -609,17 +612,28 @@ def glow_dots(l2, obs_id: str, detector: int, session: int, visit: int, thresh: 
     counts["n_glow_saturated"] = int(st["saturated"].sum()) if len(st) else 0
     counts["n_glow_extended"] = int((st["r_glow"] > 0).sum()) if len(st) else 0
     s0 = dataclasses.replace(s, glow=False)
+    core_dots = bool(C.SAT_CORE_DOTS and s.v2 and getattr(l2, "flags", None) is not None)  # extraction v2 only
     if not len(st):
         counts["n_glow_pieces"] = 0
         det, comp, ctx0 = _detections(l2, thresh, min_snr, timing, ctx0, s0, counts, extras)
+        if core_dots:
+            det = _no_dets() if det is None else det
+            det, own, cores = add_core_dots(l2, ctx0, gl, det, np.zeros(len(det), bool), counts, timing)
+            if len(det) == 0 and not (comp is not None and len(comp[0])):
+                return empty_dots(s.v2)
+            df = _measure_all(l2, det, comp, ctx0, obs_id, detector, session, visit, timing, l2_own=l2, ctx_own=ctx0,
+                              own=own, v2=s.v2)
+            return finish_core_dots(df, l2, cores)
         return empty_dots(s.v2) if det is None else _measure_all(l2, det, comp, ctx0, obs_id, detector, session, visit,
                                                                 timing, v2=s.v2)
     l2g = glow_image(l2, ctx0, gl)
     ctxg = photo_context(l2g, {})
     det, comp, ctxg = _detections(l2g, thresh, min_snr, timing, ctxg, s0, counts, extras)
     if det is None:
-        counts["n_glow_pieces"] = 0
-        return empty_dots(s.v2)
+        if not core_dots:
+            counts["n_glow_pieces"] = 0
+            return empty_dots(s.v2)
+        det = _no_dets()
     own, piece = gl.own(det["x"], det["y"], C.GLOW_SELF_PX)
     n_piece = int(piece.sum())
     det, own = det[~piece], own[~piece]
@@ -637,7 +651,7 @@ def glow_dots(l2, obs_id: str, detector: int, session: int, visit: int, thresh: 
         n_piece += int(cpiece.sum())
         comp = (cd[~cpiece], comp[1])
     counts["n_glow_pieces"] = n_piece
-    if len(det) == 0 and not (comp is not None and len(comp[0])):
+    if len(det) == 0 and not (comp is not None and len(comp[0])) and not (core_dots and st["saturated"].any()):
         return empty_dots(s.v2)
     if own.any():
         # the star's own aperture flux on IMAGE (detect's r = 2 px aperture on IMAGE minus the background, as without
@@ -649,8 +663,161 @@ def glow_dots(l2, obs_id: str, detector: int, session: int, visit: int, thresh: 
         det["flux"][own], det["flux_err"][own] = f, fe
         with np.errstate(divide="ignore", invalid="ignore"):
             det["snr"][own] = np.where(fe > 0, f / fe, 0.0)
-    return _measure_all(l2g, det, comp, ctxg, obs_id, detector, session, visit, timing, l2_own=l2, ctx_own=ctx0, own=own,
-                        v2=s.v2)
+    cores = None
+    if core_dots:
+        det, own, cores = add_core_dots(l2, ctx0, gl, det, own, counts, timing)
+        if len(det) == 0 and not (comp is not None and len(comp[0])):
+            return empty_dots(s.v2)
+    df = _measure_all(l2g, det, comp, ctxg, obs_id, detector, session, visit, timing, l2_own=l2, ctx_own=ctx0, own=own,
+                      v2=s.v2)
+    return df if cores is None else finish_core_dots(df, l2, cores)
+
+
+def _no_dets() -> np.ndarray:
+    from skyshift_core.detect import DETECTION_DTYPE
+    return np.zeros(0, DETECTION_DTYPE)
+
+
+def saturated_cores(l2, ctx: PhotoContext, gl) -> np.ndarray:
+    """Every saturated core of the photo that is a star (core.glow.bright_stars' rule: a masked blob holding
+    OVERFLOW/NONLINEAR pixels, only masked pixels within GLOW_CORE_REACH_PX of a saturated one, whose pixels just
+    outside reach S/N GLOW_SAT_MIN_SNR; the glow's own 2,000 px and 400-star limits lifted), as STAR_DTYPE rows with
+    the glow's fitted rows where the glow modelled the star. The same clumps as the footer's `sat_cores`, minus lone
+    flagged pixels with nothing bright around (MWIR: ~2,000 per photo)."""
+    from skyshift_core.glow import bright_stars
+    cores = bright_stars(l2.data, l2.flags, ctx.noise, sub=np.where(ctx.bad, 0.0, ctx.sub), min_peak_snr=np.inf,
+                         max_stars=10 ** 6, max_core_px=C.SAT_CORE_MAX_PX)
+    cores = cores[cores["saturated"]]
+    gs = gl.stars[gl.stars["saturated"]] if gl is not None and len(gl.stars) else None
+    if gs is not None and len(gs) and len(cores):
+        # the glow's saturated stars are the same blobs (same centre); keep the glow's row (its fit and radius)
+        d, i = cKDTree(np.c_[gs["x"], gs["y"]]).query(np.c_[cores["x"], cores["y"]], k=1)
+        same = d <= 0.5
+        cores = np.concatenate([gs, cores[~same]])
+    return cores
+
+
+CORE_METHODS = ("small", "wings", "centre")  # core_position's position methods (SAT_CORE_POS_ERR_ARCSEC keys)
+
+
+def core_position(ctx: PhotoContext, data: np.ndarray, flags: np.ndarray, sat: np.ndarray, x: float, y: float,
+                  r_core: float) -> tuple[float, float, float, float, int]:
+    """(x, y, total flux, its error, method) of a saturated star from its unmasked wings, starting at its masked core's
+    centre. Position: for cores up to SAT_CORE_SMALL_PX the pixel-integrated Gaussian of core.centroid(method="fit") on
+    a 9 x 9 stamp (recentroid_saturated: method 0, "small"); for larger cores, or where that fails, the power-law wings
+    fit (core.glow.saturated_centre: method 1, "wings"); where both fail the core's centre (method 2, "centre").
+    Flux: the wings fit's total, NaN where it has none (no fit, or its power on a bound)."""
+    from skyshift_core.glow import saturated_centre
+    f = saturated_centre(ctx.sub, ctx.noise0, ctx.bad, x, y, r_core, sat=sat)
+    flux, err = float(f["flux"]), float(f["flux_err"])
+    if r_core <= C.SAT_CORE_SMALL_PX:
+        gx, gy, n = recentroid_saturated(data, flags, np.array([x]), np.array([y]), np.array([True]))
+        if n:
+            return float(gx[0]), float(gy[0]), flux, err, 0
+    if bool(f["ok"]):
+        return float(f["x"]), float(f["y"]), flux, err, 1
+    return x, y, flux, err, 2
+
+
+def add_core_dots(l2, ctx: PhotoContext, gl, det: np.ndarray, own: np.ndarray, counts: dict,
+                  timing: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Exactly one dot per saturated core (saturated_cores), after the guard and the glow's piece removal: the
+    detection nearest the core within max(GLOW_SELF_PX, core radius + 1.5 px) becomes the star's dot, else a new row is
+    added; either way x, y come from core_position (the wings, never a ring piece or the masked hole), flux and
+    flux_err from its fit on the r = 2 px aperture's scale (total ÷ SAT_CORE_FLUX_SHARE[detector] ÷ SAT_CORE_APCORR;
+    NaN where the fit has no flux),
+    snr = max(flux / error, the brightest unmasked pixel's S/N at the core's rim), and sep_flag gets
+    SEP_FLAG_SAT_CORE (and SEP_FLAG_SAT_NOFIT where the wings fit gave no flux). The row is measured on IMAGE as a glow
+    star's own dot (finish_core_dots then sets the rest). Returns (det, own, placed: (x, y, method, core radius) per
+    core)."""
+    t0 = time.perf_counter()
+    cores = saturated_cores(l2, ctx, gl)
+    counts["n_sat_cores"] = int(len(cores))
+    counts["n_sat_core_dots_new"] = counts["n_sat_core_dots_no_flux"] = counts["n_sat_core_dots_centre"] = 0
+    if not len(cores):
+        timing["sat_core_s"] = time.perf_counter() - t0
+        return det, own, np.zeros((0, 4))
+    from skyshift_core.detect import DETECTION_DTYPE
+    from skyshift_core.glow import Glow
+    data = np.asarray(l2.data)
+    flags = np.asarray(l2.flags)
+    sat = (flags.astype(np.int64) & SAT_BITS) != 0
+    near = Glow(np.zeros((1, 1)), np.ones((1, 1)), cores).near(det["x"], det["y"], C.GLOW_SELF_PX) if len(det) else \
+        np.zeros(0, np.int64)
+    det = det.copy()
+    own = own.copy()
+    taken = np.zeros(len(det), bool)
+    new, placed = [], []
+    try:
+        share = float(C.SAT_CORE_FLUX_SHARE.get(int(l2.detector), 1.0))
+    except (TypeError, ValueError, AttributeError):
+        share = 1.0
+    ap = C.SAT_CORE_APCORR * share  # flux on the aperture's scale: total / share / 1.033
+    for i, s in enumerate(cores):
+        x, y, fl, fe, method = core_position(ctx, data, flags, sat, float(s["x"]), float(s["y"]), float(s["r_core"]))
+        bit = C.SEP_FLAG_SAT_CORE | (0 if np.isfinite(fl) else C.SEP_FLAG_SAT_NOFIT)
+        flux, err = fl / ap, fe / ap
+        # S/N: the fit's, at least the brightest unmasked pixel's at the core's rim (the fit's error holds the model's
+        # misfit of the wings, so it understates a saturated star's S/N)
+        snr = max(flux / err if np.isfinite(flux) and np.isfinite(err) and err > 0 else 0.0, float(s["peak_snr"]))
+        j = np.flatnonzero((near == i) & ~taken)
+        if len(j):
+            j = j[np.argmin(np.hypot(det["x"][j] - s["x"], det["y"][j] - s["y"]))]
+            taken[j] = True
+            sf = (int(det["sep_flag"][j]) & ~C.SEP_FLAG_CENTROID_FALLBACK) | bit
+            det[j] = (x, y, flux, err, snr, det["peak"][j], det["npix"][j], sf)
+            own[j] = True
+        else:
+            r = np.zeros(1, DETECTION_DTYPE)
+            r[0] = (x, y, flux, err, snr, np.nan, 0, bit)
+            new.append(r)
+        placed.append((x, y, method, float(s["r_core"])))
+        counts["n_sat_core_dots_no_flux"] += int(not np.isfinite(fl))
+        counts["n_sat_core_dots_centre"] += int(method == 2)
+    if new:
+        det = np.concatenate([det] + new)
+        own = np.concatenate([own, np.ones(len(new), bool)])
+        counts["n_sat_core_dots_new"] = len(new)
+    timing["sat_core_s"] = time.perf_counter() - t0
+    return det, own, np.array(placed, np.float64).reshape(-1, 4)
+
+
+def finish_core_dots(df: pd.DataFrame, l2, placed: np.ndarray) -> pd.DataFrame:
+    """The measured rows of the saturated-core dots (sep_flag SEP_FLAG_SAT_CORE; `placed` = add_core_dots' (x, y,
+    method, core radius) per core): flux_psf_ujy = the wings fit's total (flux_ujy x SAT_CORE_APCORR; NaN without a
+    flux), psf_chi2_nu NaN, flags and flags_peak OR the core's OVERFLOW/NONLINEAR bits, pos_err_arcsec (and
+    pos_err_psf_arcsec: psf_pos_ok is false) from the scatter against Gaia measured per method
+    (SAT_CORE_POS_ERR_ARCSEC). Rows re-sorted by flux_ujy (NaN last)."""
+    if not len(df) or not len(placed) or "sep_flag" not in df:
+        return df
+    sf = df["sep_flag"].to_numpy().astype(np.int64)
+    rows = np.flatnonzero((sf & C.SEP_FLAG_SAT_CORE) != 0)
+    if not len(rows):
+        return df
+    df = df.copy()
+    flags = np.asarray(l2.flags).astype(np.int64)
+    ny, nx = flags.shape
+    x, y = df["x"].to_numpy(np.float64)[rows], df["y"].to_numpy(np.float64)[rows]
+    _, ci = cKDTree(placed[:, :2]).query(np.c_[x, y], k=1)  # the same points (float32 in the table)
+    method, rc = placed[ci, 2].astype(int), placed[ci, 3]
+    sat_or = np.zeros(len(rows), np.int64)
+    for k in range(len(rows)):
+        h = int(np.ceil(rc[k])) + 2
+        ix, iy = int(round(x[k])), int(round(y[k]))
+        w = flags[max(iy - h, 0):min(iy + h + 1, ny), max(ix - h, 0):min(ix + h + 1, nx)]
+        sat_or[k] = int(np.bitwise_or.reduce((w & SAT_BITS).ravel())) if w.size else 0
+    perr = np.array([C.SAT_CORE_POS_ERR_ARCSEC[CORE_METHODS[m]] for m in method], np.float32)
+    col = df.columns.get_loc
+    ap = C.SAT_CORE_APCORR
+    df.iloc[rows, col("flux_psf_ujy")] = (df["flux_ujy"].to_numpy(np.float64)[rows] * ap).astype(np.float32)
+    df.iloc[rows, col("flux_psf_err_ujy")] = (df["flux_err_ujy"].to_numpy(np.float64)[rows] * ap).astype(np.float32)
+    df.iloc[rows, col("psf_chi2_nu")] = np.float32(np.nan)
+    df.iloc[rows, col("flags")] = (df["flags"].to_numpy()[rows].astype(np.int64) | sat_or).astype(np.int32)
+    df.iloc[rows, col("flags_peak")] = (df["flags_peak"].to_numpy()[rows].astype(np.int64) | sat_or).astype(np.int32)
+    df.iloc[rows, col("pos_err_arcsec")] = perr
+    df.iloc[rows, col("pos_err_psf_arcsec")] = perr
+    o = np.argsort(-df["flux_ujy"].to_numpy(np.float64), kind="stable")
+    return df.iloc[o].reset_index(drop=True)
 
 
 def _measure_dots(l2, det: np.ndarray, ctx: PhotoContext, obs_id: str, detector: int, session: int, visit: int,
@@ -663,7 +830,9 @@ def _measure_dots(l2, det: np.ndarray, ctx: PhotoContext, obs_id: str, detector:
     ix, iy = pixel_of(x, y, data.shape)
     sat = (f3[iy, ix] & SAT_BITS) != 0
     t0 = time.perf_counter()
-    x, y, _ = recentroid_saturated(data, np.asarray(l2.flags), x, y, sat)
+    core = (np.asarray(det["sep_flag"]).astype(np.int64) & C.SEP_FLAG_SAT_CORE) != 0  # placed by add_core_dots
+    x, y, _ = recentroid_saturated(data, np.asarray(l2.flags), x, y, sat & ~core)
+    sat |= core
     timing["recentroid_s"] = time.perf_counter() - t0
     ix, iy = pixel_of(x, y, data.shape)
     px, py = peak_pixel(data, x, y)
