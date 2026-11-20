@@ -620,7 +620,8 @@ def mf_pass(resid: np.ndarray, noise: np.ndarray, bad: np.ndarray, epsf, dot_x: 
     normalise "photo" multiplies min_snr by max(1, sigma_lo); "block" each peak's by its block's sigma where that is
     > MF_SIGMA_MIN_SCALE (else 1): a structured patch (D2's top rows, a crowded field) needs more to make a dot, the
     rest of the photo keeps min_snr (its sigma is 1.00-1.05: faint sources, not noise).
-    refused_flags {why: sep_flag bit} (18 Nov, rejected peaks): a peak >= min_snr that the guard (PEAK_GUARD), the
+    refused_flags {why: bit OR'd into the dot's int32 sep_flag; dots passes dot_flag bits in their in-memory form,
+    config.dot_flag_mem} (18 Nov, rejected peaks): a peak >= min_snr that the guard (PEAK_GUARD), the
     excluded region (PEAK_EXCLUDED) or the mirror test (PEAK_MIRROR) refuses becomes a dot too, measured the same way,
     with that why's bit (every test that refuses it, not just the first); a why not in the dict keeps the peak in
     `peaks`. low_snr (< min_snr): peaks from low_snr up to min_snr (both x the same block / photo scale) become dots

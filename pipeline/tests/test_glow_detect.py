@@ -138,7 +138,9 @@ def test_stack_without_bright_stars_is_unchanged():
 
 
 def _core_rows(df):
-    return df[(df.sep_flag.astype(int) & C.SEP_FLAG_SAT_CORE) != 0]
+    if "dot_flag" not in df:  # not a v2 table: no core dots
+        return df.iloc[:0]
+    return df[(df.dot_flag.astype(int) & C.DOT_FLAG_SAT_CORE) != 0]
 
 
 def _sat_star(l2, x0, y0, amp, r_mask, beta=1.5, column=False):
@@ -187,7 +189,8 @@ def test_v2_every_saturated_core_gets_one_dot_on_the_star(tmp_path):
         row = core.iloc[k]
         assert int(row["flags_peak"]) & OVERFLOW and int(row["flags"]) & OVERFLOW
         assert not row.psf_pos_ok and row.pos_err_arcsec > 0 and row.snr >= 5
-        if int(row.sep_flag) & C.SEP_FLAG_SAT_NOFIT:
+        assert not int(row.sep_flag) & ~0x0FFF  # sep_flag keeps its own bits only
+        if int(row.dot_flag) & C.DOT_FLAG_SAT_NOFIT:
             assert np.isnan(row.flux_ujy)
         else:
             assert row.flux_ujy > 0 and row.flux_psf_ujy == pytest.approx(row.flux_ujy * C.SAT_CORE_APCORR, rel=1e-5)
@@ -218,7 +221,7 @@ def test_add_core_dots_adds_a_row_where_nothing_was_detected(tmp_path):
     counts: dict = {}
     det, own, placed = D.add_core_dots(l2, ctx, gl, D._no_dets(), np.zeros(0, bool), counts, {})
     assert len(det) == counts["n_sat_cores"] == counts["n_sat_core_dots_new"] == len(placed) >= 2 and own.all()
-    assert np.all(det["sep_flag"] & C.SEP_FLAG_SAT_CORE) and np.all(det["snr"] >= 50)
+    assert np.all(det["sep_flag"] & C.dot_flag_mem(C.DOT_FLAG_SAT_CORE)) and np.all(det["snr"] >= 50)
     for x0, y0 in ((X0, Y0), (X1, Y1)):
         assert np.min(np.hypot(det["x"] - x0, det["y"] - y0)) < 0.5
     # with a detection on the ring (a piece 3 px out), that row becomes the star's dot: no second row
@@ -227,5 +230,20 @@ def test_add_core_dots_adds_a_row_where_nothing_was_detected(tmp_path):
     one["x"], one["y"], one["snr"], one["sep_flag"] = X0 + 3.0, Y0, 300.0, C.SEP_FLAG_CENTROID_FALLBACK | 1
     det2, own2, _ = D.add_core_dots(l2, ctx, gl, one, np.zeros(1, bool), {}, {})
     k = int(np.argmin(np.hypot(det2["x"] - X0, det2["y"] - Y0)))
-    assert len(det2) == len(det) and own2[k] and det2["sep_flag"][k] == (1 | C.SEP_FLAG_SAT_CORE)
+    assert len(det2) == len(det) and own2[k] and det2["sep_flag"][k] == (1 | C.dot_flag_mem(C.DOT_FLAG_SAT_CORE))
     assert np.hypot(det2["x"][k] - X0, det2["y"][k] - Y0) < 0.5
+
+
+def test_drop_core_duplicates_keeps_matched_filter_dots_off_the_star():
+    """#413 x #414 (18 Nov): a matched-filter dot within SAT_CORE_DUP_PX of a saturated core's dot is that star again
+    and goes; one farther out (Rhea, 10.8 px from Saturn) and any non-matched-filter dot stay."""
+    cd = np.zeros(3, D._no_dets().dtype)
+    cd["x"], cd["y"] = [10.5, 20.0, 10.0], [10.0, 10.0, 11.0]
+    cd["sep_flag"] = [C.SEP_FLAG_MF_PASS | C.dot_flag_mem(C.DOT_FLAG_MF_GLOW_PIECE), C.SEP_FLAG_MF_PASS,
+                      C.SEP_FLAG_PSF_PASS]
+    counts: dict = {}
+    placed = np.array([[10.0, 10.0, 1.0, 13.0]])
+    out = D.drop_core_duplicates((cd, None), placed, counts)
+    assert counts["n_sat_core_dup_mf"] == 1 and list(out[0]["x"]) == [20.0, 10.0]
+    assert D.drop_core_duplicates(None, placed, {}) is None
+    assert D.drop_core_duplicates((cd, None), np.zeros((0, 4)), {})[0] is cd

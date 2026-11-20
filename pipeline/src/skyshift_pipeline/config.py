@@ -171,20 +171,43 @@ MF_ZONE_GROUP = 3              # ePSF zones merged 3 × 3 per kernel tile (21 ×
 SEP_FLAG_MF_PASS = 0x400
 SEP_FLAG_CENTROID_FALLBACK = 0x800  # set by core detect (16 Nov, second pass) on every dot written from then on: the
                                     # windowed centroid failed or moved > 1 px, x, y = its start point (0.6-2.2% of dots)
+# dot_flag (18 Nov, extraction v2; contracts/dots.md): an int32 dot column (v2 files), one bit per reason a dot is
+# doubtful or special. sep_flag (int16) keeps only sep's own bits 0x1-0x80 and the passes' 0x200 / 0x400 / 0x800 and
+# has no free bit left (0x8000 is its sign), so every newer flag lives here, and every dot_flag bit is listed here and
+# nowhere else. dot_flag 0: a dot the code before 18 Nov kept the same way. Bits combine.
+DOT_FLAG_MF_GUARD = 0x1        # matched-filter dot within DETECT_SAT_GUARD_PX of an OVERFLOW/NONLINEAR pixel (a
+                               # saturated star's wings): the saturation guard refused it (rejected peaks, #413)
+DOT_FLAG_MF_MIRROR = 0x2       # matched-filter dot within PSF_PASS_R_PX of a subtracted dot, failing the mirror test (a
+                               # ring / PSF error, or a faint source beside a brighter one: 3I/ATLAS)
+DOT_FLAG_MF_GLOW_PIECE = 0x4   # matched-filter dot inside a glow star's own pixels (max(GLOW_SELF_PX, core + 1.5 px);
+                               # or mf_pass's `exclude` region): kept, was dropped as a piece of the star (Rhea)
+DOT_FLAG_MF_LOW_SNR = 0x8      # matched-filter dot with S/N from MF_DOT_LOW_SNR (4.5) up to the threshold (5 x scale)
+DOT_FLAG_SAT_CORE = 0x10       # the one dot of a saturated core, placed by its wings fit (add_core_dots, #414)
+DOT_FLAG_SAT_NOFIT = 0x20      # ... whose wings fit gave no flux: flux_ujy, flux_psf_ujy NaN
+DOT_FLAGS = {"mf_guard": DOT_FLAG_MF_GUARD, "mf_mirror": DOT_FLAG_MF_MIRROR, "mf_glow_piece": DOT_FLAG_MF_GLOW_PIECE,
+             "mf_low_snr": DOT_FLAG_MF_LOW_SNR, "sat_core": DOT_FLAG_SAT_CORE, "sat_nofit": DOT_FLAG_SAT_NOFIT}
+# In memory, until the dot table is built, detections are core.detect's DETECTION_DTYPE rows, whose sep_flag is int32:
+# the dot_flag bits ride there shifted up by DOT_FLAG_SHIFT (dot_flag_mem), above sep_flag's own 16 bits, and
+# dots._measure_dots splits them into the two columns. No file ever holds the shifted form.
+DOT_FLAG_SHIFT = 16
+SEP_FLAG_MASK = (1 << DOT_FLAG_SHIFT) - 1
+
+
+def dot_flag_mem(bits: int) -> int:
+    """dot_flag bits as carried in an in-memory detection's int32 sep_flag."""
+    return int(bits) << DOT_FLAG_SHIFT
+
+
 # Rejected peaks (18 Nov; rerun/reports/rejected-peaks.md): a peak >= the threshold that the saturation guard, a glow
 # star's own pixels or the mirror test refuses is a dot too (measured like the other matched-filter dots, sep_flag
-# SEP_FLAG_MF_PASS plus one bit per test that refuses it), never dropped: on the bench, 87 of 343 missed known asteroids
-# V < 18 and 2,081 of 5,574 missed Gaia G < 12 had such a peak. Off (MF_REFUSED_DOTS False): those stay peaks (why 1-3).
-# sep_flag is int16: 0x8000 is its sign bit, so 0x100 (above sep's 0x1-0x80) and 0x1000-0x4000 are the free bits.
+# SEP_FLAG_MF_PASS, dot_flag one bit per test that refuses it), never dropped: on the bench, 87 of 343 missed known
+# asteroids V < 18 and 2,081 of 5,574 missed Gaia G < 12 had such a peak. Off (MF_REFUSED_DOTS False): those stay
+# peaks (why 1-3).
 MF_REFUSED_DOTS = os.environ.get("SKYSHIFT_MF_REFUSED_DOTS", "1") == "1"  # env 0: off (the bench's baseline)
-SEP_FLAG_MF_GUARD = 0x1000     # within DETECT_SAT_GUARD_PX of an OVERFLOW/NONLINEAR pixel (a saturated star's wings)
-SEP_FLAG_MF_MIRROR = 0x2000    # within PSF_PASS_R_PX of a subtracted dot and failing the mirror test (a ring / PSF error)
-SEP_FLAG_MF_EXCLUDED = 0x4000  # inside an excluded region (a glow star's own pixels)
 # Low-S/N dots: matched-filter peaks from MF_DOT_LOW_SNR up to the threshold (both x the block scale) are dots with
-# SEP_FLAG_MF_LOW_SNR; below MF_DOT_LOW_SNR they stay in the peaks file. MF_DOT_LOW_SNR >= the threshold: none
+# DOT_FLAG_MF_LOW_SNR; below MF_DOT_LOW_SNR they stay in the peaks file. MF_DOT_LOW_SNR >= the threshold: none
 # (env SKYSHIFT_MF_DOT_LOW_SNR, for the bench).
 MF_DOT_LOW_SNR = float(os.environ.get("SKYSHIFT_MF_DOT_LOW_SNR", "4.5"))
-SEP_FLAG_MF_LOW_SNR = 0x100
 # Peaks file (v2): every other local maximum of the same S/N map >= MF_PEAK_SNR with no dot within MF_PASS_DEDUP_PX
 # (S/N 4 to MF_DOT_LOW_SNR; with MF_REFUSED_DOTS off also the peaks the guard / glow / mirror test refused):
 # <folder>_peaks/<obs_id>D<det>.parquet.
@@ -218,9 +241,9 @@ SAT_CORES_MAX = 1000           # v2 photo metadata: OVERFLOW/NONLINEAR clumps li
 # Aurigae 5 of 8 (the glow kept the ring piece nearest the core's centre, which then missed the wings centroid that
 # runs only on dots with OVERFLOW/NONLINEAR in their 3×3), Gaia G < 6 23% within 3″.
 SAT_CORE_DOTS = True
-SEP_FLAG_SAT_CORE = 0x2000     # sep_flag: the dot of a saturated core, placed by the wings fit (add_core_dots)
-SEP_FLAG_SAT_NOFIT = 0x4000    # ... whose wings fit gave no flux: flux_ujy, flux_psf_ujy NaN (pos_err says how its x, y
-                               # were found)
+# Its dot: dot_flag DOT_FLAG_SAT_CORE, + DOT_FLAG_SAT_NOFIT without a flux (pos_err says how its x, y were found).
+SAT_CORE_DUP_PX = 2.0          # a matched-filter dot (a refused peak kept by MF_REFUSED_DOTS) this close to a core's
+                               # dot is the same star again: dropped (dots.drop_core_duplicates; = GLOW_SELF_PX, 12″)
 SAT_CORE_MAX_PX = 200_000      # a saturated blob larger than this is no star (the glow model stops at 2,000: Saturn's
                                # D1 blob with Titan and Rhea inside it is larger)
 SAT_CORE_SMALL_PX = 3.0        # cores up to this radius: position from the Gaussian wings fit (recentroid_saturated)

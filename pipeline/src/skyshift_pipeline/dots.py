@@ -88,6 +88,7 @@ DOT_V2_COLUMNS = {
     "n_masked": "int8",             # masked pixels (contracts/flags.md mask) with centres within 2 px (the aperture)
     "partner_flux_ujy": "float32",  # r = 2 px aperture at the dot's sky position in the simultaneous partner detector
     "partner_err_ujy": "float32",   # (D1↔D4, D2↔D5, D3↔D6, same exposure); its 1σ × the partner's empirical factor
+    "dot_flag": "int32",            # 18 Nov: why a dot is doubtful or special, one bit per meaning (config DOT_FLAG_*)
 }
 
 
@@ -501,16 +502,17 @@ def _detections(l2, thresh: float, min_snr: float, timing: dict, ctx: PhotoConte
     return det, comp, ctx
 
 
-# the refused matched-filter peaks that become dots, and their sep_flag bits (config MF_REFUSED_DOTS)
-MF_REFUSED_FLAGS = {PEAK_GUARD: C.SEP_FLAG_MF_GUARD, PEAK_MIRROR: C.SEP_FLAG_MF_MIRROR,
-                    PEAK_EXCLUDED: C.SEP_FLAG_MF_EXCLUDED}
+# the refused matched-filter peaks that become dots, and their dot_flag bits (config MF_REFUSED_DOTS), in the in-memory
+# form mf_pass ORs into the detections' int32 sep_flag (config.dot_flag_mem; _measure_dots splits them out)
+MF_REFUSED_FLAGS = {PEAK_GUARD: C.dot_flag_mem(C.DOT_FLAG_MF_GUARD), PEAK_MIRROR: C.dot_flag_mem(C.DOT_FLAG_MF_MIRROR),
+                    PEAK_EXCLUDED: C.dot_flag_mem(C.DOT_FLAG_MF_GLOW_PIECE)}
 
 
 def _mf_pass(l2, det: np.ndarray, comp: tuple | None, ctx: PhotoContext, s: C.DetectSettings, counts: dict,
              extras: dict | None, timing: dict, dsat: np.ndarray | None = None) -> tuple | None:
     """Extraction v2's matched-filter pass (psf.mf_pass) on the second pass's residual: its dots join the second
-    pass's (sep_flag SEP_FLAG_MF_PASS, measured on the residual; refused peaks and low-S/N peaks with their bits,
-    config MF_REFUSED_DOTS, MF_DOT_LOW_SNR); its peaks and depth map go to `extras`."""
+    pass's (sep_flag SEP_FLAG_MF_PASS, measured on the residual; refused peaks and low-S/N peaks with their dot_flag
+    bits, config MF_REFUSED_DOTS, MF_DOT_LOW_SNR); its peaks and depth map go to `extras`."""
     t0 = time.perf_counter()
     shape = ctx.sub.shape
     model = comp[1] if comp is not None else None
@@ -532,7 +534,7 @@ def _mf_pass(l2, det: np.ndarray, comp: tuple | None, ctx: PhotoContext, s: C.De
                  primary_x=prim_x, primary_y=prim_y, sat_dist=dsat, sat_guard_px=s.sat_guard_px,
                  min_snr=C.mf_pass_snr(getattr(l2, "detector", None)), normalise=C.MF_PASS_NORMALISE,
                  refused_flags=MF_REFUSED_FLAGS if C.MF_REFUSED_DOTS else None,
-                 low_snr=C.MF_DOT_LOW_SNR, low_flag=C.SEP_FLAG_MF_LOW_SNR)
+                 low_snr=C.MF_DOT_LOW_SNR, low_flag=C.dot_flag_mem(C.DOT_FLAG_MF_LOW_SNR))
     md = mp.dots.copy()
     md["sep_flag"] = md["sep_flag"] | C.SEP_FLAG_MF_PASS
     info = dict(mp.info)
@@ -636,7 +638,7 @@ def glow_dots(l2, obs_id: str, detector: int, session: int, visit: int, thresh: 
     (the detection nearest it within max(GLOW_SELF_PX, core radius + 1.5 px)) is measured on IMAGE as before; other
     detections that close are pieces of it and dropped; the rest are measured on the glow-free image.
     Extraction v2 (18 Nov, SAT_CORE_DOTS): every saturated core then has exactly one dot on the star (add_core_dots:
-    the wings fit's position and flux, sep_flag SEP_FLAG_SAT_CORE; finish_core_dots), added where nothing was
+    the wings fit's position and flux, dot_flag DOT_FLAG_SAT_CORE; finish_core_dots), added where nothing was
     detected; until then the kept own dot of a saturated star was the ring piece nearest the hole's centre."""
     t0 = time.perf_counter()
     ctx0 = ctx if ctx is not None else photo_context(l2, timing)
@@ -655,6 +657,7 @@ def glow_dots(l2, obs_id: str, detector: int, session: int, visit: int, thresh: 
         if core_dots:
             det = _no_dets() if det is None else det
             det, own, cores = add_core_dots(l2, ctx0, gl, det, np.zeros(len(det), bool), counts, timing)
+            comp = drop_core_duplicates(comp, cores, counts)
             if len(det) == 0 and not (comp is not None and len(comp[0])):
                 return empty_dots(s.v2)
             df = _measure_all(l2, det, comp, ctx0, obs_id, detector, session, visit, timing, l2_own=l2, ctx_own=ctx0,
@@ -687,7 +690,7 @@ def glow_dots(l2, obs_id: str, detector: int, session: int, visit: int, thresh: 
             # rejected peaks (18 Nov): a matched-filter dot inside a glow star's own pixels stays, flagged (Rhea 11 px
             # from Saturn's centre, inside its 12.6 px saturated core, was dropped here)
             cd = cd.copy()
-            cd["sep_flag"][mfp] |= C.SEP_FLAG_MF_EXCLUDED
+            cd["sep_flag"][mfp] |= C.dot_flag_mem(C.DOT_FLAG_MF_GLOW_PIECE)
             cpiece = cpiece & ~mfp
         n_piece += int(cpiece.sum())
         comp = (cd[~cpiece], comp[1])
@@ -707,11 +710,27 @@ def glow_dots(l2, obs_id: str, detector: int, session: int, visit: int, thresh: 
     cores = None
     if core_dots:
         det, own, cores = add_core_dots(l2, ctx0, gl, det, own, counts, timing)
+        comp = drop_core_duplicates(comp, cores, counts)
         if len(det) == 0 and not (comp is not None and len(comp[0])):
             return empty_dots(s.v2)
     df = _measure_all(l2g, det, comp, ctxg, obs_id, detector, session, visit, timing, l2_own=l2, ctx_own=ctx0, own=own,
                       v2=s.v2)
     return df if cores is None else finish_core_dots(df, l2, cores)
+
+
+def drop_core_duplicates(comp: tuple | None, placed: np.ndarray, counts: dict) -> tuple | None:
+    """Integration of rejected peaks (#413) and saturated cores (#414), 18 Nov: a matched-filter dot within
+    SAT_CORE_DUP_PX of a saturated core's dot (add_core_dots' `placed` x, y) is that star a second time (a refused peak
+    in its hole or on its rim, kept by MF_REFUSED_DOTS) and is dropped (counts n_sat_core_dup_mf); one farther out
+    stays, flagged (Rhea: 10.8 px from Saturn's centre)."""
+    counts["n_sat_core_dup_mf"] = 0
+    if comp is None or not len(comp[0]) or not len(placed):
+        return comp
+    cd = comp[0]
+    d, _ = cKDTree(placed[:, :2]).query(np.c_[cd["x"], cd["y"]], k=1)
+    dup = (d < C.SAT_CORE_DUP_PX) & ((cd["sep_flag"] & C.SEP_FLAG_MF_PASS) != 0)
+    counts["n_sat_core_dup_mf"] = int(dup.sum())
+    return (cd[~dup], comp[1]) if dup.any() else comp
 
 
 def _no_dets() -> np.ndarray:
@@ -767,8 +786,9 @@ def add_core_dots(l2, ctx: PhotoContext, gl, det: np.ndarray, own: np.ndarray, c
     added; either way x, y come from core_position (the wings, never a ring piece or the masked hole), flux and
     flux_err from its fit on the r = 2 px aperture's scale (total ÷ SAT_CORE_FLUX_SHARE[detector] ÷ SAT_CORE_APCORR;
     NaN where the fit has no flux),
-    snr = max(flux / error, the brightest unmasked pixel's S/N at the core's rim), and sep_flag gets
-    SEP_FLAG_SAT_CORE (and SEP_FLAG_SAT_NOFIT where the wings fit gave no flux). The row is measured on IMAGE as a glow
+    snr = max(flux / error, the brightest unmasked pixel's S/N at the core's rim), and dot_flag gets
+    DOT_FLAG_SAT_CORE (and DOT_FLAG_SAT_NOFIT where the wings fit gave no flux; in memory: config.dot_flag_mem in
+    sep_flag). The row is measured on IMAGE as a glow
     star's own dot (finish_core_dots then sets the rest). Returns (det, own, placed: (x, y, method, core radius) per
     core)."""
     t0 = time.perf_counter()
@@ -796,7 +816,7 @@ def add_core_dots(l2, ctx: PhotoContext, gl, det: np.ndarray, own: np.ndarray, c
     ap = C.SAT_CORE_APCORR * share  # flux on the aperture's scale: total / share / 1.033
     for i, s in enumerate(cores):
         x, y, fl, fe, method = core_position(ctx, data, flags, sat, float(s["x"]), float(s["y"]), float(s["r_core"]))
-        bit = C.SEP_FLAG_SAT_CORE | (0 if np.isfinite(fl) else C.SEP_FLAG_SAT_NOFIT)
+        bit = C.dot_flag_mem(C.DOT_FLAG_SAT_CORE | (0 if np.isfinite(fl) else C.DOT_FLAG_SAT_NOFIT))
         flux, err = fl / ap, fe / ap
         # S/N: the fit's, at least the brightest unmasked pixel's at the core's rim (the fit's error holds the model's
         # misfit of the wings, so it understates a saturated star's S/N)
@@ -824,15 +844,15 @@ def add_core_dots(l2, ctx: PhotoContext, gl, det: np.ndarray, own: np.ndarray, c
 
 
 def finish_core_dots(df: pd.DataFrame, l2, placed: np.ndarray) -> pd.DataFrame:
-    """The measured rows of the saturated-core dots (sep_flag SEP_FLAG_SAT_CORE; `placed` = add_core_dots' (x, y,
+    """The measured rows of the saturated-core dots (dot_flag DOT_FLAG_SAT_CORE; `placed` = add_core_dots' (x, y,
     method, core radius) per core): flux_psf_ujy = the wings fit's total (flux_ujy x SAT_CORE_APCORR; NaN without a
     flux), psf_chi2_nu NaN, flags and flags_peak OR the core's OVERFLOW/NONLINEAR bits, pos_err_arcsec (and
     pos_err_psf_arcsec: psf_pos_ok is false) from the scatter against Gaia measured per method
     (SAT_CORE_POS_ERR_ARCSEC). Rows re-sorted by flux_ujy (NaN last)."""
-    if not len(df) or not len(placed) or "sep_flag" not in df:
+    if not len(df) or not len(placed) or "dot_flag" not in df:
         return df
-    sf = df["sep_flag"].to_numpy().astype(np.int64)
-    rows = np.flatnonzero((sf & C.SEP_FLAG_SAT_CORE) != 0)
+    sf = df["dot_flag"].to_numpy().astype(np.int64)
+    rows = np.flatnonzero((sf & C.DOT_FLAG_SAT_CORE) != 0)
     if not len(rows):
         return df
     df = df.copy()
@@ -871,7 +891,8 @@ def _measure_dots(l2, det: np.ndarray, ctx: PhotoContext, obs_id: str, detector:
     ix, iy = pixel_of(x, y, data.shape)
     sat = (f3[iy, ix] & SAT_BITS) != 0
     t0 = time.perf_counter()
-    core = (np.asarray(det["sep_flag"]).astype(np.int64) & C.SEP_FLAG_SAT_CORE) != 0  # placed by add_core_dots
+    mem = np.asarray(det["sep_flag"]).astype(np.int64)  # sep_flag + dot_flag << DOT_FLAG_SHIFT (config.dot_flag_mem)
+    core = (mem & C.dot_flag_mem(C.DOT_FLAG_SAT_CORE)) != 0  # placed by add_core_dots
     x, y, _ = recentroid_saturated(data, np.asarray(l2.flags), x, y, sat & ~core)
     sat |= core
     timing["recentroid_s"] = time.perf_counter() - t0
@@ -943,7 +964,7 @@ def _measure_dots(l2, det: np.ndarray, ctx: PhotoContext, obs_id: str, detector:
         "dec_psf": dec_psf,
         "pos_err_psf_arcsec": pos_err_psf,
         "psf_pos_ok": psf_ok,
-        "sep_flag": det["sep_flag"],
+        "sep_flag": mem & C.SEP_FLAG_MASK,
     }).astype(DOT_COLUMNS)
     df["flux_ap_ujy"] = list(apf.astype(np.float32))
     df["flux_ap_err_ujy"] = list(ape.astype(np.float32))
@@ -951,6 +972,7 @@ def _measure_dots(l2, det: np.ndarray, ctx: PhotoContext, obs_id: str, detector:
         t0 = time.perf_counter()
         for c, v in v2_columns(l2, ctx, x, y).items():
             df[c] = v
+        df["dot_flag"] = (mem >> C.DOT_FLAG_SHIFT).astype(np.int32)
         timing["v2_columns_s"] = time.perf_counter() - t0
     return df
 
@@ -1779,10 +1801,12 @@ def v2_meta(l2, ctx: PhotoContext | None, extras: dict) -> dict:
                  "mf": {"min_snr": C.mf_pass_snr(getattr(l2, "detector", None)), "peak_snr": C.MF_PEAK_SNR, "dedup_px": C.MF_PASS_DEDUP_PX,
                         "kernel_half_px": C.MF_KERNEL_HALF, "sep_flag": C.SEP_FLAG_MF_PASS,
                         "normalise": str(C.MF_PASS_NORMALISE),
-                        # rejected peaks (18 Nov): the bits of refused peaks kept as dots, the low-S/N dots' threshold
-                        "refused_flags": ({"guard": C.SEP_FLAG_MF_GUARD, "mirror": C.SEP_FLAG_MF_MIRROR,
-                                           "excluded": C.SEP_FLAG_MF_EXCLUDED} if C.MF_REFUSED_DOTS else None),
-                        "low_snr": C.MF_DOT_LOW_SNR, "low_snr_flag": C.SEP_FLAG_MF_LOW_SNR}}
+                        # rejected peaks (18 Nov): the dot_flag bits of refused peaks kept as dots, the low-S/N
+                        # dots' threshold and bit
+                        "refused_flags": ({"guard": C.DOT_FLAG_MF_GUARD, "mirror": C.DOT_FLAG_MF_MIRROR,
+                                           "excluded": C.DOT_FLAG_MF_GLOW_PIECE} if C.MF_REFUSED_DOTS else None),
+                        "low_snr": C.MF_DOT_LOW_SNR, "low_snr_flag": C.DOT_FLAG_MF_LOW_SNR},
+                 "dot_flag": dict(C.DOT_FLAGS)}  # the dot_flag column's bits (config DOT_FLAG_*)
     if extras.get("mf_stats"):
         st = dict(extras["mf_stats"])
         g = st.pop("sigma_grid", None)

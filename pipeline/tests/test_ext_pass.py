@@ -152,7 +152,7 @@ def test_v2_ext_file_and_switch(tmp_path, monkeypatch):
     hit = et[np.hypot(et.x - sx, et.y - sy) < 1.5]
     assert len(hit) == 1 and hit.ext_scale.iloc[0] == 4 and hit.snr_ext.iloc[0] == pytest.approx(7.5)
     assert hit.near_dot_px.iloc[0] > C.EXT_DEDUP_PX and (et.near_dot_px > C.EXT_DEDUP_PX).all()  # the one on a dot: out
-    assert counts["n_ext_pass"] == len(extras["ext"]["x"]) - 2
+    assert counts["n_ext_pass"] + 2 - counts.get("n_ext_glow_pieces", 0) == len(extras["ext"]["x"]), counts
     # written by process_photos next to the dot file; the footer has the settings and each map's noise
     monkeypatch.setattr(C, "DOTS_V2", True)
     monkeypatch.setattr(D, "load_photo", load)

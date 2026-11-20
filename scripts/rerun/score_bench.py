@@ -10,6 +10,8 @@ Truth  = Gaia DR3 G < 20 in <data>/refcat/<zone>.parquet moved to each photo's t
          SPHEREx (<data>/cache/mpc/<zone>/run_*.json per_photo); 306P/LINEAR (reports-16nov/ecl04-306P-vs-dots.csv);
          3I/ATLAS (scripts/validate/data/photolists/3i-atlas.csv); the featured targets (web/src/data/targets.json).
 Ext = <root>/<v2 dots folder>_ext/ (the extended pass, when written): named rows `ext`, known `after_peaks_ext`.
+dot_flag (v2 files from 18 Nov, config DOT_FLAGS): dots per photo carrying each bit (`dot_flag_per_photo`), and the
+nearest dot's dot_flag / sep_flag in every named row, so a find can be told apart by the kind of dot that made it.
 A match is the nearest dot within --star-arcsec (stars, 3″) or --body-arcsec (bodies, 6.15″ = 1 px). Chance: the same
 truth shifted 45″ (the `control` columns), so a found share can be read against it.
 Writes <root>/score.json and prints the tables.
@@ -202,10 +204,13 @@ def main(argv=None) -> dict:
             aft, bef, pk, stk = (finite(x) for x in (aft, bef, pk, stk))
             fp = Footprint.from_s_region(r.s_region)
             ta, tb, tp, ts = tree_of(aft), tree_of(bef), tree_of(pk), tree_of(stk)
+            dfl = aft["dot_flag"].to_numpy().astype(np.int64) if "dot_flag" in aft else np.zeros(len(aft), np.int64)
             counts.append({"zone": zone, "detector": det, "photo": pid, "after": len(aft),
                            "before": None if bef is None else len(bef), "peaks": None if pk is None else len(pk),
                            "stack_rows": None if stk is None else len(stk),
-                           "ext_rows": np.nan if ext is None else len(ext)})
+                           "ext_rows": np.nan if ext is None else len(ext),
+                           "dot_flag_any": int((dfl != 0).sum()),
+                           **{f"dot_flag_{k}": int(((dfl & v) != 0).sum()) for k, v in C.DOT_FLAGS.items()}})
             # --- catalogue truth at this photo's time
             cat_tree = None
             if rc is not None and len(rc):
@@ -219,12 +224,11 @@ def main(argv=None) -> dict:
                 if len(b) and ta is not None:
                     bd, bi = ta.nearest(b["ra_t"].to_numpy(), b["dec_t"].to_numpy())
                     fp_ = aft["flags_peak"].to_numpy() if "flags_peak" in aft else np.zeros(len(aft), int)
-                    sf = aft["sep_flag"].to_numpy() if "sep_flag" in aft else np.zeros(len(aft), int)
+                    sf = aft["dot_flag"].to_numpy() if "dot_flag" in aft else np.zeros(len(aft), int)
                     bright.append(pd.DataFrame({"zone": zone, "detector": det, "photo": pid,
                                                 "g_bin": pd.cut(b["g_mag"], BRIGHT_G_BINS), "sep": bd,
                                                 "sat": (fp_[bi].astype(np.int64) & F.SAT_BITS) != 0,
-                                                "core_dot": (sf[bi].astype(np.int64) & C.SEP_FLAG_SAT_CORE) != 0
-                                                if hasattr(C, "SEP_FLAG_SAT_CORE") else False}))
+                                                "core_dot": (sf[bi].astype(np.int64) & C.DOT_FLAG_SAT_CORE) != 0}))
                 if len(g) and cat_tree is not None:
                     n2 = np.array([len(x) for x in cat_tree.query_radius(g["ra_t"].to_numpy(), g["dec_t"].to_numpy(), 12.3)])
                     g = g[n2 == 1]
@@ -325,6 +329,9 @@ def main(argv=None) -> dict:
                     rec[which] = {"sep_arcsec": round(float(dist[0]), 2),
                                   "snr": round(float(row.get("snr", row.get("snr_mf", row.get("snr_ext", np.nan)))), 1),
                                   "saturated": bool(int(row.get("flags_peak", 0) or 0) & F.SAT_BITS) if "flags_peak" in d else None}
+                    if which == "after":  # the kind of dot (sep_flag passes 0x200 / 0x400; dot_flag config DOT_FLAGS)
+                        rec[which]["sep_flag"] = int(row.get("sep_flag", 0) or 0)
+                        rec[which]["dot_flag"] = int(row.get("dot_flag", 0) or 0)
                 named.append(rec)
 
     st = pd.concat(stars, ignore_index=True) if stars else pd.DataFrame()
@@ -336,6 +343,8 @@ def main(argv=None) -> dict:
         "photos_scored": int(len(counts)),
         "dots_per_photo": table(pd.DataFrame(counts), ["detector"],
                                 ["after", "before", "peaks", "stack_rows", "ext_rows"]),
+        "dot_flag_per_photo": table(pd.DataFrame(counts), ["detector"],
+                                    ["after", "dot_flag_any"] + [f"dot_flag_{k}" for k in C.DOT_FLAGS]),
         "gaia_found_by_detector": table(num(both_st), ["detector"], ["before", "after", "after_peaks",
                                                                                "after_stack", "control_after"]),
         "gaia_found_by_g": table(num(both_st), ["g_bin"], ["before", "after", "after_peaks",
@@ -357,7 +366,7 @@ def main(argv=None) -> dict:
     out = Path(a.out) if a.out else root / "score.json"
     out.write_text(json.dumps(rep, indent=1, default=str))
     pd.set_option("display.width", 200)
-    for k in ("dots_per_photo", "gaia_found_by_detector", "gaia_found_by_g", "known_found_by_v",
+    for k in ("dots_per_photo", "dot_flag_per_photo", "gaia_found_by_detector", "gaia_found_by_g", "known_found_by_v",
               "known_found_by_rate", "known_found_by_detector", "unmatched_per_photo", "bright_found_by_g"):
         print(f"\n== {k}\n{pd.DataFrame(rep[k]).to_string(index=False)}")
     print("\n== named")
