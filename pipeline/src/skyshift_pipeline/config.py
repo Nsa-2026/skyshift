@@ -180,6 +180,26 @@ EMPIRICAL_NOISE_MIN_SEP_PX = 8.0  # ... at least this far from every dot
 EMPIRICAL_NOISE_SEED = 0
 PARTNER_DETECTOR = {1: 4, 4: 1, 2: 5, 5: 2, 3: 6, 6: 3}  # exposed at the same moment (CLAUDE.md)
 SAT_CORES_MAX = 1000           # v2 photo metadata: OVERFLOW/NONLINEAR clumps listed (largest first)
+# Saturated-core dots (18 Nov, agent "saturated"; dots.add_core_dots, with the glow model): every saturated core that
+# is a star (the glow's rule: a masked blob holding OVERFLOW/NONLINEAR whose rim reaches S/N 50; no 400-star or
+# 2,000 px limit) keeps exactly one dot, placed on the star by a fit of its unmasked wings, never on a ring piece or the
+# hole. Before: R Draconis (core radius ~6 px) got 0 of 8 dots within 6″ (its dot was a ring piece 21–44″ out), RW
+# Aurigae 5 of 8 (the glow kept the ring piece nearest the core's centre, which then missed the wings centroid that
+# runs only on dots with OVERFLOW/NONLINEAR in their 3×3), Gaia G < 6 23% within 3″.
+SAT_CORE_DOTS = True
+SEP_FLAG_SAT_CORE = 0x2000     # sep_flag: the dot of a saturated core, placed by the wings fit (add_core_dots)
+SEP_FLAG_SAT_NOFIT = 0x4000    # ... whose wings fit gave no flux: flux_ujy, flux_psf_ujy NaN (pos_err says how its x, y
+                               # were found)
+SAT_CORE_MAX_PX = 200_000      # a saturated blob larger than this is no star (the glow model stops at 2,000: Saturn's
+                               # D1 blob with Titan and Rhea inside it is larger)
+SAT_CORE_SMALL_PX = 3.0        # cores up to this radius: position from the Gaussian wings fit (recentroid_saturated)
+SAT_CORE_APCORR = 1.033        # flux_ujy of a core dot = the wings fit's total flux / this (the r = 2 px aperture's scale)
+# The power-law wings fit (alpha 1 px) puts too little light under the masked core: its total is this share of the
+# catalogue flux (2MASS J/H/K, CatWISE W1/W2 interpolated to the dot's wavelength; hunt + t_gc bench photos, 18 Nov:
+# D2 1,370 cores 0.218, D3 1,129 0.233, D4 855 0.472, D5 201 0.456, D6 68 0.524; scatter 0.10-0.12 dex, D6 0.23; flat
+# from 10^5.5 to 10^8 uJy). D1 is not measured (no catalogue band below J): D2's. Divided out.
+SAT_CORE_FLUX_SHARE = {1: 0.218, 2: 0.218, 3: 0.233, 4: 0.472, 5: 0.456, 6: 0.524}
+SAT_CORE_POS_ERR_ARCSEC = {"small": 0.5, "wings": 0.9, "centre": 2.0}  # pos_err of core dots per axis, by method
 # Dark holes (16 Nov, second pass; core skyshift_core.holes): unflagged pixels far below the sky (mostly cold pixels
 # missing from NASA's COLD mask: the same detector pixels week after week; 300-1,250 per MWIR photo, 20-120 SWIR) are
 # set to NaN (a bad pixel) before anything is measured. 7 sigma left 2/3 of the negative-image fakes (their deepest
