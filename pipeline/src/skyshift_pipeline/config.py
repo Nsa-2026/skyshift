@@ -240,7 +240,9 @@ STREAKS = os.environ.get("SKYSHIFT_STREAKS", "1") == "1"
 STREAK_LENGTHS_PX = (4.0, 6.0, 9.0)
 STREAK_END_STEP_PX = 1.0
 STREAK_PROFILE = "uniform"     # light along the trail: uniform, or ramp (6τ(1 − τ): a least-squares slope of the ramp)
-STREAK_SNR = 5.5               # a streak: snr_local (S/N normalised by its length's own scatter here) >= this
+STREAK_SNR = 4.5               # a streak: snr_local (S/N normalised by its length's own scatter here) >= this. 4.5,
+                               # not 5.5 (lead, 20 Nov: more fakes rather than miss; cut downstream on snr / snr_local):
+                               # 4 photos rows +35%, negative-image rows +27%, ~+0.2 s (reports/streaks.md)
 STREAK_PIECE_SNR = 4.0         # a piece (for chains): a local maximum of the bank's snr_local >= this
 STREAK_CLIP_SIGMA = 10.0       # the search clips the residual at ±this × noise per pixel (fluxes don't)
 STREAK_NORM_GRID = 8           # each bank length's S/N map normalised by its own sigma and median in this × this blocks
