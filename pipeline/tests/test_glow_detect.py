@@ -194,7 +194,10 @@ def test_v2_every_saturated_core_gets_one_dot_on_the_star(tmp_path):
             assert np.isnan(row.flux_ujy)
         else:
             assert row.flux_ujy > 0 and row.flux_psf_ujy == pytest.approx(row.flux_ujy * C.SAT_CORE_APCORR, rel=1e-5)
-        assert int((np.hypot(df.x - x0, df.y - y0) < 2.0).sum()) == 1  # one dot on the core
+        near = np.hypot(df.x - x0, df.y - y0) < 2.0
+        dup = (df.dot_flag & C.DOT_FLAG_SAT_CORE_DUP) != 0
+        assert int((near & ~dup).sum()) == 1  # one dot on the core; refused peaks on it stay, flagged 0x40
+        assert ((df.sep_flag[near & dup] & C.SEP_FLAG_MF_PASS) != 0).all()
     f = df.flux_ujy.to_numpy()
     assert np.all(np.diff(f[np.isfinite(f)]) <= 0)  # brightest first, NaN last
     assert df.flux_ujy.isna().sum() == 0 or np.isnan(f[-1])
@@ -234,16 +237,21 @@ def test_add_core_dots_adds_a_row_where_nothing_was_detected(tmp_path):
     assert np.hypot(det2["x"][k] - X0, det2["y"][k] - Y0) < 0.5
 
 
-def test_drop_core_duplicates_keeps_matched_filter_dots_off_the_star():
-    """#413 x #414 (18 Nov): a matched-filter dot within SAT_CORE_DUP_PX of a saturated core's dot is that star again
-    and goes; one farther out (Rhea, 10.8 px from Saturn) and any non-matched-filter dot stay."""
+def test_flag_core_duplicates_keeps_and_flags_matched_filter_dots_on_the_star():
+    """#413 x #414 (18 Nov): a matched-filter dot within SAT_CORE_DUP_PX of a saturated core's dot stays with dot_flag
+    0x40 added to its own bits (never dropped: it may be a real neighbour); one farther out (Rhea, 10.8 px from Saturn)
+    and any non-matched-filter dot are not touched."""
     cd = np.zeros(3, D._no_dets().dtype)
     cd["x"], cd["y"] = [10.5, 20.0, 10.0], [10.0, 10.0, 11.0]
     cd["sep_flag"] = [C.SEP_FLAG_MF_PASS | C.dot_flag_mem(C.DOT_FLAG_MF_GLOW_PIECE), C.SEP_FLAG_MF_PASS,
                       C.SEP_FLAG_PSF_PASS]
     counts: dict = {}
     placed = np.array([[10.0, 10.0, 1.0, 13.0]])
-    out = D.drop_core_duplicates((cd, None), placed, counts)
-    assert counts["n_sat_core_dup_mf"] == 1 and list(out[0]["x"]) == [20.0, 10.0]
-    assert D.drop_core_duplicates(None, placed, {}) is None
-    assert D.drop_core_duplicates((cd, None), np.zeros((0, 4)), {})[0] is cd
+    out = D.flag_core_duplicates((cd, None), placed, counts)
+    assert counts["n_sat_core_dup_mf_flagged"] == 1 and list(out[0]["x"]) == [10.5, 20.0, 10.0]  # nothing dropped
+    dup = C.dot_flag_mem(C.DOT_FLAG_SAT_CORE_DUP)
+    assert out[0]["sep_flag"][0] == C.SEP_FLAG_MF_PASS | C.dot_flag_mem(C.DOT_FLAG_MF_GLOW_PIECE) | dup
+    assert not out[0]["sep_flag"][1] & dup and not out[0]["sep_flag"][2] & dup
+    assert not cd["sep_flag"][0] & dup  # the input is not changed
+    assert D.flag_core_duplicates(None, placed, {}) is None
+    assert D.flag_core_duplicates((cd, None), np.zeros((0, 4)), {})[0] is cd

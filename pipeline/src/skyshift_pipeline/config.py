@@ -184,8 +184,11 @@ DOT_FLAG_MF_GLOW_PIECE = 0x4   # matched-filter dot inside a glow star's own pix
 DOT_FLAG_MF_LOW_SNR = 0x8      # matched-filter dot with S/N from MF_DOT_LOW_SNR (4.5) up to the threshold (5 x scale)
 DOT_FLAG_SAT_CORE = 0x10       # the one dot of a saturated core, placed by its wings fit (add_core_dots, #414)
 DOT_FLAG_SAT_NOFIT = 0x20      # ... whose wings fit gave no flux: flux_ujy, flux_psf_ujy NaN
+DOT_FLAG_SAT_CORE_DUP = 0x40   # matched-filter dot within SAT_CORE_DUP_PX of a saturated core's dot: the star again
+                               # (a refused peak in its hole) or a real neighbour (a moon, an asteroid passing it)
 DOT_FLAGS = {"mf_guard": DOT_FLAG_MF_GUARD, "mf_mirror": DOT_FLAG_MF_MIRROR, "mf_glow_piece": DOT_FLAG_MF_GLOW_PIECE,
-             "mf_low_snr": DOT_FLAG_MF_LOW_SNR, "sat_core": DOT_FLAG_SAT_CORE, "sat_nofit": DOT_FLAG_SAT_NOFIT}
+             "mf_low_snr": DOT_FLAG_MF_LOW_SNR, "sat_core": DOT_FLAG_SAT_CORE, "sat_nofit": DOT_FLAG_SAT_NOFIT,
+             "sat_core_dup": DOT_FLAG_SAT_CORE_DUP}
 # In memory, until the dot table is built, detections are core.detect's DETECTION_DTYPE rows, whose sep_flag is int32:
 # the dot_flag bits ride there shifted up by DOT_FLAG_SHIFT (dot_flag_mem), above sep_flag's own 16 bits, and
 # dots._measure_dots splits them into the two columns. No file ever holds the shifted form.
@@ -242,8 +245,8 @@ SAT_CORES_MAX = 1000           # v2 photo metadata: OVERFLOW/NONLINEAR clumps li
 # runs only on dots with OVERFLOW/NONLINEAR in their 3×3), Gaia G < 6 23% within 3″.
 SAT_CORE_DOTS = True
 # Its dot: dot_flag DOT_FLAG_SAT_CORE, + DOT_FLAG_SAT_NOFIT without a flux (pos_err says how its x, y were found).
-SAT_CORE_DUP_PX = 2.0          # a matched-filter dot (a refused peak kept by MF_REFUSED_DOTS) this close to a core's
-                               # dot is the same star again: dropped (dots.drop_core_duplicates; = GLOW_SELF_PX, 12″)
+SAT_CORE_DUP_PX = 2.0          # a matched-filter dot this close to a core's dot may be the same star again: kept,
+                               # dot_flag DOT_FLAG_SAT_CORE_DUP (dots.flag_core_duplicates; = GLOW_SELF_PX, 12″)
 SAT_CORE_MAX_PX = 200_000      # a saturated blob larger than this is no star (the glow model stops at 2,000: Saturn's
                                # D1 blob with Titan and Rhea inside it is larger)
 SAT_CORE_SMALL_PX = 3.0        # cores up to this radius: position from the Gaussian wings fit (recentroid_saturated)

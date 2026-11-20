@@ -657,7 +657,7 @@ def glow_dots(l2, obs_id: str, detector: int, session: int, visit: int, thresh: 
         if core_dots:
             det = _no_dets() if det is None else det
             det, own, cores = add_core_dots(l2, ctx0, gl, det, np.zeros(len(det), bool), counts, timing)
-            comp = drop_core_duplicates(comp, cores, counts)
+            comp = flag_core_duplicates(comp, cores, counts)
             if len(det) == 0 and not (comp is not None and len(comp[0])):
                 return empty_dots(s.v2)
             df = _measure_all(l2, det, comp, ctx0, obs_id, detector, session, visit, timing, l2_own=l2, ctx_own=ctx0,
@@ -710,7 +710,7 @@ def glow_dots(l2, obs_id: str, detector: int, session: int, visit: int, thresh: 
     cores = None
     if core_dots:
         det, own, cores = add_core_dots(l2, ctx0, gl, det, own, counts, timing)
-        comp = drop_core_duplicates(comp, cores, counts)
+        comp = flag_core_duplicates(comp, cores, counts)
         if len(det) == 0 and not (comp is not None and len(comp[0])):
             return empty_dots(s.v2)
     df = _measure_all(l2g, det, comp, ctxg, obs_id, detector, session, visit, timing, l2_own=l2, ctx_own=ctx0, own=own,
@@ -718,19 +718,24 @@ def glow_dots(l2, obs_id: str, detector: int, session: int, visit: int, thresh: 
     return df if cores is None else finish_core_dots(df, l2, cores)
 
 
-def drop_core_duplicates(comp: tuple | None, placed: np.ndarray, counts: dict) -> tuple | None:
+def flag_core_duplicates(comp: tuple | None, placed: np.ndarray, counts: dict) -> tuple | None:
     """Integration of rejected peaks (#413) and saturated cores (#414), 18 Nov: a matched-filter dot within
-    SAT_CORE_DUP_PX of a saturated core's dot (add_core_dots' `placed` x, y) is that star a second time (a refused peak
-    in its hole or on its rim, kept by MF_REFUSED_DOTS) and is dropped (counts n_sat_core_dup_mf); one farther out
-    stays, flagged (Rhea: 10.8 px from Saturn's centre)."""
-    counts["n_sat_core_dup_mf"] = 0
+    SAT_CORE_DUP_PX of a saturated core's dot (add_core_dots' `placed` x, y) is mostly that star a second time (a
+    refused peak in its hole or on its rim), but may be a real faint neighbour (a moon, an asteroid passing the star):
+    it stays, with dot_flag DOT_FLAG_SAT_CORE_DUP added to its own bits (counts n_sat_core_dup_mf_flagged), and the cut
+    happens downstream. Matched-filter dots farther out are not touched (Rhea: 10.8 px from Saturn's centre)."""
+    counts["n_sat_core_dup_mf_flagged"] = 0
     if comp is None or not len(comp[0]) or not len(placed):
         return comp
     cd = comp[0]
     d, _ = cKDTree(placed[:, :2]).query(np.c_[cd["x"], cd["y"]], k=1)
     dup = (d < C.SAT_CORE_DUP_PX) & ((cd["sep_flag"] & C.SEP_FLAG_MF_PASS) != 0)
-    counts["n_sat_core_dup_mf"] = int(dup.sum())
-    return (cd[~dup], comp[1]) if dup.any() else comp
+    counts["n_sat_core_dup_mf_flagged"] = int(dup.sum())
+    if not dup.any():
+        return comp
+    cd = cd.copy()
+    cd["sep_flag"][dup] |= C.dot_flag_mem(C.DOT_FLAG_SAT_CORE_DUP)
+    return (cd, comp[1])
 
 
 def _no_dets() -> np.ndarray:

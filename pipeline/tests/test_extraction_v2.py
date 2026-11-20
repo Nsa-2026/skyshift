@@ -251,19 +251,19 @@ def test_dots_table_v2_on_a_real_cutout(tmp_path, monkeypatch):
     assert h.sep_flag & C.SEP_FLAG_MF_PASS and not h.sep_flag & C.SEP_FLAG_PSF_PASS
     assert h.snr_mf >= C.MF_PASS_SNR  # sep (thresh 2/px, minarea 3) never made it a candidate
     assert h.psf_pos_ok and np.hypot(h.x_psf - sx, h.y_psf - sy) < 0.5
-    # rejected peaks: glow_dots keeps a glow star's matched-filter pieces, flagged, except those on a saturated core's
-    # own dot (drop_core_duplicates: the same star twice)
-    dup = counts["n_sat_core_dup_mf"]
-    assert counts["n_mf_pass"] - dup == int(((v2.sep_flag & C.SEP_FLAG_MF_PASS) != 0).sum()) >= 1
+    # rejected peaks: glow_dots keeps a glow star's matched-filter pieces, flagged; those on a saturated core's own
+    # dot also get 0x40 (flag_core_duplicates), none is dropped
+    assert counts["n_mf_pass"] == int(((v2.sep_flag & C.SEP_FLAG_MF_PASS) != 0).sum()) >= 1
     assert counts["n_glow_pieces_mf"] >= 1
-    n_gp = int(((v2.dot_flag & C.DOT_FLAG_MF_GLOW_PIECE) != 0).sum())
-    assert counts["n_glow_pieces_mf"] - dup <= n_gp <= counts["n_glow_pieces_mf"]
+    assert int(((v2.dot_flag & C.DOT_FLAG_MF_GLOW_PIECE) != 0).sum()) == counts["n_glow_pieces_mf"]
+    assert int(((v2.dot_flag & C.DOT_FLAG_SAT_CORE_DUP) != 0).sum()) == counts["n_sat_core_dup_mf_flagged"] >= 1
     with monkeypatch.context() as m:  # without core dots every matched-filter glow piece stays, flagged
         m.setattr(C, "SAT_CORE_DOTS", False)
         c0: dict = {}
         v0 = D.dots_table(l2, "X", 1, settings=V2, counts=c0, extras={})
         assert int(((v0.dot_flag & C.DOT_FLAG_MF_GLOW_PIECE) != 0).sum()) == c0["n_glow_pieces_mf"] >= 1
-    mf_bits = C.DOT_FLAG_MF_GUARD | C.DOT_FLAG_MF_MIRROR | C.DOT_FLAG_MF_GLOW_PIECE | C.DOT_FLAG_MF_LOW_SNR
+    mf_bits = (C.DOT_FLAG_MF_GUARD | C.DOT_FLAG_MF_MIRROR | C.DOT_FLAG_MF_GLOW_PIECE | C.DOT_FLAG_MF_LOW_SNR
+               | C.DOT_FLAG_SAT_CORE_DUP)
     assert not (((v2.sep_flag & C.SEP_FLAG_MF_PASS) == 0) & ((v2.dot_flag & mf_bits) != 0)).any()  # only on MF dots
     assert v2.dot_flag.dtype == np.int32 and (v2.sep_flag.astype(int) & ~0x0FFF == 0).all()  # sep_flag: old bits only
     assert list(v2.columns) == list(D.DOT_COLUMNS) + list(D.DOT_LIST_COLUMNS) + list(D.DOT_V2_COLUMNS)
