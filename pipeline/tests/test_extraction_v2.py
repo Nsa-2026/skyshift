@@ -119,6 +119,99 @@ def test_mf_pass_mirror_test_beside_a_subtracted_star(epsf):  # noqa: F811
                    np.array([x0]), np.array([y0]), primary_x=np.array([x0]), primary_y=np.array([y0]))
     assert len(mp.dots) == 0  # both sides equal: the mirror test refuses them
     assert (mp.peaks["why"] == P.PEAK_MIRROR).sum() >= 1
+    # rejected peaks (18 Nov): with refused_flags the same peaks are dots carrying the mirror bit, not peaks
+    mf = P.mf_pass(ring + np.random.default_rng(6).normal(0, SIGMA, img.shape), noise, bad, E,
+                   np.array([x0]), np.array([y0]), primary_x=np.array([x0]), primary_y=np.array([y0]),
+                   refused_flags=D.MF_REFUSED_FLAGS)
+    assert len(mf.dots) == (mp.peaks["why"] == P.PEAK_MIRROR).sum() == mf.info["n_mf_mirror"]
+    assert (mf.dots["sep_flag"] & C.dot_flag_mem(C.DOT_FLAG_MF_MIRROR)).all() and mf.info["n_mf_raw"] == 0
+    assert not (mf.peaks["why"] == P.PEAK_MIRROR).any()
+
+
+def _faint_and_noise(E, snr_mf: float, seed: int = 4):
+    """A 64 x 64 noise image (sigma 1) with one point source of matched-filter S/N ~snr_mf near a pixel centre."""
+    faint = (32.05, 30.95)
+    img = np.random.default_rng(seed).normal(0, SIGMA, (64, 64))
+    Pf, ix, iy = E.stamps([faint[0]], [faint[1]], half=6)
+    K = P.mf_kernel(E, int(E.zone([faint[0]], [faint[1]])[0]))
+    img[iy[0] - 6:iy[0] + 7, ix[0] - 6:ix[0] + 7] += snr_mf / np.sqrt((K ** 2).sum()) * Pf[0]
+    return img, faint, (ix[0], iy[0])
+
+
+def test_mf_pass_refused_peaks_become_flagged_dots(epsf):  # noqa: F811
+    """Rejected peaks (18 Nov): a peak the saturation guard or the excluded region refuses is a dot with that bit
+    (every test that refuses it), measured like any matched-filter dot; dot_flag's bits are distinct, and their
+    in-memory form never touches sep_flag's own 16 bits."""
+    E = epsf.shifted(1000, 1000)
+    img, faint, (ix, iy) = _faint_and_noise(E, 8.0)
+    noise, bad = np.full(img.shape, SIGMA), np.zeros(img.shape, bool)
+    none = np.zeros(0)
+    plain = P.mf_pass(img, noise, bad, E, none, none)
+    assert len(plain.dots) == 1 and plain.dots["sep_flag"][0] >> C.DOT_FLAG_SHIFT == 0
+    dsat = np.full(img.shape, np.inf)
+    dsat[iy - 3:iy + 4, ix - 3:ix + 4] = 3.0
+    excl = np.zeros(img.shape, bool)
+    excl[iy - 1:iy + 2, ix - 1:ix + 2] = True
+    mg = P.mf_pass(img, noise, bad, E, none, none, sat_dist=dsat, sat_guard_px=6.0, exclude=excl,
+                   refused_flags=D.MF_REFUSED_FLAGS)
+    assert len(mg.dots) == 1 and not (np.hypot(mg.peaks["x"] - faint[0], mg.peaks["y"] - faint[1]) < 1.0).any()
+    f = int(mg.dots["sep_flag"][0])
+    assert f >> C.DOT_FLAG_SHIFT == C.DOT_FLAG_MF_GUARD | C.DOT_FLAG_MF_GLOW_PIECE
+    # measured as without the guard (same position and aperture flux)
+    for c in ("x", "y", "flux", "snr"):
+        assert mg.dots[c][0] == pytest.approx(plain.dots[c][0])
+    assert mg.info["n_mf_guard"] == mg.info["n_mf_excluded"] == 1 and mg.info["n_mf_raw"] == 0
+    # only the guard's why in the dict: the excluded region still keeps it a peak (why 3), the old behaviour
+    m3 = P.mf_pass(img, noise, bad, E, none, none, exclude=excl, refused_flags={P.PEAK_GUARD: C.dot_flag_mem(C.DOT_FLAG_MF_GUARD)})
+    assert len(m3.dots) == 0 and (m3.peaks["why"] == P.PEAK_EXCLUDED).sum() == 1
+    # dot_flag: one distinct bit per meaning, all listed in config.DOT_FLAGS; in memory above sep_flag's 16 bits and
+    # inside an int32
+    bits = list(C.DOT_FLAGS.values())
+    assert len(set(bits)) == len(bits) and all(b & (b - 1) == 0 and b > 0 for b in bits)
+    assert sum(bits) < 2 ** (31 - C.DOT_FLAG_SHIFT) and C.SEP_FLAG_MASK == 0xFFFF
+    used = 0xFF | C.SEP_FLAG_PSF_PASS | C.SEP_FLAG_MF_PASS | C.SEP_FLAG_CENTROID_FALLBACK
+    assert all(C.dot_flag_mem(b) & used == 0 for b in bits)
+    assert not any(k.startswith("SEP_FLAG_") and v & ~0xFFFF for k, v in vars(C).items() if isinstance(v, int))
+
+
+def test_mf_pass_low_snr_dots(epsf):  # noqa: F811
+    """Peaks from low_snr to min_snr are dots with low_flag; below low_snr they stay peaks (why 0)."""
+    E = epsf.shifted(1000, 1000)
+    noise, bad = np.full((64, 64), SIGMA), np.zeros((64, 64), bool)
+    none = np.zeros(0)
+    for seed in range(50):  # the first noise draw that leaves the source's peak at S/N 4.5-5
+        img, faint, _ = _faint_and_noise(E, 4.8, seed=seed)
+        m0 = P.mf_pass(img, noise, bad, E, none, none)
+        k = np.hypot(m0.peaks["x"] - faint[0], m0.peaks["y"] - faint[1]) < 1.0
+        if k.sum() == 1 and 4.5 <= m0.peaks["snr_mf"][k][0] < 5.0:
+            break
+    assert k.sum() == 1 and 4.5 <= m0.peaks["snr_mf"][k][0] < 5.0  # the 4-5 peak
+    low = C.dot_flag_mem(C.DOT_FLAG_MF_LOW_SNR)
+    m1 = P.mf_pass(img, noise, bad, E, none, none, low_snr=4.5, low_flag=low)
+    hit = np.hypot(m1.dots["x"] - faint[0], m1.dots["y"] - faint[1]) < 1.0
+    assert hit.sum() == 1 and m1.dots["sep_flag"][hit][0] & low
+    assert (m1.dots["sep_flag"] & low).all() and m1.info["n_mf_low_snr"] == len(m1.dots)
+    assert (m1.peaks["snr_mf"] < 4.5).all() and len(m1.dots) + len(m1.peaks["x"]) == len(m0.dots) + len(m0.peaks["x"])
+    # low_snr >= min_snr: nothing changes
+    m2 = P.mf_pass(img, noise, bad, E, none, none, low_snr=5.0, low_flag=low)
+    assert len(m2.dots) == len(m0.dots) and len(m2.peaks["x"]) == len(m0.peaks["x"])
+
+
+def test_mf_pass_converged_pair_keeps_the_unflagged_dot(epsf):  # noqa: F811
+    """Two peaks whose centroids converge on one source: the dot without a rejected-peak bit wins over a brighter
+    flagged one."""
+    none = np.zeros(0)
+    # a source with two 3 x 3 maxima 2 px apart (a brighter left one) whose windowed centroids meet in the middle
+    img = np.random.default_rng(3).normal(0, SIGMA, (40, 40)) * 0.01
+    img[20, 17:22] += [2.0, 40.0, 25.0, 36.0, 2.0]
+    noise, bad = np.full(img.shape, SIGMA), np.zeros(img.shape, bool)
+    _, _, _, _, s = P.mf_peaks(P.matched_filter(img, noise, bad, None)[0], 5.0)
+    a = P.mf_pass(img, noise, bad, None, none, none)
+    assert len(s) == 2 and len(a.dots) == 1  # two peaks, one dot
+    excl = np.zeros(img.shape, bool)
+    excl[20, 18] = True  # the brighter peak is refused (flagged): the other's dot is kept
+    b = P.mf_pass(img, noise, bad, None, none, none, exclude=excl, refused_flags=D.MF_REFUSED_FLAGS)
+    assert len(b.dots) == 1 and not b.dots["sep_flag"][0] & C.dot_flag_mem(C.DOT_FLAG_MF_GLOW_PIECE)
 
 
 def _photo(tmp_path):
@@ -127,7 +220,7 @@ def _photo(tmp_path):
     return l2
 
 
-def test_dots_table_v2_on_a_real_cutout(tmp_path):
+def test_dots_table_v2_on_a_real_cutout(tmp_path, monkeypatch):
     """A faint ePSF star injected on a spot of the real cutout with no dot within 6 px (real noise, background, flags,
     WCS): fine detection misses it, v2 finds it (sep_flag 0x400, snr_mf >= 5, ePSF position), and every v2 column is
     there; v1 tables are unchanged."""
@@ -158,7 +251,21 @@ def test_dots_table_v2_on_a_real_cutout(tmp_path):
     assert h.sep_flag & C.SEP_FLAG_MF_PASS and not h.sep_flag & C.SEP_FLAG_PSF_PASS
     assert h.snr_mf >= C.MF_PASS_SNR  # sep (thresh 2/px, minarea 3) never made it a candidate
     assert h.psf_pos_ok and np.hypot(h.x_psf - sx, h.y_psf - sy) < 0.5
+    # rejected peaks: glow_dots keeps a glow star's matched-filter pieces, flagged; those on a saturated core's own
+    # dot also get 0x40 (flag_core_duplicates), none is dropped
     assert counts["n_mf_pass"] == int(((v2.sep_flag & C.SEP_FLAG_MF_PASS) != 0).sum()) >= 1
+    assert counts["n_glow_pieces_mf"] >= 1
+    assert int(((v2.dot_flag & C.DOT_FLAG_MF_GLOW_PIECE) != 0).sum()) == counts["n_glow_pieces_mf"]
+    assert int(((v2.dot_flag & C.DOT_FLAG_SAT_CORE_DUP) != 0).sum()) == counts["n_sat_core_dup_mf_flagged"] >= 1
+    with monkeypatch.context() as m:  # without core dots every matched-filter glow piece stays, flagged
+        m.setattr(C, "SAT_CORE_DOTS", False)
+        c0: dict = {}
+        v0 = D.dots_table(l2, "X", 1, settings=V2, counts=c0, extras={})
+        assert int(((v0.dot_flag & C.DOT_FLAG_MF_GLOW_PIECE) != 0).sum()) == c0["n_glow_pieces_mf"] >= 1
+    mf_bits = (C.DOT_FLAG_MF_GUARD | C.DOT_FLAG_MF_MIRROR | C.DOT_FLAG_MF_GLOW_PIECE | C.DOT_FLAG_MF_LOW_SNR
+               | C.DOT_FLAG_SAT_CORE_DUP)
+    assert not (((v2.sep_flag & C.SEP_FLAG_MF_PASS) == 0) & ((v2.dot_flag & mf_bits) != 0)).any()  # only on MF dots
+    assert v2.dot_flag.dtype == np.int32 and (v2.sep_flag.astype(int) & ~0x0FFF == 0).all()  # sep_flag: old bits only
     assert list(v2.columns) == list(D.DOT_COLUMNS) + list(D.DOT_LIST_COLUMNS) + list(D.DOT_V2_COLUMNS)
     assert list(fine.columns) == list(D.DOT_COLUMNS) + list(D.DOT_LIST_COLUMNS)
     assert v2.partner_flux_ujy.isna().all() and v2.partner_err_ujy.isna().all()
@@ -174,7 +281,7 @@ def test_dots_table_v2_on_a_real_cutout(tmp_path):
     p = tmp_path / "v2.parquet"
     p.write_bytes(D.parquet_bytes(D.dots_arrow(v2, meta)))
     t = pq.read_table(p)
-    assert t.schema.names[-5:] == list(D.DOT_V2_COLUMNS)
+    assert t.schema.names[-len(D.DOT_V2_COLUMNS):] == list(D.DOT_V2_COLUMNS)
     assert str(t.schema.field("n_transient").type) == "int8" and str(t.schema.field("snr_mf").type) == "float"
     m = D.photo_meta(str(p))
     assert m["extraction"] == 2 and m["detect"]["v2"] and m["detect"]["n_mf_pass"] == counts["n_mf_pass"]
@@ -410,7 +517,8 @@ def test_v2_runs_the_mf_pass_when_the_first_pass_finds_nothing(tmp_path, monkeyp
     v2 = D.dots_table(l2, "X", 1, settings=V2, counts=counts, extras=extras)
     assert seen and "n_mf_raw" in counts and "peaks" in extras
     assert list(v2.columns) == list(D.DOT_COLUMNS) + list(D.DOT_LIST_COLUMNS) + list(D.DOT_V2_COLUMNS)
-    assert len(v2) >= 1 and ((v2.sep_flag & C.SEP_FLAG_MF_PASS) != 0).all()
+    rest = v2[(v2.dot_flag & C.DOT_FLAG_SAT_CORE) == 0]  # the cutout's saturated cores keep their dots (add_core_dots)
+    assert len(rest) >= 1 and ((rest.sep_flag & C.SEP_FLAG_MF_PASS) != 0).all()
 
 
 def test_centroid_fallback_bit_is_cores_and_clear_of_the_pass_bits():
@@ -418,4 +526,6 @@ def test_centroid_fallback_bit_is_cores_and_clear_of_the_pass_bits():
 
     assert C.SEP_FLAG_CENTROID_FALLBACK == SEP_FLAG_CENTROID_FALLBACK
     assert not SEP_FLAG_CENTROID_FALLBACK & (C.SEP_FLAG_PSF_PASS | C.SEP_FLAG_MF_PASS | 0xFF)
+    bits = [0xFF, C.SEP_FLAG_PSF_PASS, C.SEP_FLAG_MF_PASS, C.SEP_FLAG_CENTROID_FALLBACK]
+    assert all(not (a & b) for i, a in enumerate(bits) for b in bits[i + 1:]) and max(bits) < 2 ** 15  # int16 column
     assert SEP_FLAG_CENTROID_FALLBACK <= np.iinfo(np.int16).max  # the dots column is int16

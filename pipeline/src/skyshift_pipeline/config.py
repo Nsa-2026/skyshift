@@ -171,15 +171,134 @@ MF_ZONE_GROUP = 3              # ePSF zones merged 3 × 3 per kernel tile (21 ×
 SEP_FLAG_MF_PASS = 0x400
 SEP_FLAG_CENTROID_FALLBACK = 0x800  # set by core detect (16 Nov, second pass) on every dot written from then on: the
                                     # windowed centroid failed or moved > 1 px, x, y = its start point (0.6-2.2% of dots)
+# dot_flag (18 Nov, extraction v2; contracts/dots.md): an int32 dot column (v2 files), one bit per reason a dot is
+# doubtful or special. sep_flag (int16) keeps only sep's own bits 0x1-0x80 and the passes' 0x200 / 0x400 / 0x800 and
+# has no free bit left (0x8000 is its sign), so every newer flag lives here, and every dot_flag bit is listed here and
+# nowhere else. dot_flag 0: a dot the code before 18 Nov kept the same way. Bits combine.
+DOT_FLAG_MF_GUARD = 0x1        # matched-filter dot within DETECT_SAT_GUARD_PX of an OVERFLOW/NONLINEAR pixel (a
+                               # saturated star's wings): the saturation guard refused it (rejected peaks, #413)
+DOT_FLAG_MF_MIRROR = 0x2       # matched-filter dot within PSF_PASS_R_PX of a subtracted dot, failing the mirror test (a
+                               # ring / PSF error, or a faint source beside a brighter one: 3I/ATLAS)
+DOT_FLAG_MF_GLOW_PIECE = 0x4   # matched-filter dot inside a glow star's own pixels (max(GLOW_SELF_PX, core + 1.5 px);
+                               # or mf_pass's `exclude` region): kept, was dropped as a piece of the star (Rhea)
+DOT_FLAG_MF_LOW_SNR = 0x8      # matched-filter dot with S/N from MF_DOT_LOW_SNR (4.5) up to the threshold (5 x scale)
+DOT_FLAG_SAT_CORE = 0x10       # the one dot of a saturated core, placed by its wings fit (add_core_dots, #414)
+DOT_FLAG_SAT_NOFIT = 0x20      # ... whose wings fit gave no flux: flux_ujy, flux_psf_ujy NaN
+DOT_FLAG_SAT_CORE_DUP = 0x40   # matched-filter dot within SAT_CORE_DUP_PX of a saturated core's dot: the star again
+                               # (a refused peak in its hole) or a real neighbour (a moon, an asteroid passing it)
+DOT_FLAGS = {"mf_guard": DOT_FLAG_MF_GUARD, "mf_mirror": DOT_FLAG_MF_MIRROR, "mf_glow_piece": DOT_FLAG_MF_GLOW_PIECE,
+             "mf_low_snr": DOT_FLAG_MF_LOW_SNR, "sat_core": DOT_FLAG_SAT_CORE, "sat_nofit": DOT_FLAG_SAT_NOFIT,
+             "sat_core_dup": DOT_FLAG_SAT_CORE_DUP}
+# In memory, until the dot table is built, detections are core.detect's DETECTION_DTYPE rows, whose sep_flag is int32:
+# the dot_flag bits ride there shifted up by DOT_FLAG_SHIFT (dot_flag_mem), above sep_flag's own 16 bits, and
+# dots._measure_dots splits them into the two columns. No file ever holds the shifted form.
+DOT_FLAG_SHIFT = 16
+SEP_FLAG_MASK = (1 << DOT_FLAG_SHIFT) - 1
+
+
+def dot_flag_mem(bits: int) -> int:
+    """dot_flag bits as carried in an in-memory detection's int32 sep_flag."""
+    return int(bits) << DOT_FLAG_SHIFT
+
+
+# Rejected peaks (18 Nov; rerun/reports/rejected-peaks.md): a peak >= the threshold that the saturation guard, a glow
+# star's own pixels or the mirror test refuses is a dot too (measured like the other matched-filter dots, sep_flag
+# SEP_FLAG_MF_PASS, dot_flag one bit per test that refuses it), never dropped: on the bench, 87 of 343 missed known
+# asteroids V < 18 and 2,081 of 5,574 missed Gaia G < 12 had such a peak. Off (MF_REFUSED_DOTS False): those stay
+# peaks (why 1-3).
+MF_REFUSED_DOTS = os.environ.get("SKYSHIFT_MF_REFUSED_DOTS", "1") == "1"  # env 0: off (the bench's baseline)
+# Low-S/N dots: matched-filter peaks from MF_DOT_LOW_SNR up to the threshold (both x the block scale) are dots with
+# DOT_FLAG_MF_LOW_SNR; below MF_DOT_LOW_SNR they stay in the peaks file. MF_DOT_LOW_SNR >= the threshold: none
+# (env SKYSHIFT_MF_DOT_LOW_SNR, for the bench).
+MF_DOT_LOW_SNR = float(os.environ.get("SKYSHIFT_MF_DOT_LOW_SNR", "4.5"))
 # Peaks file (v2): every other local maximum of the same S/N map >= MF_PEAK_SNR with no dot within MF_PASS_DEDUP_PX
-# (S/N 4–5, and the >= 5 peaks the guard / glow / mirror test refused): <folder>_peaks/<obs_id>D<det>.parquet.
+# (S/N 4 to MF_DOT_LOW_SNR; with MF_REFUSED_DOTS off also the peaks the guard / glow / mirror test refused):
+# <folder>_peaks/<obs_id>D<det>.parquet.
 MF_PEAK_SNR = 4.0
+# Extended-source pass (18 Nov, agent "comets"; psf.ext_pass, dots._ext_pass, dots.ext_table): diffuse sources a point
+# filter misses (comet comae, galaxies). On the matched-filter pass's residual with every other dot's ePSF subtracted
+# too: filters EXT_SCALES × the PSF FWHM wide (ePSF ⊗ Gaussian), noise-normalised like the matched filter; a peak >=
+# EXT_PASS_SNR (× the map's block sigma where > MF_SIGMA_MIN_SCALE) that the wide filter sees at >= EXT_RATIO × the
+# point filter's S/N (wider than a star: a star gives 0.76 / 0.42), > EXT_DEDUP_PX from every dot, outside the
+# saturation guard and a glow star's reach, is a row of <folder>_ext/<obs_id>D<det>.parquet (dots.EXT_COLUMNS), never a
+# dot. 80 bench photos (positive vs -IMAGE): 5.0 / 1.0 gives ~2,400 rows per photo (71% with nothing catalogued within
+# 3″: unresolved faint stars, confusion, galaxies, comae) and 0.39 per deg² on the negative images; 1.25 → 830 / 0.29;
+# 1.5 → 206 / 0.20. Kept wide on purpose (the lead's rule): cut downstream on snr_ext and snr_ext / snr_point.
+# Extraction v2 only; env SKYSHIFT_DOTS_EXT=0 turns it off (no ext file).
+EXT_PASS = os.environ.get("SKYSHIFT_DOTS_EXT", "1") == "1"
+EXT_SCALES = (2.0, 4.0)
+EXT_PASS_SNR = 5.0
+EXT_RATIO = 1.0
+EXT_DEDUP_PX = 1.5
+EXT_NORMALISE = "block"
+
+# Streak search (18 Nov; streaks.py): trails of fast movers on the matched-filter pass's residual, written to their own
+# file <folder>_streaks/<obs_id>D<det>.parquet (dots unchanged). On under extraction v2 (env SKYSHIFT_STREAKS=0 turns
+# it off). 1 px = 6.15″ = 195″/h over a 113.6 s exposure. Kernels: the ePSF along a segment of each length, angles so
+# that a segment's end moves STREAK_END_STEP_PX from one to the next; longer trails are chains of their pieces.
+STREAKS = os.environ.get("SKYSHIFT_STREAKS", "1") == "1"
+STREAK_LENGTHS_PX = (4.0, 6.0, 9.0)
+STREAK_END_STEP_PX = 1.0
+STREAK_PROFILE = "uniform"     # light along the trail: uniform, or ramp (6τ(1 − τ): a least-squares slope of the ramp)
+STREAK_SNR = 4.5               # a streak: snr_local (S/N normalised by its length's own scatter here) >= this. 4.5,
+                               # not 5.5 (lead, 20 Nov: more fakes rather than miss; cut downstream on snr / snr_local):
+                               # 4 photos rows +35%, negative-image rows +27%, ~+0.2 s (reports/streaks.md)
+STREAK_PIECE_SNR = 4.0         # a piece (for chains): a local maximum of the bank's snr_local >= this
+STREAK_CLIP_SIGMA = 10.0       # the search clips the residual at ±this × noise per pixel (fluxes don't)
+STREAK_NORM_GRID = 8           # each bank length's S/N map normalised by its own sigma and median in this × this blocks
+STREAK_DEN_BOX = 15            # the maps' Σ w·K²: ΣK² × the good pixels' mean weight in a box this size (px)
+STREAK_MIN_DCHI2 = 9.0         # not a trail when snr² − snr_point² is below this (pieces dropped; streaks: WHY_POINT)
+# A streak: snr_point / snr at most this at each length (px, ratio; interpolated). One point source on the segment
+# explains more of a star or a faint blend than of a trail. Injected trails (18 Nov, 4 photos) at these lengths have a
+# median ratio 0.71 / 0.63 / 0.55 / 0.5, 90% below 0.79 / 0.72 / 0.65 / 0.7; the photos' own candidates 0.81 / 0.78 /
+# 0.74 / 0.71: the cut drops ~half the rest. With it, injected 4–9 px trails are found (centre within 1 px, angle
+# within 20°) 60–70% at S/N 10 and 81–88% at S/N 15 (20 Nov, 4 photos × 80 per length).
+STREAK_POINT_RATIO = ((4.0, 0.8), (6.0, 0.75), (9.0, 0.7), (15.0, 0.65))
+STREAK_CHAIN_DTH_DEG = 15.0    # chains: pieces' angles within this ...
+STREAK_CHAIN_PERP_PX = 1.5     # ... each centre within this of the other's line ...
+STREAK_CHAIN_GAP_PX = 6.0      # ... and at most this between their ends
+STREAK_NULL_N = 32             # a chain's kernel is normalised by its own S/N at this many places around it
+STREAK_MERGE_PX = 2.0          # a candidate centred within this of a better one's segment is the same trail ...
+STREAK_MERGE_DEG = 30.0        # ... when their angles are within this (a trail crossing another is its own)
+STREAK_REFINE_LEN = (0.85, 1.0, 1.18)  # length factors tried around a candidate's (then a parabola)
+STREAK_PART_MIN_PX = 3.0       # the uniformity test cuts a trail into parts of at least this length ...
+STREAK_MAX_PARTS = 4           # ... and at most this many
+STREAK_PARTS_FRAC = 0.1        # ... each part's error + this share of its expected flux (the kernel's shape error)
+STREAK_PARTS_P = 1e-3          # WHY_LUMPY: the parts' χ² probability below this
+STREAK_DOT_PX = 1.5            # a dot within this of the segment is on it (n_dots)
+STREAK_DOT_RATIO = 2.0         # WHY_DOT: a dot on it with S/N >= this × the streak's (a trail's own dot is not brighter)
+STREAK_MAX_PERP = 0.7          # WHY_ROUND: the perpendicular kernel's S/N above this × the trail's
+STREAK_MAX_MASKED = 0.3        # WHY_MASKED: this share of the kernel on bad pixels
+STREAK_SAT_PX = 6.0            # WHY_SATURATED: closer than this to an OVERFLOW/NONLINEAR pixel (the saturation guard's)
+STREAK_EDGE_PX = 3.0           # WHY_EDGE: an end closer than this to the photo's edge
+STREAK_AXIS_DEG = 2.0          # WHY_AXIS: within this of a pixel row or column
+STREAK_EXPOSURE_S = 113.6      # rate_arcsec_h = length over the exposure (header XPOSURE when present)
 DOTS_TRANSIENT_R_PX = 3.0      # v2 column n_transient: TRANSIENT pixels within this radius of the dot
 EMPIRICAL_NOISE_N = 400        # v2 photo metadata: r = 2 px forced aperture at this many random places ...
 EMPIRICAL_NOISE_MIN_SEP_PX = 8.0  # ... at least this far from every dot
 EMPIRICAL_NOISE_SEED = 0
 PARTNER_DETECTOR = {1: 4, 4: 1, 2: 5, 5: 2, 3: 6, 6: 3}  # exposed at the same moment (CLAUDE.md)
 SAT_CORES_MAX = 1000           # v2 photo metadata: OVERFLOW/NONLINEAR clumps listed (largest first)
+# Saturated-core dots (18 Nov, agent "saturated"; dots.add_core_dots, with the glow model): every saturated core that
+# is a star (the glow's rule: a masked blob holding OVERFLOW/NONLINEAR whose rim reaches S/N 50; no 400-star or
+# 2,000 px limit) keeps exactly one dot, placed on the star by a fit of its unmasked wings, never on a ring piece or the
+# hole. Before: R Draconis (core radius ~6 px) got 0 of 8 dots within 6″ (its dot was a ring piece 21–44″ out), RW
+# Aurigae 5 of 8 (the glow kept the ring piece nearest the core's centre, which then missed the wings centroid that
+# runs only on dots with OVERFLOW/NONLINEAR in their 3×3), Gaia G < 6 23% within 3″.
+SAT_CORE_DOTS = True
+# Its dot: dot_flag DOT_FLAG_SAT_CORE, + DOT_FLAG_SAT_NOFIT without a flux (pos_err says how its x, y were found).
+SAT_CORE_DUP_PX = 2.0          # a matched-filter dot this close to a core's dot may be the same star again: kept,
+                               # dot_flag DOT_FLAG_SAT_CORE_DUP (dots.flag_core_duplicates; = GLOW_SELF_PX, 12″)
+SAT_CORE_MAX_PX = 200_000      # a saturated blob larger than this is no star (the glow model stops at 2,000: Saturn's
+                               # D1 blob with Titan and Rhea inside it is larger)
+SAT_CORE_SMALL_PX = 3.0        # cores up to this radius: position from the Gaussian wings fit (recentroid_saturated)
+SAT_CORE_APCORR = 1.033        # flux_ujy of a core dot = the wings fit's total flux / this (the r = 2 px aperture's scale)
+# The power-law wings fit (alpha 1 px) puts too little light under the masked core: its total is this share of the
+# catalogue flux (2MASS J/H/K, CatWISE W1/W2 interpolated to the dot's wavelength; hunt + t_gc bench photos, 18 Nov:
+# D2 1,370 cores 0.218, D3 1,129 0.233, D4 855 0.472, D5 201 0.456, D6 68 0.524; scatter 0.10-0.12 dex, D6 0.23; flat
+# from 10^5.5 to 10^8 uJy). D1 is not measured (no catalogue band below J): D2's. Divided out.
+SAT_CORE_FLUX_SHARE = {1: 0.218, 2: 0.218, 3: 0.233, 4: 0.472, 5: 0.456, 6: 0.524}
+SAT_CORE_POS_ERR_ARCSEC = {"small": 0.5, "wings": 0.9, "centre": 2.0}  # pos_err of core dots per axis, by method
 # Dark holes (16 Nov, second pass; core skyshift_core.holes): unflagged pixels far below the sky (mostly cold pixels
 # missing from NASA's COLD mask: the same detector pixels week after week; 300-1,250 per MWIR photo, 20-120 SWIR) are
 # set to NaN (a bad pixel) before anything is measured. 7 sigma left 2/3 of the negative-image fakes (their deepest

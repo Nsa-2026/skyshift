@@ -6,7 +6,9 @@ Layout (docs/cloud-architecture.md):
     cache/mpc/<zone>/run_<first obs_id>.json
     results/<zone>/...
 A file's existence means its step is done. Writes are atomic: a local file is written under a
-temporary name and renamed; a GCS object only appears once its upload has completed.
+temporary name, flushed to disk (fsync) and renamed; a GCS object only appears once its upload has completed.
+Resume checks of parquet outputs use complete_parquet(s): a file left 0 bytes or cut short by a machine crash (the
+18 Nov bench: a rename without fsync survived the crash, its data did not) is not done and is written again.
 """
 
 from __future__ import annotations
@@ -41,6 +43,8 @@ class Store:
             tmp = f"{p}.tmp-{uuid.uuid4().hex[:8]}"
             with open(tmp, "wb") as f:
                 f.write(data)
+                f.flush()
+                os.fsync(f.fileno())  # the data on disk before the rename: a crash leaves the old state or the whole file
             os.replace(tmp, p)
         else:
             self.fs.pipe_file(p, data)  # one upload; the object exists only when it completes
@@ -74,6 +78,32 @@ class Store:
     def read_json(self, rel: str) -> Any:
         return json.loads(self.read_bytes(rel))
 
+    def complete_parquet(self, rel: str) -> bool:
+        """True if rel is a whole parquet file: at least 12 bytes, and (local) it starts and ends with the parquet
+        magic "PAR1" (8 bytes read; a GCS object exists only once its upload completed, so its size is enough)."""
+        p = self.path(rel)
+        try:
+            size = int(self.fs.size(p))
+        except (FileNotFoundError, OSError):
+            return False
+        return size >= PARQUET_MIN_BYTES and (not self.local or _parquet_magic(p, size))
+
+    def complete_parquets(self, rel: str) -> set[str]:
+        """Base names of the whole parquet files (complete_parquet) under a prefix (empty if it doesn't exist)."""
+        p = self.path(rel)
+        try:
+            items = self.fs.ls(p, detail=True)
+        except FileNotFoundError:
+            return set()
+        out = set()
+        for it in items:
+            name = os.path.basename(str(it["name"]).rstrip("/"))
+            size = int(it.get("size") or 0)
+            if (name.endswith(".parquet") and it.get("type", "file") == "file" and size >= PARQUET_MIN_BYTES
+                    and (not self.local or _parquet_magic(str(it["name"]), size))):
+                out.add(name)
+        return out
+
     def listdir(self, rel: str) -> list[str]:
         """Base names under a prefix ([] if it doesn't exist)."""
         p = self.path(rel)
@@ -81,6 +111,20 @@ class Store:
             return [os.path.basename(x.rstrip("/")) for x in self.fs.ls(p, detail=False)]
         except FileNotFoundError:
             return []
+
+
+PARQUET_MIN_BYTES = 12  # "PAR1" + a 4-byte footer length + "PAR1": the smallest possible parquet file
+
+
+def _parquet_magic(path: str, size: int) -> bool:
+    """A local file starts and ends with "PAR1" (a file cut short by a crash lacks the trailing magic)."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(4)
+            f.seek(size - 4)
+            return head == b"PAR1" and f.read(4) == b"PAR1"
+    except OSError:
+        return False
 
 
 def _json_default(o: Any) -> Any:

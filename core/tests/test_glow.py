@@ -10,7 +10,7 @@ from scipy import ndimage
 
 from skyshift_core import detect
 from skyshift_core.flags import OVERFLOW, STREAK, SUR_ERROR
-from skyshift_core.glow import STAR_DTYPE, Glow, aperture_z, bright_stars, fit_glow, noise_factor
+from skyshift_core.glow import STAR_DTYPE, Glow, aperture_z, bright_stars, fit_glow, noise_factor, saturated_centre
 from skyshift_core.level2 import EPSF
 
 from conftest import gaussian_image
@@ -245,3 +245,36 @@ def test_own_and_pieces():
     assert list(piece) == [False, True, True, False, False, True, False]  # within 4 + 1.5 px / 2 px
     np.testing.assert_allclose(g.keep_radius(3.5), [5.5, 3.5])
     np.testing.assert_allclose(g.keep_radius(3.5, None), [3.5, 3.5])  # the stack: a saturated rim is modelled too
+
+
+def _wings(x0, y0, amp=400.0, beta=1.6, r_core=4.0, noise=0.05, seed=1, n=80):
+    """A saturated star's power-law wings around (x0, y0) on a flat sky, its core masked (bad) within r_core."""
+    yy, xx = np.mgrid[:n, :n]
+    r = np.hypot(xx - x0, yy - y0)
+    img = 0.2 + amp * (1.0 + r ** 2) ** -beta + np.random.default_rng(seed).normal(0, noise, (n, n))
+    bad = r < r_core
+    sat = r < 1.5
+    return img - 0.2, np.full((n, n), noise), bad, sat
+
+
+def test_saturated_centre_finds_the_star_from_its_wings_not_the_holes_centre():
+    x0, y0 = 40.3, 39.6
+    sub, nz, bad, sat = _wings(x0, y0)
+    # the masked hole's centre is off by ~1 px (a bad column on one side: masked pixels pull the blob's mean)
+    f = saturated_centre(sub, nz, bad, x0 + 0.9, y0 - 0.7, 4.0, sat=sat)
+    assert f["ok"] and f["why"] == 0
+    assert np.hypot(f["x"] - x0, f["y"] - y0) < 0.05
+    assert abs(f["beta"] - 1.6) < 0.05
+    assert f["flux"] == pytest.approx(400.0 * np.pi / 0.6, rel=0.1) and f["flux_err"] > 0
+    # a neighbour star in the wings barely moves it (soft-L1 loss)
+    yy, xx = np.mgrid[:80, :80]
+    sub2 = sub + 30.0 * np.exp(-((xx - x0 - 7) ** 2 + (yy - y0 - 2) ** 2) / (2 * 0.6 ** 2))
+    g = saturated_centre(sub2, nz, bad, x0 + 0.9, y0 - 0.7, 4.0, sat=sat)
+    assert g["ok"] and np.hypot(g["x"] - x0, g["y"] - y0) < 0.1
+
+
+def test_saturated_centre_without_wings_says_so():
+    sub, nz, bad, sat = _wings(40.0, 40.0)
+    bad[:] = True  # nothing left to fit
+    f = saturated_centre(sub, nz, bad, 40.0, 40.0, 4.0, sat=sat)
+    assert not f["ok"] and f["why"] == 1 and np.isnan(f["flux"]) and (f["x"], f["y"]) == (40.0, 40.0)

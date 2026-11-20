@@ -56,7 +56,8 @@ from skyshift_core.level2 import EPSF
 
 from . import config as C
 from . import forced_sky, log
-from .psf import dot_positions, gather, mf_at, mf_pass, psf_photometry, residual_companions
+from .psf import PEAK_EXCLUDED, PEAK_GUARD, PEAK_MIRROR, dot_positions, ext_pass, gather, mf_at, mf_pass, \
+    psf_photometry, residual_companions
 from .sky import cell_of
 from .store import Store, dots_rel, photolist_rel, results_rel
 
@@ -87,6 +88,7 @@ DOT_V2_COLUMNS = {
     "n_masked": "int8",             # masked pixels (contracts/flags.md mask) with centres within 2 px (the aperture)
     "partner_flux_ujy": "float32",  # r = 2 px aperture at the dot's sky position in the simultaneous partner detector
     "partner_err_ujy": "float32",   # (D1↔D4, D2↔D5, D3↔D6, same exposure); its 1σ × the partner's empirical factor
+    "dot_flag": "int32",            # 18 Nov: why a dot is doubtful or special, one bit per meaning (config DOT_FLAG_*)
 }
 
 
@@ -492,15 +494,25 @@ def _detections(l2, thresh: float, min_snr: float, timing: dict, ctx: PhotoConte
     if s.v2:
         comp = _mf_pass(l2, det, comp, ctx, s, counts, extras, timing,
                         dsat=dsat if (s.sat_guard_px > 0 or s.psf_pass) else None)
+        if C.EXT_PASS and extras is not None:  # its rows go to their own file (ext_table), never into the dots
+            _ext_pass(l2, det, comp, ctx, s, counts, extras, timing,
+                      dsat=dsat if (s.sat_guard_px > 0 or s.psf_pass) else None)
     if len(det) == 0 and not (comp is not None and len(comp[0])):
         return None, None, ctx
     return det, comp, ctx
 
 
+# the refused matched-filter peaks that become dots, and their dot_flag bits (config MF_REFUSED_DOTS), in the in-memory
+# form mf_pass ORs into the detections' int32 sep_flag (config.dot_flag_mem; _measure_dots splits them out)
+MF_REFUSED_FLAGS = {PEAK_GUARD: C.dot_flag_mem(C.DOT_FLAG_MF_GUARD), PEAK_MIRROR: C.dot_flag_mem(C.DOT_FLAG_MF_MIRROR),
+                    PEAK_EXCLUDED: C.dot_flag_mem(C.DOT_FLAG_MF_GLOW_PIECE)}
+
+
 def _mf_pass(l2, det: np.ndarray, comp: tuple | None, ctx: PhotoContext, s: C.DetectSettings, counts: dict,
              extras: dict | None, timing: dict, dsat: np.ndarray | None = None) -> tuple | None:
     """Extraction v2's matched-filter pass (psf.mf_pass) on the second pass's residual: its dots join the second
-    pass's (sep_flag SEP_FLAG_MF_PASS, measured on the residual); its peaks and depth map go to `extras`."""
+    pass's (sep_flag SEP_FLAG_MF_PASS, measured on the residual; refused peaks and low-S/N peaks with their dot_flag
+    bits, config MF_REFUSED_DOTS, MF_DOT_LOW_SNR); its peaks and depth map go to `extras`."""
     t0 = time.perf_counter()
     shape = ctx.sub.shape
     model = comp[1] if comp is not None else None
@@ -520,7 +532,9 @@ def _mf_pass(l2, det: np.ndarray, comp: tuple | None, ctx: PhotoContext, s: C.De
         prim_x, prim_y = det["x"][use].astype(np.float64), det["y"][use].astype(np.float64)
     mp = mf_pass(resid, noise, ctx.bad, getattr(l2, "epsf", None), np.concatenate(xs), np.concatenate(ys),
                  primary_x=prim_x, primary_y=prim_y, sat_dist=dsat, sat_guard_px=s.sat_guard_px,
-                 min_snr=C.mf_pass_snr(getattr(l2, "detector", None)), normalise=C.MF_PASS_NORMALISE)
+                 min_snr=C.mf_pass_snr(getattr(l2, "detector", None)), normalise=C.MF_PASS_NORMALISE,
+                 refused_flags=MF_REFUSED_FLAGS if C.MF_REFUSED_DOTS else None,
+                 low_snr=C.MF_DOT_LOW_SNR, low_flag=C.dot_flag_mem(C.DOT_FLAG_MF_LOW_SNR))
     md = mp.dots.copy()
     md["sep_flag"] = md["sep_flag"] | C.SEP_FLAG_MF_PASS
     info = dict(mp.info)
@@ -535,7 +549,51 @@ def _mf_pass(l2, det: np.ndarray, comp: tuple | None, ctx: PhotoContext, s: C.De
     elif len(md):
         comp = (np.concatenate([comp[0], md]), comp[1])
     timing["mf_pass_s"] = time.perf_counter() - t0
+    if extras is not None and C.STREAKS:  # fast movers' trails on the same residual: own file (streaks.py)
+        from .streaks import streak_search
+        allx = [np.asarray(det["x"])] + ([np.asarray(comp[0]["x"])] if comp is not None else [])
+        ally = [np.asarray(det["y"])] + ([np.asarray(comp[0]["y"])] if comp is not None else [])
+        alls = [np.asarray(det["snr"])] + ([np.asarray(comp[0]["snr"])] if comp is not None else [])
+        try:  # never costs the photo its dots
+            extras["streaks"] = streak_search(resid, noise, ctx.bad, getattr(l2, "epsf", None), np.concatenate(allx),
+                                              np.concatenate(ally), np.concatenate(alls), f3=ctx.f3,
+                                              sat_dist=dsat if dsat is not None else sat_distance(flags), timing=timing)
+        except Exception as e:  # noqa: BLE001
+            extras["streaks_error"] = f"{type(e).__name__}: {e}"[:200]
     return comp
+
+
+def _ext_pass(l2, det: np.ndarray, comp: tuple | None, ctx: PhotoContext, s: C.DetectSettings, counts: dict,
+              extras: dict, timing: dict, dsat: np.ndarray | None = None) -> None:
+    """The extended-source pass (psf.ext_pass, config EXT_*) after the matched-filter pass, on the same residual with
+    every dot not in its model subtracted too. Its detections go to extras["ext"] (the ext file, ext_table), its maps'
+    noise to extras["ext_stats"] (footer `ext`); the dots are not changed."""
+    t0 = time.perf_counter()
+    shape = ctx.sub.shape
+    model = comp[1] if comp is not None else None
+    resid = ctx.sub if model is None else np.where(ctx.bad, 0.0, ctx.sub - model)
+    noise = ctx.noise0 if model is None else np.sqrt(ctx.noise0 ** 2 + (C.PSF_PASS_MODEL_FRAC * model) ** 2)
+    dx, dy = np.asarray(det["x"], np.float64), np.asarray(det["y"], np.float64)
+    in_model = np.zeros(len(det), bool)
+    if len(det):  # unsaturated S/N >= PSF_PASS_PRIMARY_SNR dots are in the second pass's model when it ran; saturated
+        ix, iy = pixel_of(dx, dy, shape)  # ones are never subtracted (the saturation guard keeps the pass away)
+        sat = (ctx.f3[iy, ix] & SAT_BITS) != 0
+        in_model = sat | ((det["snr"] >= C.PSF_PASS_PRIMARY_SNR) if model is not None and model.any() else False)
+    cx = np.asarray(comp[0]["x"], np.float64) if comp is not None else np.zeros(0)
+    cy = np.asarray(comp[0]["y"], np.float64) if comp is not None else np.zeros(0)
+    if s.sat_guard_px > 0 and dsat is None:
+        dsat = sat_distance(np.asarray(l2.flags) if l2.flags is not None else np.zeros(shape, np.int32))
+    ep = ext_pass(resid, noise, ctx.bad, getattr(l2, "epsf", None), np.r_[dx, cx], np.r_[dy, cy],
+                  sub_x=np.r_[dx[~in_model], cx], sub_y=np.r_[dy[~in_model], cy],
+                  sat_dist=dsat if s.sat_guard_px > 0 else None, sat_guard_px=s.sat_guard_px, scales=C.EXT_SCALES,
+                  min_snr=C.EXT_PASS_SNR, ratio=C.EXT_RATIO, dedup_px=C.EXT_DEDUP_PX, normalise=C.EXT_NORMALISE)
+    info = dict(ep.info)
+    counts.update({k: v for k, v in info.items() if not isinstance(v, dict)})
+    extras["ext"] = {"x": ep.dots["x"].astype(np.float64), "y": ep.dots["y"].astype(np.float64),
+                     "flux": ep.dots["flux"], "flux_err": ep.dots["flux_err"], "snr_ext": ep.snr_ext,
+                     "snr_point": ep.snr_point, "scale": ep.scale, "flux_ext": ep.flux_ext}
+    extras["ext_stats"] = {k: v for k, v in info.items() if isinstance(v, dict)}
+    timing["ext_pass_s"] = time.perf_counter() - t0
 
 
 def _measure_all(l2, det: np.ndarray, comp: tuple | None, ctx: PhotoContext, obs_id: str, detector: int, session: int,
@@ -589,7 +647,10 @@ def glow_dots(l2, obs_id: str, detector: int, session: int, visit: int, thresh: 
     core and every peak >= GLOW_MIN_PEAK_SNR; detection (and the guard and second pass) runs on IMAGE minus the glow
     outside each star's own pixels, with the noise scaled by the glow's local scatter. Each modelled star's own dot
     (the detection nearest it within max(GLOW_SELF_PX, core radius + 1.5 px)) is measured on IMAGE as before; other
-    detections that close are pieces of it and dropped; the rest are measured on the glow-free image."""
+    detections that close are pieces of it and dropped; the rest are measured on the glow-free image.
+    Extraction v2 (18 Nov, SAT_CORE_DOTS): every saturated core then has exactly one dot on the star (add_core_dots:
+    the wings fit's position and flux, dot_flag DOT_FLAG_SAT_CORE; finish_core_dots), added where nothing was
+    detected; until then the kept own dot of a saturated star was the ring piece nearest the hole's centre."""
     t0 = time.perf_counter()
     ctx0 = ctx if ctx is not None else photo_context(l2, timing)
     gl = fit_glow(l2.data, l2.flags, ctx0.noise, epsf=getattr(l2, "epsf", None), r_max=C.GLOW_R_MAX_PX,
@@ -600,27 +661,52 @@ def glow_dots(l2, obs_id: str, detector: int, session: int, visit: int, thresh: 
     counts["n_glow_saturated"] = int(st["saturated"].sum()) if len(st) else 0
     counts["n_glow_extended"] = int((st["r_glow"] > 0).sum()) if len(st) else 0
     s0 = dataclasses.replace(s, glow=False)
+    core_dots = bool(C.SAT_CORE_DOTS and s.v2 and getattr(l2, "flags", None) is not None)  # extraction v2 only
     if not len(st):
         counts["n_glow_pieces"] = 0
         det, comp, ctx0 = _detections(l2, thresh, min_snr, timing, ctx0, s0, counts, extras)
+        if core_dots:
+            det = _no_dets() if det is None else det
+            det, own, cores = add_core_dots(l2, ctx0, gl, det, np.zeros(len(det), bool), counts, timing)
+            comp = flag_core_duplicates(comp, cores, counts)
+            if len(det) == 0 and not (comp is not None and len(comp[0])):
+                return empty_dots(s.v2)
+            df = _measure_all(l2, det, comp, ctx0, obs_id, detector, session, visit, timing, l2_own=l2, ctx_own=ctx0,
+                              own=own, v2=s.v2)
+            return finish_core_dots(df, l2, cores)
         return empty_dots(s.v2) if det is None else _measure_all(l2, det, comp, ctx0, obs_id, detector, session, visit,
                                                                 timing, v2=s.v2)
     l2g = glow_image(l2, ctx0, gl)
     ctxg = photo_context(l2g, {})
     det, comp, ctxg = _detections(l2g, thresh, min_snr, timing, ctxg, s0, counts, extras)
+    ext = (extras or {}).get("ext")
+    if ext is not None and len(ext["x"]):  # extended detections within a modelled star's reach are pieces of it
+        keep = gl.near(ext["x"], ext["y"], C.GLOW_SELF_PX) < 0
+        extras["ext"] = {k: np.asarray(v)[keep] for k, v in ext.items()}
+        counts["n_ext_glow_pieces"] = int((~keep).sum())
     if det is None:
-        counts["n_glow_pieces"] = 0
-        return empty_dots(s.v2)
+        if not core_dots:
+            counts["n_glow_pieces"] = 0
+            return empty_dots(s.v2)
+        det = _no_dets()
     own, piece = gl.own(det["x"], det["y"], C.GLOW_SELF_PX)
     n_piece = int(piece.sum())
     det, own = det[~piece], own[~piece]
     if comp is not None and len(comp[0]):
         cd = comp[0]
         cpiece = gl.near(cd["x"], cd["y"], C.GLOW_SELF_PX) >= 0
+        mfp = cpiece & ((cd["sep_flag"] & C.SEP_FLAG_MF_PASS) != 0)
+        counts["n_glow_pieces_mf"] = int(mfp.sum())
+        if C.MF_REFUSED_DOTS and mfp.any():
+            # rejected peaks (18 Nov): a matched-filter dot inside a glow star's own pixels stays, flagged (Rhea 11 px
+            # from Saturn's centre, inside its 12.6 px saturated core, was dropped here)
+            cd = cd.copy()
+            cd["sep_flag"][mfp] |= C.dot_flag_mem(C.DOT_FLAG_MF_GLOW_PIECE)
+            cpiece = cpiece & ~mfp
         n_piece += int(cpiece.sum())
         comp = (cd[~cpiece], comp[1])
     counts["n_glow_pieces"] = n_piece
-    if len(det) == 0 and not (comp is not None and len(comp[0])):
+    if len(det) == 0 and not (comp is not None and len(comp[0])) and not (core_dots and st["saturated"].any()):
         return empty_dots(s.v2)
     if own.any():
         # the star's own aperture flux on IMAGE (detect's r = 2 px aperture on IMAGE minus the background, as without
@@ -632,8 +718,183 @@ def glow_dots(l2, obs_id: str, detector: int, session: int, visit: int, thresh: 
         det["flux"][own], det["flux_err"][own] = f, fe
         with np.errstate(divide="ignore", invalid="ignore"):
             det["snr"][own] = np.where(fe > 0, f / fe, 0.0)
-    return _measure_all(l2g, det, comp, ctxg, obs_id, detector, session, visit, timing, l2_own=l2, ctx_own=ctx0, own=own,
-                        v2=s.v2)
+    cores = None
+    if core_dots:
+        det, own, cores = add_core_dots(l2, ctx0, gl, det, own, counts, timing)
+        comp = flag_core_duplicates(comp, cores, counts)
+        if len(det) == 0 and not (comp is not None and len(comp[0])):
+            return empty_dots(s.v2)
+    df = _measure_all(l2g, det, comp, ctxg, obs_id, detector, session, visit, timing, l2_own=l2, ctx_own=ctx0, own=own,
+                      v2=s.v2)
+    return df if cores is None else finish_core_dots(df, l2, cores)
+
+
+def flag_core_duplicates(comp: tuple | None, placed: np.ndarray, counts: dict) -> tuple | None:
+    """Integration of rejected peaks (#413) and saturated cores (#414), 18 Nov: a matched-filter dot within
+    SAT_CORE_DUP_PX of a saturated core's dot (add_core_dots' `placed` x, y) is mostly that star a second time (a
+    refused peak in its hole or on its rim), but may be a real faint neighbour (a moon, an asteroid passing the star):
+    it stays, with dot_flag DOT_FLAG_SAT_CORE_DUP added to its own bits (counts n_sat_core_dup_mf_flagged), and the cut
+    happens downstream. Matched-filter dots farther out are not touched (Rhea: 10.8 px from Saturn's centre)."""
+    counts["n_sat_core_dup_mf_flagged"] = 0
+    if comp is None or not len(comp[0]) or not len(placed):
+        return comp
+    cd = comp[0]
+    d, _ = cKDTree(placed[:, :2]).query(np.c_[cd["x"], cd["y"]], k=1)
+    dup = (d < C.SAT_CORE_DUP_PX) & ((cd["sep_flag"] & C.SEP_FLAG_MF_PASS) != 0)
+    counts["n_sat_core_dup_mf_flagged"] = int(dup.sum())
+    if not dup.any():
+        return comp
+    cd = cd.copy()
+    cd["sep_flag"][dup] |= C.dot_flag_mem(C.DOT_FLAG_SAT_CORE_DUP)
+    return (cd, comp[1])
+
+
+def _no_dets() -> np.ndarray:
+    from skyshift_core.detect import DETECTION_DTYPE
+    return np.zeros(0, DETECTION_DTYPE)
+
+
+def saturated_cores(l2, ctx: PhotoContext, gl) -> np.ndarray:
+    """Every saturated core of the photo that is a star (core.glow.bright_stars' rule: a masked blob holding
+    OVERFLOW/NONLINEAR pixels, only masked pixels within GLOW_CORE_REACH_PX of a saturated one, whose pixels just
+    outside reach S/N GLOW_SAT_MIN_SNR; the glow's own 2,000 px and 400-star limits lifted), as STAR_DTYPE rows with
+    the glow's fitted rows where the glow modelled the star. The same clumps as the footer's `sat_cores`, minus lone
+    flagged pixels with nothing bright around (MWIR: ~2,000 per photo)."""
+    from skyshift_core.glow import bright_stars
+    cores = bright_stars(l2.data, l2.flags, ctx.noise, sub=np.where(ctx.bad, 0.0, ctx.sub), min_peak_snr=np.inf,
+                         max_stars=10 ** 6, max_core_px=C.SAT_CORE_MAX_PX)
+    cores = cores[cores["saturated"]]
+    gs = gl.stars[gl.stars["saturated"]] if gl is not None and len(gl.stars) else None
+    if gs is not None and len(gs) and len(cores):
+        # the glow's saturated stars are the same blobs (same centre); keep the glow's row (its fit and radius)
+        d, i = cKDTree(np.c_[gs["x"], gs["y"]]).query(np.c_[cores["x"], cores["y"]], k=1)
+        same = d <= 0.5
+        cores = np.concatenate([gs, cores[~same]])
+    return cores
+
+
+CORE_METHODS = ("small", "wings", "centre")  # core_position's position methods (SAT_CORE_POS_ERR_ARCSEC keys)
+
+
+def core_position(ctx: PhotoContext, data: np.ndarray, flags: np.ndarray, sat: np.ndarray, x: float, y: float,
+                  r_core: float) -> tuple[float, float, float, float, int]:
+    """(x, y, total flux, its error, method) of a saturated star from its unmasked wings, starting at its masked core's
+    centre. Position: for cores up to SAT_CORE_SMALL_PX the pixel-integrated Gaussian of core.centroid(method="fit") on
+    a 9 x 9 stamp (recentroid_saturated: method 0, "small"); for larger cores, or where that fails, the power-law wings
+    fit (core.glow.saturated_centre: method 1, "wings"); where both fail the core's centre (method 2, "centre").
+    Flux: the wings fit's total, NaN where it has none (no fit, or its power on a bound)."""
+    from skyshift_core.glow import saturated_centre
+    f = saturated_centre(ctx.sub, ctx.noise0, ctx.bad, x, y, r_core, sat=sat)
+    flux, err = float(f["flux"]), float(f["flux_err"])
+    if r_core <= C.SAT_CORE_SMALL_PX:
+        gx, gy, n = recentroid_saturated(data, flags, np.array([x]), np.array([y]), np.array([True]))
+        if n:
+            return float(gx[0]), float(gy[0]), flux, err, 0
+    if bool(f["ok"]):
+        return float(f["x"]), float(f["y"]), flux, err, 1
+    return x, y, flux, err, 2
+
+
+def add_core_dots(l2, ctx: PhotoContext, gl, det: np.ndarray, own: np.ndarray, counts: dict,
+                  timing: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Exactly one dot per saturated core (saturated_cores), after the guard and the glow's piece removal: the
+    detection nearest the core within max(GLOW_SELF_PX, core radius + 1.5 px) becomes the star's dot, else a new row is
+    added; either way x, y come from core_position (the wings, never a ring piece or the masked hole), flux and
+    flux_err from its fit on the r = 2 px aperture's scale (total ÷ SAT_CORE_FLUX_SHARE[detector] ÷ SAT_CORE_APCORR;
+    NaN where the fit has no flux),
+    snr = max(flux / error, the brightest unmasked pixel's S/N at the core's rim), and dot_flag gets
+    DOT_FLAG_SAT_CORE (and DOT_FLAG_SAT_NOFIT where the wings fit gave no flux; in memory: config.dot_flag_mem in
+    sep_flag). The row is measured on IMAGE as a glow
+    star's own dot (finish_core_dots then sets the rest). Returns (det, own, placed: (x, y, method, core radius) per
+    core)."""
+    t0 = time.perf_counter()
+    cores = saturated_cores(l2, ctx, gl)
+    counts["n_sat_cores"] = int(len(cores))
+    counts["n_sat_core_dots_new"] = counts["n_sat_core_dots_no_flux"] = counts["n_sat_core_dots_centre"] = 0
+    if not len(cores):
+        timing["sat_core_s"] = time.perf_counter() - t0
+        return det, own, np.zeros((0, 4))
+    from skyshift_core.detect import DETECTION_DTYPE
+    from skyshift_core.glow import Glow
+    data = np.asarray(l2.data)
+    flags = np.asarray(l2.flags)
+    sat = (flags.astype(np.int64) & SAT_BITS) != 0
+    near = Glow(np.zeros((1, 1)), np.ones((1, 1)), cores).near(det["x"], det["y"], C.GLOW_SELF_PX) if len(det) else \
+        np.zeros(0, np.int64)
+    det = det.copy()
+    own = own.copy()
+    taken = np.zeros(len(det), bool)
+    new, placed = [], []
+    try:
+        share = float(C.SAT_CORE_FLUX_SHARE.get(int(l2.detector), 1.0))
+    except (TypeError, ValueError, AttributeError):
+        share = 1.0
+    ap = C.SAT_CORE_APCORR * share  # flux on the aperture's scale: total / share / 1.033
+    for i, s in enumerate(cores):
+        x, y, fl, fe, method = core_position(ctx, data, flags, sat, float(s["x"]), float(s["y"]), float(s["r_core"]))
+        bit = C.dot_flag_mem(C.DOT_FLAG_SAT_CORE | (0 if np.isfinite(fl) else C.DOT_FLAG_SAT_NOFIT))
+        flux, err = fl / ap, fe / ap
+        # S/N: the fit's, at least the brightest unmasked pixel's at the core's rim (the fit's error holds the model's
+        # misfit of the wings, so it understates a saturated star's S/N)
+        snr = max(flux / err if np.isfinite(flux) and np.isfinite(err) and err > 0 else 0.0, float(s["peak_snr"]))
+        j = np.flatnonzero((near == i) & ~taken)
+        if len(j):
+            j = j[np.argmin(np.hypot(det["x"][j] - s["x"], det["y"][j] - s["y"]))]
+            taken[j] = True
+            sf = (int(det["sep_flag"][j]) & ~C.SEP_FLAG_CENTROID_FALLBACK) | bit
+            det[j] = (x, y, flux, err, snr, det["peak"][j], det["npix"][j], sf)
+            own[j] = True
+        else:
+            r = np.zeros(1, DETECTION_DTYPE)
+            r[0] = (x, y, flux, err, snr, np.nan, 0, bit)
+            new.append(r)
+        placed.append((x, y, method, float(s["r_core"])))
+        counts["n_sat_core_dots_no_flux"] += int(not np.isfinite(fl))
+        counts["n_sat_core_dots_centre"] += int(method == 2)
+    if new:
+        det = np.concatenate([det] + new)
+        own = np.concatenate([own, np.ones(len(new), bool)])
+        counts["n_sat_core_dots_new"] = len(new)
+    timing["sat_core_s"] = time.perf_counter() - t0
+    return det, own, np.array(placed, np.float64).reshape(-1, 4)
+
+
+def finish_core_dots(df: pd.DataFrame, l2, placed: np.ndarray) -> pd.DataFrame:
+    """The measured rows of the saturated-core dots (dot_flag DOT_FLAG_SAT_CORE; `placed` = add_core_dots' (x, y,
+    method, core radius) per core): flux_psf_ujy = the wings fit's total (flux_ujy x SAT_CORE_APCORR; NaN without a
+    flux), psf_chi2_nu NaN, flags and flags_peak OR the core's OVERFLOW/NONLINEAR bits, pos_err_arcsec (and
+    pos_err_psf_arcsec: psf_pos_ok is false) from the scatter against Gaia measured per method
+    (SAT_CORE_POS_ERR_ARCSEC). Rows re-sorted by flux_ujy (NaN last)."""
+    if not len(df) or not len(placed) or "dot_flag" not in df:
+        return df
+    sf = df["dot_flag"].to_numpy().astype(np.int64)
+    rows = np.flatnonzero((sf & C.DOT_FLAG_SAT_CORE) != 0)
+    if not len(rows):
+        return df
+    df = df.copy()
+    flags = np.asarray(l2.flags).astype(np.int64)
+    ny, nx = flags.shape
+    x, y = df["x"].to_numpy(np.float64)[rows], df["y"].to_numpy(np.float64)[rows]
+    _, ci = cKDTree(placed[:, :2]).query(np.c_[x, y], k=1)  # the same points (float32 in the table)
+    method, rc = placed[ci, 2].astype(int), placed[ci, 3]
+    sat_or = np.zeros(len(rows), np.int64)
+    for k in range(len(rows)):
+        h = int(np.ceil(rc[k])) + 2
+        ix, iy = int(round(x[k])), int(round(y[k]))
+        w = flags[max(iy - h, 0):min(iy + h + 1, ny), max(ix - h, 0):min(ix + h + 1, nx)]
+        sat_or[k] = int(np.bitwise_or.reduce((w & SAT_BITS).ravel())) if w.size else 0
+    perr = np.array([C.SAT_CORE_POS_ERR_ARCSEC[CORE_METHODS[m]] for m in method], np.float32)
+    col = df.columns.get_loc
+    ap = C.SAT_CORE_APCORR
+    df.iloc[rows, col("flux_psf_ujy")] = (df["flux_ujy"].to_numpy(np.float64)[rows] * ap).astype(np.float32)
+    df.iloc[rows, col("flux_psf_err_ujy")] = (df["flux_err_ujy"].to_numpy(np.float64)[rows] * ap).astype(np.float32)
+    df.iloc[rows, col("psf_chi2_nu")] = np.float32(np.nan)
+    df.iloc[rows, col("flags")] = (df["flags"].to_numpy()[rows].astype(np.int64) | sat_or).astype(np.int32)
+    df.iloc[rows, col("flags_peak")] = (df["flags_peak"].to_numpy()[rows].astype(np.int64) | sat_or).astype(np.int32)
+    df.iloc[rows, col("pos_err_arcsec")] = perr
+    df.iloc[rows, col("pos_err_psf_arcsec")] = perr
+    o = np.argsort(-df["flux_ujy"].to_numpy(np.float64), kind="stable")
+    return df.iloc[o].reset_index(drop=True)
 
 
 def _measure_dots(l2, det: np.ndarray, ctx: PhotoContext, obs_id: str, detector: int, session: int, visit: int,
@@ -646,7 +907,10 @@ def _measure_dots(l2, det: np.ndarray, ctx: PhotoContext, obs_id: str, detector:
     ix, iy = pixel_of(x, y, data.shape)
     sat = (f3[iy, ix] & SAT_BITS) != 0
     t0 = time.perf_counter()
-    x, y, _ = recentroid_saturated(data, np.asarray(l2.flags), x, y, sat)
+    mem = np.asarray(det["sep_flag"]).astype(np.int64)  # sep_flag + dot_flag << DOT_FLAG_SHIFT (config.dot_flag_mem)
+    core = (mem & C.dot_flag_mem(C.DOT_FLAG_SAT_CORE)) != 0  # placed by add_core_dots
+    x, y, _ = recentroid_saturated(data, np.asarray(l2.flags), x, y, sat & ~core)
+    sat |= core
     timing["recentroid_s"] = time.perf_counter() - t0
     ix, iy = pixel_of(x, y, data.shape)
     px, py = peak_pixel(data, x, y)
@@ -716,7 +980,7 @@ def _measure_dots(l2, det: np.ndarray, ctx: PhotoContext, obs_id: str, detector:
         "dec_psf": dec_psf,
         "pos_err_psf_arcsec": pos_err_psf,
         "psf_pos_ok": psf_ok,
-        "sep_flag": det["sep_flag"],
+        "sep_flag": mem & C.SEP_FLAG_MASK,
     }).astype(DOT_COLUMNS)
     df["flux_ap_ujy"] = list(apf.astype(np.float32))
     df["flux_ap_err_ujy"] = list(ape.astype(np.float32))
@@ -724,6 +988,7 @@ def _measure_dots(l2, det: np.ndarray, ctx: PhotoContext, obs_id: str, detector:
         t0 = time.perf_counter()
         for c, v in v2_columns(l2, ctx, x, y).items():
             df[c] = v
+        df["dot_flag"] = (mem >> C.DOT_FLAG_SHIFT).astype(np.int32)
         timing["v2_columns_s"] = time.perf_counter() - t0
     return df
 
@@ -1209,11 +1474,14 @@ def _new_stats(obs_id: str, detector: int) -> dict:
 
 
 def _already_done(store: Store, rel: str, st: dict) -> bool:
-    """True (status "skipped") if the dot file exists; an exists-check error is noted and ignored."""
+    """True (status "skipped") if the dot file exists and is whole (Store.complete_parquet: a 0-byte or cut-short file
+    left by a crash is measured and written again, st `incomplete_replaced`); a check error is noted and ignored."""
     try:
-        if store.exists(rel):
+        if store.complete_parquet(rel):
             st["status"] = "skipped"
             return True
+        if store.exists(rel):
+            st["incomplete_replaced"] = True
     except Exception as e:  # noqa: BLE001
         st["error"] = f"exists check: {e}"
     return False
@@ -1246,6 +1514,10 @@ class Pending:
     partner: "PartnerImage | None" = None
     peaks: pd.DataFrame | None = None
     peaks_rel: str | None = None
+    ext: pd.DataFrame | None = None
+    ext_rel: str | None = None
+    streaks: pd.DataFrame | None = None
+    streaks_rel: str | None = None
 
 
 def _measure(store: Store, l2, obs_id: str, detector: int, session: int, visit: int, zone: str | None,
@@ -1308,6 +1580,18 @@ def _measure(store: Store, l2, obs_id: str, detector: int, session: int, visit: 
             if ctx is not None:
                 out.peaks = peaks_table(l2, ctx, extras.get("peaks"), df)
                 out.peaks_rel = peaks_rel(obs_id, detector, ddir)
+                if C.EXT_PASS:
+                    out.ext = ext_table(l2, ctx, extras.get("ext"), df)
+                    out.ext_rel = ext_rel(obs_id, detector, ddir)
+                if "streaks" in extras:
+                    from . import streaks as SK
+                    out.streaks = SK.streaks_table(l2, extras["streaks"], ctx.conv)
+                    out.streaks_rel = SK.streaks_rel(obs_id, detector, ddir)
+                    meta["streaks"] = SK.streak_meta(extras["streaks"])
+                    st["streak_s"] = round(float(extras["streaks"].info.get("time_s", 0.0)), 2)
+                elif "streaks_error" in extras:
+                    meta["streaks"] = {"error": extras["streaks_error"]}
+                    st["streaks_error"] = extras["streaks_error"]
             st["v2_s"] = round(time.time() - t0, 2)
         return out
     except Exception as e:  # noqa: BLE001
@@ -1317,7 +1601,8 @@ def _measure(store: Store, l2, obs_id: str, detector: int, session: int, visit: 
 
 
 def _finish(store: Store, p: Pending | None, st: dict) -> dict:
-    """Write a measured photo: the peaks file (v2), then the dot file (last: a dot file = photo fully done)."""
+    """Write a measured photo: the peaks, ext and streak files (v2), then the dot file (last: a dot file = photo fully
+    done)."""
     if p is None:
         return st
     try:
@@ -1325,6 +1610,14 @@ def _finish(store: Store, p: Pending | None, st: dict) -> dict:
             pt = pa.Table.from_pandas(p.peaks, preserve_index=False)
             st["peaks_bytes"] = _retry(lambda: _write(store, p.peaks_rel, pt))
             st["n_peaks"] = int(len(p.peaks))
+        if p.ext is not None:
+            et = pa.Table.from_pandas(p.ext, preserve_index=False)
+            st["ext_bytes"] = _retry(lambda: _write(store, p.ext_rel, et))
+            st["n_ext"] = int(len(p.ext))
+        if p.streaks is not None:
+            stt = pa.Table.from_pandas(p.streaks, preserve_index=False)
+            st["streaks_bytes"] = _retry(lambda: _write(store, p.streaks_rel, stt))
+            st["n_streaks"] = int(len(p.streaks))
         if "partner_flux_ujy" in p.df:
             p.meta["n_partner"] = int(np.isfinite(p.df["partner_flux_ujy"].to_numpy(np.float64)).sum())
         table = dots_arrow(p.df, p.meta)
@@ -1382,6 +1675,48 @@ def peaks_table(l2, ctx: PhotoContext, peaks: dict | None, dots: pd.DataFrame | 
     return pd.DataFrame({"x": x, "y": y, "ra": np.asarray(ra) % 360.0, "dec": dec, "snr_mf": peaks["snr_mf"],
                          "flux_mf_ujy": np.asarray(peaks["flux"]) * ctx.conv, "flags": ctx.f3[iy, ix],
                          "n_transient": ntr, "why": peaks["why"]}).astype(PEAK_COLUMNS)
+
+
+# The extended pass's file (18 Nov, agent "comets"; psf.ext_pass): every diffuse detection the wide filters see better
+# than the point filter, > EXT_DEDUP_PX from every final dot. Not dots: on 80 bench photos ~2,400 per photo, 71% with no
+# catalogue source within 3″ (unresolved faint stars, confusion, galaxies, comae), 0.39 per deg² on negative images.
+EXT_COLUMNS = {"x": "float32", "y": "float32", "ra": "float64", "dec": "float64",
+               "snr_ext": "float32",       # S/N of the winning wide filter (ext_scale × the PSF FWHM)
+               "snr_point": "float32",     # the point (ePSF-matched) filter's S/N there, same residual: snr_ext / snr_point
+                                           # is ~0.76 (2×) / 0.42 (4×) for a star, 1.25 / 2.4 for a source that wide
+               "ext_scale": "int8",        # 2 or 4
+               "flux_ext_ujy": "float32",  # total flux if the source has the wide kernel's shape
+               "flux_ujy": "float32", "flux_err_ujy": "float32",  # r = 2 px aperture on the point-free residual
+               "flags": "int32",           # FLAGS, 3 × 3 OR at the peak pixel
+               "near_dot_px": "float32"}   # distance to the nearest dot (a coma next to a star: small)
+
+
+def ext_rel(obs_id: str, det: int, folder: str) -> str:
+    """The extended pass's file of a v2 dot file: <folder>_ext/<obs_id>D<det>.parquet."""
+    return f"{folder}_ext/{obs_id}D{int(det)}.parquet"
+
+
+def ext_table(l2, ctx: PhotoContext, ext: dict | None, dots: pd.DataFrame | None = None) -> pd.DataFrame:
+    """The extended pass's detections (EXT_COLUMNS), none within EXT_DEDUP_PX of a final dot."""
+    empty = pd.DataFrame({c: pd.Series(dtype=t) for c, t in EXT_COLUMNS.items()})
+    if not ext or len(ext["x"]) == 0:
+        return empty
+    x, y = np.asarray(ext["x"], np.float64), np.asarray(ext["y"], np.float64)
+    near = np.full(x.size, np.inf)
+    if dots is not None and len(dots):
+        near, _ = cKDTree(dots[["x", "y"]].to_numpy(np.float64)).query(np.c_[x, y], k=1)
+    keep = near > C.EXT_DEDUP_PX
+    if not keep.any():
+        return empty
+    e = {k: np.asarray(v)[keep] for k, v in ext.items()}
+    x, y, near = x[keep], y[keep], near[keep]
+    ix, iy = pixel_of(x, y, ctx.f3.shape)
+    ra, dec = pixel_to_sky(l2.wcs, x, y)
+    return pd.DataFrame({"x": x, "y": y, "ra": np.asarray(ra) % 360.0, "dec": dec, "snr_ext": e["snr_ext"],
+                         "snr_point": e["snr_point"], "ext_scale": e["scale"], "flux_ext_ujy": e["flux_ext"] * ctx.conv,
+                         "flux_ujy": e["flux"] * ctx.conv, "flux_err_ujy": e["flux_err"] * ctx.conv,
+                         "flags": ctx.f3[iy, ix], "near_dot_px": np.where(np.isfinite(near), near, np.nan)}
+                        ).astype(EXT_COLUMNS)
 
 
 @dataclass
@@ -1500,13 +1835,23 @@ def v2_meta(l2, ctx: PhotoContext | None, extras: dict) -> dict:
     out: dict = {"extraction": 2,
                  "mf": {"min_snr": C.mf_pass_snr(getattr(l2, "detector", None)), "peak_snr": C.MF_PEAK_SNR, "dedup_px": C.MF_PASS_DEDUP_PX,
                         "kernel_half_px": C.MF_KERNEL_HALF, "sep_flag": C.SEP_FLAG_MF_PASS,
-                        "normalise": str(C.MF_PASS_NORMALISE)}}
+                        "normalise": str(C.MF_PASS_NORMALISE),
+                        # rejected peaks (18 Nov): the dot_flag bits of refused peaks kept as dots, the low-S/N
+                        # dots' threshold and bit
+                        "refused_flags": ({"guard": C.DOT_FLAG_MF_GUARD, "mirror": C.DOT_FLAG_MF_MIRROR,
+                                           "excluded": C.DOT_FLAG_MF_GLOW_PIECE} if C.MF_REFUSED_DOTS else None),
+                        "low_snr": C.MF_DOT_LOW_SNR, "low_snr_flag": C.DOT_FLAG_MF_LOW_SNR},
+                 "dot_flag": dict(C.DOT_FLAGS)}  # the dot_flag column's bits (config DOT_FLAG_*)
     if extras.get("mf_stats"):
         st = dict(extras["mf_stats"])
         g = st.pop("sigma_grid", None)
         out["mf"].update(st)
         if g is not None:
             out["mf"]["sigma_grid"] = [[None if not np.isfinite(v) else float(f"{v:.4g}") for v in row] for row in g]
+    if C.EXT_PASS:
+        out["ext"] = {"scales": list(C.EXT_SCALES), "min_snr": C.EXT_PASS_SNR, "ratio": C.EXT_RATIO,
+                      "dedup_px": C.EXT_DEDUP_PX, "normalise": str(C.EXT_NORMALISE), "file": "<folder>_ext",
+                      **(extras.get("ext_stats") or {})}
     out["sat_cores"] = sat_cores(getattr(l2, "flags", None))
     out["sky_jacobian_deg_px"] = sky_jacobian(l2)
     if extras.get("dark_holes") is not None:
@@ -1776,14 +2121,14 @@ def run(store: Store, zone: C.Zone, workers: int, limit: int | None = None) -> d
     t_start = time.time()
     photos = store.read_parquet(photolist_rel(zone.name)).sort_values(["mjd", "detector"]).reset_index(drop=True)
     ddir, deblend = C.zone_dots(zone.name)
-    done = {n for n in store.listdir(ddir) if n.endswith(".parquet")}
+    done = store.complete_parquets(ddir)  # a 0-byte or cut-short dot file (a crash) is not done
     fused = fused_stacks(C.zone_detect(zone.name))
     tasks: list[dict] = []
     pending: list[dict] = []
     if fused:  # session stacks built here (docs/session-stacks.md §8): photos of a stack not yet written are read too
         from . import coadd
         tasks = coadd.session_tasks(photos)
-        have = {n for n in store.listdir(C.SESSION_STACK_DIR) if n.endswith(".parquet")}
+        have = store.complete_parquets(C.SESSION_STACK_DIR)
         pending = [t for t in tasks if f"{t['key']}.parquet" not in have]
     need = {(str(o), int(t["detector"])) for t in pending for o in t["obs_ids"]}
     n_done_before = sum(f"{r.obs_id}D{int(r.detector)}.parquet" in done for r in photos.itertuples())

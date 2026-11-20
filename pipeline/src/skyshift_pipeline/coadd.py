@@ -1123,7 +1123,7 @@ def run_task(root: str, task: dict, maps: bool = False, loader=None) -> dict:
     store = Store(root)
     rel = session_rel(task["key"])
     st = _task_stats(task)
-    if store.exists(rel):
+    if store.complete_parquet(rel):  # a 0-byte or cut-short file (a crash) is built again
         st["status"] = "exists"
         return st
     loader = loader or load_photo
