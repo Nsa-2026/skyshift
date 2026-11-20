@@ -174,6 +174,22 @@ SEP_FLAG_CENTROID_FALLBACK = 0x800  # set by core detect (16 Nov, second pass) o
 # Peaks file (v2): every other local maximum of the same S/N map >= MF_PEAK_SNR with no dot within MF_PASS_DEDUP_PX
 # (S/N 4–5, and the >= 5 peaks the guard / glow / mirror test refused): <folder>_peaks/<obs_id>D<det>.parquet.
 MF_PEAK_SNR = 4.0
+# Extended-source pass (18 Nov, agent "comets"; psf.ext_pass, dots._ext_pass, dots.ext_table): diffuse sources a point
+# filter misses (comet comae, galaxies). On the matched-filter pass's residual with every other dot's ePSF subtracted
+# too: filters EXT_SCALES × the PSF FWHM wide (ePSF ⊗ Gaussian), noise-normalised like the matched filter; a peak >=
+# EXT_PASS_SNR (× the map's block sigma where > MF_SIGMA_MIN_SCALE) that the wide filter sees at >= EXT_RATIO × the
+# point filter's S/N (wider than a star: a star gives 0.76 / 0.42), > EXT_DEDUP_PX from every dot, outside the
+# saturation guard and a glow star's reach, is a row of <folder>_ext/<obs_id>D<det>.parquet (dots.EXT_COLUMNS), never a
+# dot. 80 bench photos (positive vs -IMAGE): 5.0 / 1.0 gives ~2,400 rows per photo (71% with nothing catalogued within
+# 3″: unresolved faint stars, confusion, galaxies, comae) and 0.39 per deg² on the negative images; 1.25 → 830 / 0.29;
+# 1.5 → 206 / 0.20. Kept wide on purpose (the lead's rule): cut downstream on snr_ext and snr_ext / snr_point.
+# Extraction v2 only; env SKYSHIFT_DOTS_EXT=0 turns it off (no ext file).
+EXT_PASS = os.environ.get("SKYSHIFT_DOTS_EXT", "1") == "1"
+EXT_SCALES = (2.0, 4.0)
+EXT_PASS_SNR = 5.0
+EXT_RATIO = 1.0
+EXT_DEDUP_PX = 1.5
+EXT_NORMALISE = "block"
 DOTS_TRANSIENT_R_PX = 3.0      # v2 column n_transient: TRANSIENT pixels within this radius of the dot
 EMPIRICAL_NOISE_N = 400        # v2 photo metadata: r = 2 px forced aperture at this many random places ...
 EMPIRICAL_NOISE_MIN_SEP_PX = 8.0  # ... at least this far from every dot

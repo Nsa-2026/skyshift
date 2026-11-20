@@ -56,7 +56,7 @@ from skyshift_core.level2 import EPSF
 
 from . import config as C
 from . import forced_sky, log
-from .psf import dot_positions, gather, mf_at, mf_pass, psf_photometry, residual_companions
+from .psf import dot_positions, ext_pass, gather, mf_at, mf_pass, psf_photometry, residual_companions
 from .sky import cell_of
 from .store import Store, dots_rel, photolist_rel, results_rel
 
@@ -492,6 +492,9 @@ def _detections(l2, thresh: float, min_snr: float, timing: dict, ctx: PhotoConte
     if s.v2:
         comp = _mf_pass(l2, det, comp, ctx, s, counts, extras, timing,
                         dsat=dsat if (s.sat_guard_px > 0 or s.psf_pass) else None)
+        if C.EXT_PASS and extras is not None:  # its rows go to their own file (ext_table), never into the dots
+            _ext_pass(l2, det, comp, ctx, s, counts, extras, timing,
+                      dsat=dsat if (s.sat_guard_px > 0 or s.psf_pass) else None)
     if len(det) == 0 and not (comp is not None and len(comp[0])):
         return None, None, ctx
     return det, comp, ctx
@@ -536,6 +539,39 @@ def _mf_pass(l2, det: np.ndarray, comp: tuple | None, ctx: PhotoContext, s: C.De
         comp = (np.concatenate([comp[0], md]), comp[1])
     timing["mf_pass_s"] = time.perf_counter() - t0
     return comp
+
+
+def _ext_pass(l2, det: np.ndarray, comp: tuple | None, ctx: PhotoContext, s: C.DetectSettings, counts: dict,
+              extras: dict, timing: dict, dsat: np.ndarray | None = None) -> None:
+    """The extended-source pass (psf.ext_pass, config EXT_*) after the matched-filter pass, on the same residual with
+    every dot not in its model subtracted too. Its detections go to extras["ext"] (the ext file, ext_table), its maps'
+    noise to extras["ext_stats"] (footer `ext`); the dots are not changed."""
+    t0 = time.perf_counter()
+    shape = ctx.sub.shape
+    model = comp[1] if comp is not None else None
+    resid = ctx.sub if model is None else np.where(ctx.bad, 0.0, ctx.sub - model)
+    noise = ctx.noise0 if model is None else np.sqrt(ctx.noise0 ** 2 + (C.PSF_PASS_MODEL_FRAC * model) ** 2)
+    dx, dy = np.asarray(det["x"], np.float64), np.asarray(det["y"], np.float64)
+    in_model = np.zeros(len(det), bool)
+    if len(det):  # unsaturated S/N >= PSF_PASS_PRIMARY_SNR dots are in the second pass's model when it ran; saturated
+        ix, iy = pixel_of(dx, dy, shape)  # ones are never subtracted (the saturation guard keeps the pass away)
+        sat = (ctx.f3[iy, ix] & SAT_BITS) != 0
+        in_model = sat | ((det["snr"] >= C.PSF_PASS_PRIMARY_SNR) if model is not None and model.any() else False)
+    cx = np.asarray(comp[0]["x"], np.float64) if comp is not None else np.zeros(0)
+    cy = np.asarray(comp[0]["y"], np.float64) if comp is not None else np.zeros(0)
+    if s.sat_guard_px > 0 and dsat is None:
+        dsat = sat_distance(np.asarray(l2.flags) if l2.flags is not None else np.zeros(shape, np.int32))
+    ep = ext_pass(resid, noise, ctx.bad, getattr(l2, "epsf", None), np.r_[dx, cx], np.r_[dy, cy],
+                  sub_x=np.r_[dx[~in_model], cx], sub_y=np.r_[dy[~in_model], cy],
+                  sat_dist=dsat if s.sat_guard_px > 0 else None, sat_guard_px=s.sat_guard_px, scales=C.EXT_SCALES,
+                  min_snr=C.EXT_PASS_SNR, ratio=C.EXT_RATIO, dedup_px=C.EXT_DEDUP_PX, normalise=C.EXT_NORMALISE)
+    info = dict(ep.info)
+    counts.update({k: v for k, v in info.items() if not isinstance(v, dict)})
+    extras["ext"] = {"x": ep.dots["x"].astype(np.float64), "y": ep.dots["y"].astype(np.float64),
+                     "flux": ep.dots["flux"], "flux_err": ep.dots["flux_err"], "snr_ext": ep.snr_ext,
+                     "snr_point": ep.snr_point, "scale": ep.scale, "flux_ext": ep.flux_ext}
+    extras["ext_stats"] = {k: v for k, v in info.items() if isinstance(v, dict)}
+    timing["ext_pass_s"] = time.perf_counter() - t0
 
 
 def _measure_all(l2, det: np.ndarray, comp: tuple | None, ctx: PhotoContext, obs_id: str, detector: int, session: int,
@@ -608,6 +644,11 @@ def glow_dots(l2, obs_id: str, detector: int, session: int, visit: int, thresh: 
     l2g = glow_image(l2, ctx0, gl)
     ctxg = photo_context(l2g, {})
     det, comp, ctxg = _detections(l2g, thresh, min_snr, timing, ctxg, s0, counts, extras)
+    ext = (extras or {}).get("ext")
+    if ext is not None and len(ext["x"]):  # extended detections within a modelled star's reach are pieces of it
+        keep = gl.near(ext["x"], ext["y"], C.GLOW_SELF_PX) < 0
+        extras["ext"] = {k: np.asarray(v)[keep] for k, v in ext.items()}
+        counts["n_ext_glow_pieces"] = int((~keep).sum())
     if det is None:
         counts["n_glow_pieces"] = 0
         return empty_dots(s.v2)
@@ -1246,6 +1287,8 @@ class Pending:
     partner: "PartnerImage | None" = None
     peaks: pd.DataFrame | None = None
     peaks_rel: str | None = None
+    ext: pd.DataFrame | None = None
+    ext_rel: str | None = None
 
 
 def _measure(store: Store, l2, obs_id: str, detector: int, session: int, visit: int, zone: str | None,
@@ -1308,6 +1351,9 @@ def _measure(store: Store, l2, obs_id: str, detector: int, session: int, visit: 
             if ctx is not None:
                 out.peaks = peaks_table(l2, ctx, extras.get("peaks"), df)
                 out.peaks_rel = peaks_rel(obs_id, detector, ddir)
+                if C.EXT_PASS:
+                    out.ext = ext_table(l2, ctx, extras.get("ext"), df)
+                    out.ext_rel = ext_rel(obs_id, detector, ddir)
             st["v2_s"] = round(time.time() - t0, 2)
         return out
     except Exception as e:  # noqa: BLE001
@@ -1317,7 +1363,7 @@ def _measure(store: Store, l2, obs_id: str, detector: int, session: int, visit: 
 
 
 def _finish(store: Store, p: Pending | None, st: dict) -> dict:
-    """Write a measured photo: the peaks file (v2), then the dot file (last: a dot file = photo fully done)."""
+    """Write a measured photo: the peaks and ext files (v2), then the dot file (last: a dot file = photo fully done)."""
     if p is None:
         return st
     try:
@@ -1325,6 +1371,10 @@ def _finish(store: Store, p: Pending | None, st: dict) -> dict:
             pt = pa.Table.from_pandas(p.peaks, preserve_index=False)
             st["peaks_bytes"] = _retry(lambda: _write(store, p.peaks_rel, pt))
             st["n_peaks"] = int(len(p.peaks))
+        if p.ext is not None:
+            et = pa.Table.from_pandas(p.ext, preserve_index=False)
+            st["ext_bytes"] = _retry(lambda: _write(store, p.ext_rel, et))
+            st["n_ext"] = int(len(p.ext))
         if "partner_flux_ujy" in p.df:
             p.meta["n_partner"] = int(np.isfinite(p.df["partner_flux_ujy"].to_numpy(np.float64)).sum())
         table = dots_arrow(p.df, p.meta)
@@ -1382,6 +1432,48 @@ def peaks_table(l2, ctx: PhotoContext, peaks: dict | None, dots: pd.DataFrame | 
     return pd.DataFrame({"x": x, "y": y, "ra": np.asarray(ra) % 360.0, "dec": dec, "snr_mf": peaks["snr_mf"],
                          "flux_mf_ujy": np.asarray(peaks["flux"]) * ctx.conv, "flags": ctx.f3[iy, ix],
                          "n_transient": ntr, "why": peaks["why"]}).astype(PEAK_COLUMNS)
+
+
+# The extended pass's file (18 Nov, agent "comets"; psf.ext_pass): every diffuse detection the wide filters see better
+# than the point filter, > EXT_DEDUP_PX from every final dot. Not dots: on 80 bench photos ~2,400 per photo, 71% with no
+# catalogue source within 3″ (unresolved faint stars, confusion, galaxies, comae), 0.39 per deg² on negative images.
+EXT_COLUMNS = {"x": "float32", "y": "float32", "ra": "float64", "dec": "float64",
+               "snr_ext": "float32",       # S/N of the winning wide filter (ext_scale × the PSF FWHM)
+               "snr_point": "float32",     # the point (ePSF-matched) filter's S/N there, same residual: snr_ext / snr_point
+                                           # is ~0.76 (2×) / 0.42 (4×) for a star, 1.25 / 2.4 for a source that wide
+               "ext_scale": "int8",        # 2 or 4
+               "flux_ext_ujy": "float32",  # total flux if the source has the wide kernel's shape
+               "flux_ujy": "float32", "flux_err_ujy": "float32",  # r = 2 px aperture on the point-free residual
+               "flags": "int32",           # FLAGS, 3 × 3 OR at the peak pixel
+               "near_dot_px": "float32"}   # distance to the nearest dot (a coma next to a star: small)
+
+
+def ext_rel(obs_id: str, det: int, folder: str) -> str:
+    """The extended pass's file of a v2 dot file: <folder>_ext/<obs_id>D<det>.parquet."""
+    return f"{folder}_ext/{obs_id}D{int(det)}.parquet"
+
+
+def ext_table(l2, ctx: PhotoContext, ext: dict | None, dots: pd.DataFrame | None = None) -> pd.DataFrame:
+    """The extended pass's detections (EXT_COLUMNS), none within EXT_DEDUP_PX of a final dot."""
+    empty = pd.DataFrame({c: pd.Series(dtype=t) for c, t in EXT_COLUMNS.items()})
+    if not ext or len(ext["x"]) == 0:
+        return empty
+    x, y = np.asarray(ext["x"], np.float64), np.asarray(ext["y"], np.float64)
+    near = np.full(x.size, np.inf)
+    if dots is not None and len(dots):
+        near, _ = cKDTree(dots[["x", "y"]].to_numpy(np.float64)).query(np.c_[x, y], k=1)
+    keep = near > C.EXT_DEDUP_PX
+    if not keep.any():
+        return empty
+    e = {k: np.asarray(v)[keep] for k, v in ext.items()}
+    x, y, near = x[keep], y[keep], near[keep]
+    ix, iy = pixel_of(x, y, ctx.f3.shape)
+    ra, dec = pixel_to_sky(l2.wcs, x, y)
+    return pd.DataFrame({"x": x, "y": y, "ra": np.asarray(ra) % 360.0, "dec": dec, "snr_ext": e["snr_ext"],
+                         "snr_point": e["snr_point"], "ext_scale": e["scale"], "flux_ext_ujy": e["flux_ext"] * ctx.conv,
+                         "flux_ujy": e["flux"] * ctx.conv, "flux_err_ujy": e["flux_err"] * ctx.conv,
+                         "flags": ctx.f3[iy, ix], "near_dot_px": np.where(np.isfinite(near), near, np.nan)}
+                        ).astype(EXT_COLUMNS)
 
 
 @dataclass
@@ -1507,6 +1599,10 @@ def v2_meta(l2, ctx: PhotoContext | None, extras: dict) -> dict:
         out["mf"].update(st)
         if g is not None:
             out["mf"]["sigma_grid"] = [[None if not np.isfinite(v) else float(f"{v:.4g}") for v in row] for row in g]
+    if C.EXT_PASS:
+        out["ext"] = {"scales": list(C.EXT_SCALES), "min_snr": C.EXT_PASS_SNR, "ratio": C.EXT_RATIO,
+                      "dedup_px": C.EXT_DEDUP_PX, "normalise": str(C.EXT_NORMALISE), "file": "<folder>_ext",
+                      **(extras.get("ext_stats") or {})}
     out["sat_cores"] = sat_cores(getattr(l2, "flags", None))
     out["sky_jacobian_deg_px"] = sky_jacobian(l2)
     if extras.get("dark_holes") is not None:
