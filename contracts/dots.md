@@ -75,7 +75,7 @@ Gaia pairs 12–15″ split 0% → 95%; negative-image fakes 21 → 65 dots per 
 | n_masked | int8 | | Masked or non-finite pixels (contracts/flags.md mask; from the second pass also the dark holes, below) with centres within 2 px (the aperture), at most 127 |
 | partner_flux_ujy | float32 | µJy | r = 2 px aperture on the partner photo's (hole-masked) IMAGE minus its detection background map (no glow or model subtracted, no annulus, no aperture correction: as `flux_ujy`; forced photometry's ePSF fluxes are about 3% higher, its × 1.033) at the dot's sky position (ra_psf, dec_psf where `psf_pos_ok`, else ra, dec) in the simultaneous partner detector's photo (D1↔D4, D2↔D5, D3↔D6, same exposure). NaN outside it (2 px margin), with a masked pixel within 1 px, or when the partner failed |
 | partner_err_ujy | float32 | µJy | Its formal 1σ × the partner photo's empirical aperture-noise factor (`aperture_noise.factor`; 1 when that factor is null or 0) |
-| dot_flag | int32 | | **18 Nov.** Why a dot is doubtful or special, one bit per meaning (the bit table under "Extraction v2, 18 Nov fixes"): 0x1 matched-filter dot in the saturation guard, 0x2 failing the mirror test, 0x4 inside a glow star's own pixels, 0x8 matched-filter S/N 4.5–5, 0x10 a saturated core's dot, 0x20 that dot without a flux. 0 = none. v2 files written before 18 Nov lack it: read as 0 |
+| dot_flag | int32 | | **18 Nov.** Why a dot is doubtful or special, one bit per meaning (the bit table under "Extraction v2, 18 Nov fixes"): 0x1 matched-filter dot in the saturation guard, 0x2 failing the mirror test, 0x4 inside a glow star's own pixels, 0x8 matched-filter S/N 4.5–5, 0x10 a saturated core's dot, 0x20 that dot without a flux, 0x40 a matched-filter dot within 2 px of a saturated core's dot. 0 = none. v2 files written before 18 Nov lack it: read as 0 |
 
 **Peaks file (v2)** `<folder>_peaks/<obs_id>D<det>.parquet`, written before the dot file: the matched-filter local
 maxima with S/N ≥ 4 (`MF_PEAK_SNR`) that are not dots (no dot within 1 px). `x`, `y` float32 (pixel, 0-based), `ra`,
@@ -120,8 +120,9 @@ stays, flagged with why; cuts happen downstream.
    (`SAT_CORE_FLUX_SHARE`; ±0.1 dex, D6 ±0.23; D1 uses D2's, unmeasured), `flux_ujy` = that ÷ 1.033, `snr` ≥ the rim's
    brightest pixel S/N, `flags` and `flags_peak` include the core's OVERFLOW/NONLINEAR bits, `psf_chi2_nu` NaN. Without
    a flux (`dot_flag` 0x20) `flux_ujy` and `flux_psf_ujy` are NaN (rows sorted by flux_ujy, NaN last). A matched-filter
-   dot within 2 px (`SAT_CORE_DUP_PX`) of a core's dot is that star again and is dropped; one farther out stays,
-   flagged. Bench: Gaia G < 6 within 3″ 23% → 94%, G 6–8 34% → 96%; R Draconis 0 → 8 of 8, RW Aurigae 5 → 8 of 8,
+   dot within 2 px (`SAT_CORE_DUP_PX`) of a core's dot is kept with `dot_flag` 0x40 added to its own bits: mostly the
+   star again (a refused peak in its hole), but it may be a real faint neighbour (a moon, an asteroid passing the
+   star); farther out a matched-filter dot keeps only its own bits. Bench: Gaia G < 6 within 3″ 23% → 94%, G 6–8 34% → 96%; R Draconis 0 → 8 of 8, RW Aurigae 5 → 8 of 8,
    Barnard's Star 2 → 7 of 8.
 3. **Extended-source file** `<folder>_ext/<obs_id>D<det>.parquet` (below). Dot files are not changed by it.
 
@@ -136,16 +137,18 @@ per meaning, bits combine. 0 = a dot the code before 18 Nov kept the same way. F
 | 0x8 | DOT_FLAG_MF_LOW_SNR | matched-filter S/N from 4.5 (`MF_DOT_LOW_SNR`) up to the threshold (5 × the block scale). Honest errors; negative images give 4.2 such dots per deg² |
 | 0x10 | DOT_FLAG_SAT_CORE | the one dot of a saturated core, placed by its wings fit (values above) |
 | 0x20 | DOT_FLAG_SAT_NOFIT | (with 0x10) the wings fit gave no flux: `flux_ujy`, `flux_psf_ujy` NaN |
+| 0x40 | DOT_FLAG_SAT_CORE_DUP | matched-filter dot within 2 px (`SAT_CORE_DUP_PX`) of a saturated core's dot (0x10): mostly the same star a second time (a refused peak in its hole or on its rim; it then carries 0x1/0x2/0x4 too), sometimes a real neighbour (a moon, an asteroid passing the star). Kept, never dropped: cut downstream |
 
-The bits 0x1–0x8 are only ever set on matched-filter dots (`sep_flag` 0x400); 0x10/0x20 on a first-pass dot that
+The bits 0x1–0x8 and 0x40 are only ever set on matched-filter dots (`sep_flag` 0x400); 0x10/0x20 on a first-pass dot that
 became the core's dot or a row added for it. `sep_flag` (int16) keeps only the meanings it had (sep's 0x1–0x80, 0x200,
 0x400, 0x800); no new bit goes there (0x8000 is its sign, the others are taken). The dot set of 16 Nov: rows with
-`dot_flag & 0xF == 0`; the core dots replaced what was then the nearest ring piece. Footer: top-level `dot_flag`
-{name: bit} (`mf_guard`, `mf_mirror`, `mf_glow_piece`, `mf_low_snr`, `sat_core`, `sat_nofit`); `mf` adds
+`dot_flag & 0x4F == 0`; the core dots replaced what was then the nearest ring piece. Footer: top-level `dot_flag`
+{name: bit} (`mf_guard`, `mf_mirror`, `mf_glow_piece`, `mf_low_snr`, `sat_core`, `sat_nofit`,
+`sat_core_dup`); `mf` adds
 `refused_flags` {`guard`, `mirror`, `excluded`: their dot_flag bits; null when refused peaks are not dots},
 `low_snr` (4.5), `low_snr_flag` (0x8); `ext` (below); `detect` adds the counts `n_mf_guard`, `n_mf_mirror`,
 `n_mf_excluded`, `n_mf_low_snr`, `n_glow_pieces_mf`, `n_sat_cores`, `n_sat_core_dots_new`, `n_sat_core_dots_no_flux`,
-`n_sat_core_dots_centre`, `n_sat_core_dup_mf`, and (extended pass) `n_subtracted`, `n_peaks_s2`, `n_peaks_s4`, `n_wide_s2`,
+`n_sat_core_dots_centre`, `n_sat_core_dup_mf_flagged` (dots given 0x40), and (extended pass) `n_subtracted`, `n_peaks_s2`, `n_peaks_s4`, `n_wide_s2`,
 `n_wide_s4`, `n_ext_pass`, `n_ext_s2`, `n_ext_s4`, `n_ext_glow_pieces`; `stages_s` adds
 `sat_core_s`, `ext_pass_s`.
 
@@ -167,10 +170,10 @@ per photo, 77% with no catalogue source within 3″; 0.39 per deg² on negative 
 `snr_ext / snr_point` (≥ 1.5 keeps ~110 per photo). Env `SKYSHIFT_DOTS_EXT=0`: no file.
 
 **What downstream must learn (no step reads `dot_flag` yet; until one does, every flagged dot is an ordinary dot):**
-calib (distortion, flux scale) leaves out 0x1/0x2/0x4 and uses 0x10 only as saturated; astrometry/highpm treat 0x1/0x4
+calib (distortion, flux scale) leaves out 0x1/0x2/0x4/0x40 and uses 0x10 only as saturated; astrometry/highpm treat 0x1/0x4
 as saturated-neighbour dots and keep 0x10 under `ASTRO_SAT_OFFSET` (its wings fit sits −0.11 to −0.18 px in x);
-spectra, light curves, changes and classify drop 0x1/0x2/0x4 and 0x20 from fluxes (0x8 can stay); link/fragments: a
-source whose member dots are mostly 0x1/0x2/0x4 is a `bright_fragment` candidate, orphans drops those, a mover resting
+spectra, light curves, changes and classify drop 0x1/0x2/0x4/0x40 and 0x20 from fluxes (0x8 can stay); link/fragments: a
+source whose member dots are mostly 0x1/0x2/0x4/0x40 is a `bright_fragment` candidate, orphans drops those, a mover resting
 only on such dots is a vetting reason; suspects/vet free-dot density maps may leave out 0x8; qa's dots-per-photo grows
 most in crowded fields. Readers of older files: no `dot_flag` = 0; no `_ext` folder = not run.
 
