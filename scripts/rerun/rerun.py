@@ -15,7 +15,9 @@ Commands
     fetch   local copies of the bench photos (<data>/photo-cache/, ~65 MB each, free from NASA's S3); `bench
             --photo-cache <dir>` then reads them, so a rerun after a fix costs CPU only.
     run     the full run, zone by zone (`skyshift-pipeline dots` per zone, one subprocess each). Resumable: a photo
-            whose dot file exists and a stack whose file exists are skipped. Before each zone it checks the free disk
+            whose dot file is a whole parquet file and a stack whose file is are skipped (a 0-byte or cut-short file
+            left by a crash is redone: Store.complete_parquet; writes fsync before their rename, the same for `bench`
+            and its photos). Before each zone it checks the free disk
             against the zone's estimate; while a zone runs, a watchdog stops it if the disk falls under --min-free-gb.
 
 Data root: --data (default $SKYSHIFT_DATA or ~/skyshift-data). It must hold photolists/s3index/ (the photo index,
@@ -181,7 +183,9 @@ def cmd_plan(a) -> dict:
     from skyshift_pipeline import config as C
 
     folder = C.zone_dots(None)[0]
-    done = len(list((Path(a.root) / folder).glob("*.parquet"))) if (Path(a.root) / folder).exists() else 0
+    from skyshift_pipeline.store import Store
+
+    done = len(Store(str(a.root)).complete_parquets(folder))  # 0-byte / cut-short files (a crash) are redone
     todo = max(0, sim["unique_photos"] - done)
     cpu = num["worker_s_per_photo"]
     eff = parallel_workers(a.workers, a.cores, a.smt_gain)
@@ -441,12 +445,14 @@ def bench_report(data: Path, root: Path, folder: str) -> dict:
         "dots": [file_size(root / folder / f"{o}D{d}.parquet") for o, d in zip(ok["obs_id"], ok["detector"])],
         "peaks": [file_size(root / f"{folder}_peaks" / f"{o}D{d}.parquet") for o, d in zip(ok["obs_id"], ok["detector"])],
         "forced": [file_size(root / C.FORCED_DIR / f"{o}D{d}.parquet") for o, d in zip(ok["obs_id"], ok["detector"])],
+        **{side: [file_size(root / f"{folder}_{side}" / f"{o}D{d}.parquet") for o, d in zip(ok["obs_id"], ok["detector"])]
+           for side in ("ext", "streaks")},  # the extended-source and streak files (18 Nov)
         "detector": ok["detector"].astype(int).values})
     sd, md = root / C.SESSION_STACK_DIR, root / C.SESSION_STACK_MAP_DIR
     keys = list(sk_ok["key"]) if len(sk_ok) else []
     stack_tab = {s: sum(file_size(sd / f"{k}{s}.parquet") for k in keys) for s in ("", "_photos", "_moving")}
     maps = sum(file_size(md / f"{k}.npz") for k in keys)
-    mb = {k: round(float(per[k].sum()) / n / 1e6, 3) for k in ("dots", "peaks", "forced")}
+    mb = {k: round(float(per[k].sum()) / n / 1e6, 3) for k in ("dots", "peaks", "forced", "ext", "streaks")}
     mb["stack_tables"] = round(sum(stack_tab.values()) / n / 1e6, 3)
     mb["stack_maps"] = round(maps / n / 1e6, 3)
     # A worker's time per photo: waiting for its read (prefetch hides most of it), measuring, writing, and its share

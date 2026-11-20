@@ -101,3 +101,25 @@ def test_score_helpers_shift_box_and_finite():
     assert S.in_box(z, np.array([15.0, 10.001, 25.0]), np.array([0.0, 0.0, 0.0])).tolist() == [True, False, False]
     df = pd.DataFrame({"ra": [1.0, np.nan, 3.0], "dec": [0.0, 0.0, np.inf]})
     assert S.finite(df)["ra"].tolist() == [1.0]
+
+
+def test_bench_resume_redoes_zero_byte_dot_files_left_by_a_crash(tmp_path):
+    """The 18 Nov bench was cut off by a crash: 0-byte dot / peaks / streak / forced files stayed and a resumed bench
+    skipped them (any dot file that existed counted as done). bench's worker call (dots.process_photos) now measures
+    such a photo again; `plan` counts only whole dot files as done (Store.complete_parquets)."""
+    from skyshift_pipeline import config as C
+    from skyshift_pipeline import dots
+    from skyshift_pipeline.store import Store, dots_rel
+
+    cutout = Path(__file__).resolve().parents[3] / "fixtures" / "fits" / "cutout_2025W18_1B_0074_2D1.fits"
+    folder = C.zone_dots(None)[0]
+    p = tmp_path / dots_rel("2025W18_1B_0074_2", 1, folder)
+    p.parent.mkdir(parents=True)
+    p.write_bytes(b"")
+    (p.parent / "2025W18_1B_0074_3D1.parquet").write_bytes(b"")
+    photo = [("2025W18_1B_0074_2", 1, str(cutout), 7, 2)]
+    st = dots.process_photos(str(tmp_path), photo, None, False, [])
+    assert [s["status"] for s in st] == ["done"] and st[0].get("incomplete_replaced")
+    assert p.stat().st_size > 0 and len(pd.read_parquet(p)) == st[0]["n_dots"]
+    assert [s["status"] for s in dots.process_photos(str(tmp_path), photo, None, False, [])] == ["skipped"]
+    assert Store(str(tmp_path)).complete_parquets(folder) == {"2025W18_1B_0074_2D1.parquet"}

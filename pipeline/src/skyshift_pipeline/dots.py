@@ -1474,11 +1474,14 @@ def _new_stats(obs_id: str, detector: int) -> dict:
 
 
 def _already_done(store: Store, rel: str, st: dict) -> bool:
-    """True (status "skipped") if the dot file exists; an exists-check error is noted and ignored."""
+    """True (status "skipped") if the dot file exists and is whole (Store.complete_parquet: a 0-byte or cut-short file
+    left by a crash is measured and written again, st `incomplete_replaced`); a check error is noted and ignored."""
     try:
-        if store.exists(rel):
+        if store.complete_parquet(rel):
             st["status"] = "skipped"
             return True
+        if store.exists(rel):
+            st["incomplete_replaced"] = True
     except Exception as e:  # noqa: BLE001
         st["error"] = f"exists check: {e}"
     return False
@@ -2118,14 +2121,14 @@ def run(store: Store, zone: C.Zone, workers: int, limit: int | None = None) -> d
     t_start = time.time()
     photos = store.read_parquet(photolist_rel(zone.name)).sort_values(["mjd", "detector"]).reset_index(drop=True)
     ddir, deblend = C.zone_dots(zone.name)
-    done = {n for n in store.listdir(ddir) if n.endswith(".parquet")}
+    done = store.complete_parquets(ddir)  # a 0-byte or cut-short dot file (a crash) is not done
     fused = fused_stacks(C.zone_detect(zone.name))
     tasks: list[dict] = []
     pending: list[dict] = []
     if fused:  # session stacks built here (docs/session-stacks.md §8): photos of a stack not yet written are read too
         from . import coadd
         tasks = coadd.session_tasks(photos)
-        have = {n for n in store.listdir(C.SESSION_STACK_DIR) if n.endswith(".parquet")}
+        have = store.complete_parquets(C.SESSION_STACK_DIR)
         pending = [t for t in tasks if f"{t['key']}.parquet" not in have]
     need = {(str(o), int(t["detector"])) for t in pending for o in t["obs_ids"]}
     n_done_before = sum(f"{r.obs_id}D{int(r.detector)}.parquet" in done for r in photos.itertuples())
