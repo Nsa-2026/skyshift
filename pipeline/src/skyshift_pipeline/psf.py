@@ -529,7 +529,8 @@ def mf_peaks(snr: np.ndarray, thresh: float, phase: np.ndarray | None = None,
 
 @dataclass
 class MFPass:
-    dots: np.ndarray        # new dots (core.detect's DETECTION_DTYPE), measured on the residual, sep_flag 0
+    dots: np.ndarray        # new dots (core.detect's DETECTION_DTYPE), measured on the residual, sep_flag 0 or the
+                            # refused_flags / low_flag bits
     snr_mf: np.ndarray      # their matched-filter S/N
     peaks: dict             # the other peaks >= min_peak_snr: x, y, ix, iy, snr_mf, flux (image units × px), why
     den: np.ndarray         # Σ w·K² map (matched_filter): 1/√den = a point source's flux 1σ (image units × px)
@@ -603,7 +604,8 @@ def mf_pass(resid: np.ndarray, noise: np.ndarray, bad: np.ndarray, epsf, dot_x: 
             min_snr: float = C.MF_PASS_SNR, min_peak_snr: float = C.MF_PEAK_SNR, normalise: str | bool = "off",
             dedup_px: float = C.MF_PASS_DEDUP_PX, r_px: float = C.PSF_PASS_R_PX,
             mirror_r_px: float = C.PSF_PASS_MIRROR_R_PX, mirror_frac: float = C.PSF_PASS_MIRROR_FRAC,
-            mirror_sigma: float = C.PSF_PASS_MIRROR_SIGMA) -> MFPass:
+            mirror_sigma: float = C.PSF_PASS_MIRROR_SIGMA, refused_flags: dict[int, int] | None = None,
+            low_snr: float | None = None, low_flag: int = 0) -> MFPass:
     """The matched-filter pass (extraction v2): faint point sources the aperture cut (S/N >= 5 in r = 2 px) leaves out.
     resid: the image detection measured on minus its background (and minus the second pass's ePSF models), bad pixels
     0; noise: its per-pixel 1σ (with the model term); (dot_x, dot_y): every dot already found. Peaks of the matched
@@ -617,7 +619,13 @@ def mf_pass(resid: np.ndarray, noise: np.ndarray, bad: np.ndarray, epsf, dot_x: 
     threshold's false alarms on the map's negative side), sigma_grid (the same per block, MF_SIGMA_GRID^2).
     normalise "photo" multiplies min_snr by max(1, sigma_lo); "block" each peak's by its block's sigma where that is
     > MF_SIGMA_MIN_SCALE (else 1): a structured patch (D2's top rows, a crowded field) needs more to make a dot, the
-    rest of the photo keeps min_snr (its sigma is 1.00-1.05: faint sources, not noise)."""
+    rest of the photo keeps min_snr (its sigma is 1.00-1.05: faint sources, not noise).
+    refused_flags {why: sep_flag bit} (18 Nov, rejected peaks): a peak >= min_snr that the guard (PEAK_GUARD), the
+    excluded region (PEAK_EXCLUDED) or the mirror test (PEAK_MIRROR) refuses becomes a dot too, measured the same way,
+    with that why's bit (every test that refuses it, not just the first); a why not in the dict keeps the peak in
+    `peaks`. low_snr (< min_snr): peaks from low_snr up to min_snr (both x the same block / photo scale) become dots
+    with low_flag (and the refusal bits they would get at >= min_snr). Both None: dots only from peaks passing every
+    test. When two measured dots converge within dedup_px, a dot without these bits wins, then the brighter."""
     import sep
     from scipy.spatial import cKDTree
     from skyshift_core.detect import DETECTION_DTYPE, measure_objects
@@ -642,32 +650,47 @@ def mf_pass(resid: np.ndarray, noise: np.ndarray, bad: np.ndarray, epsf, dot_x: 
         far = d > dedup_px
         x, y, ix, iy, s, f = x[far], y[far], ix[far], iy[far], s[far], f[far]
     why = np.full(len(x), PEAK_BELOW, np.int8)
+    scale = np.ones(len(x))
     if scale_grid is not None and len(x):
         n = scale_grid.shape[0]
         by = np.searchsorted(np.round(np.linspace(0, snr.shape[0], n + 1)).astype(int), iy, side="right") - 1
         bx = np.searchsorted(np.round(np.linspace(0, snr.shape[1], n + 1)).astype(int), ix, side="right") - 1
-        cand = s >= min_snr * scale_grid[np.clip(by, 0, n - 1), np.clip(bx, 0, n - 1)]
-    else:
-        cand = s >= min_snr
+        scale = scale_grid[np.clip(by, 0, n - 1), np.clip(bx, 0, n - 1)]
+    cand = s >= min_snr * scale
+    refused_flags = dict(refused_flags or {})
+    low = np.zeros(len(x), bool)
+    if low_snr is not None and low_snr < min_snr:
+        low = ~cand & (s >= low_snr * scale)
+    test = cand | low                      # every peak that may become a dot
+    bits = np.where(low, int(low_flag), 0).astype(np.int32)
+    refused = np.zeros(len(x), bool)       # refused and kept as a peak (a why without a bit)
+
+    def refuse(g: np.ndarray, code: int) -> None:
+        nonlocal refused
+        if code in refused_flags:
+            bits[g] |= int(refused_flags[code])
+        else:
+            why[g & ~refused & ~low] = code
+            refused = refused | g
     if sat_guard_px > 0 and sat_dist is not None and len(x):
-        g = cand & (sat_dist[iy, ix] < sat_guard_px)
-        why[g], cand = PEAK_GUARD, cand & ~g
+        refuse(test & (sat_dist[iy, ix] < sat_guard_px), PEAK_GUARD)
     if exclude is not None and len(x):
-        g = cand & np.asarray(exclude, bool)[iy, ix]
-        why[g], cand = PEAK_EXCLUDED, cand & ~g
-    if primary_x is not None and np.size(primary_x) and cand.any():
+        refuse(test & ~refused & np.asarray(exclude, bool)[iy, ix], PEAK_EXCLUDED)
+    if primary_x is not None and np.size(primary_x) and (test & ~refused).any():
         px_, py_ = np.asarray(primary_x, np.float64), np.asarray(primary_y, np.float64)
         dd, j = cKDTree(np.c_[px_, py_]).query(np.c_[x, y], k=1)
-        near = cand & (dd <= r_px)
+        near = test & ~refused & (dd <= r_px)
         if near.any():
             k = np.flatnonzero(near)
             mx, my = 2 * px_[j[k]] - x[k], 2 * py_[j[k]] - y[k]
             fn, en, _ = sep.sum_circle(resid, x[k], y[k], mirror_r_px, err=noise, mask=bad, subpix=5)
             fm, em, _ = sep.sum_circle(resid, mx, my, mirror_r_px, err=noise, mask=bad, subpix=5)
             ok = (fm < mirror_frac * fn) & ((fn - fm) >= mirror_sigma * np.sqrt(en ** 2 + em ** 2))
-            why[k[~ok]] = PEAK_MIRROR
-            cand[k[~ok]] = False
-    info = {"n_mf_raw": int(cand.sum())}
+            g = np.zeros(len(x), bool)
+            g[k[~ok]] = True
+            refuse(g, PEAK_MIRROR)
+    cand = test & ~refused
+    info = {"n_mf_raw": int((cand & (bits == 0)).sum())}
     dots = np.zeros(0, dtype=DETECTION_DTYPE)
     dsnr = np.zeros(0)
     if cand.any():
@@ -676,15 +699,20 @@ def mf_pass(resid: np.ndarray, noise: np.ndarray, bad: np.ndarray, epsf, dot_x: 
         objs["x"], objs["y"] = x[cand], y[cand]
         objs["xpeak"], objs["ypeak"] = ix[cand], iy[cand]
         objs["peak"] = resid[iy[cand], ix[cand]]
+        objs["flag"] = bits[cand]  # measure_objects ORs its sep_flag with these
         dots = measure_objects(resid, noise, bad, objs)
         if len(dots) and np.size(dot_x):
             d, _ = cKDTree(np.c_[dot_x, dot_y]).query(np.c_[dots["x"], dots["y"]], k=1)
             dots = dots[d > dedup_px]
-        if len(dots):  # two peaks whose centroids converged on one source: keep the brighter (first)
+        if len(dots):  # two peaks whose centroids converged on one source: keep the unflagged, then the brighter (first)
+            mine = int(low_flag)
+            for v in refused_flags.values():
+                mine |= int(v)
+            fl = (dots["sep_flag"] & mine) != 0
             drop = np.zeros(len(dots), bool)
             for a, b in sorted(cKDTree(np.c_[dots["x"], dots["y"]]).query_pairs(dedup_px)):
-                if not drop[a]:
-                    drop[b] = True
+                if not (drop[a] or drop[b]):
+                    drop[a if fl[a] and not fl[b] else b] = True
             dots = dots[~drop]
         dsnr = mf_at(resid, noise, bad, dots["x"], dots["y"], epsf)
     keep = ~cand
@@ -694,4 +722,9 @@ def mf_pass(resid: np.ndarray, noise: np.ndarray, bad: np.ndarray, epsf, dot_x: 
     info.update({"n_mf_pass": int(len(dots)), "n_peaks": int(keep.sum()),
                  "n_peaks_guard": int((why == PEAK_GUARD).sum()), "n_peaks_mirror": int((why == PEAK_MIRROR).sum()),
                  "n_peaks_excluded": int((why == PEAK_EXCLUDED).sum())})
+    for code, name in ((PEAK_GUARD, "guard"), (PEAK_MIRROR, "mirror"), (PEAK_EXCLUDED, "excluded")):
+        if code in refused_flags:  # dots with that refusal bit
+            info[f"n_mf_{name}"] = int(((dots["sep_flag"] & int(refused_flags[code])) != 0).sum())
+    if low_snr is not None and low_flag:
+        info["n_mf_low_snr"] = int(((dots["sep_flag"] & int(low_flag)) != 0).sum())
     return MFPass(dots, dsnr, peaks, den, info)
