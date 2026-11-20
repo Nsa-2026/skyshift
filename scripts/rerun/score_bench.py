@@ -163,6 +163,29 @@ def bright_table(b: pd.DataFrame) -> list[dict]:
     return rows
 
 
+def named_bodies(bo: pd.DataFrame) -> list[dict]:
+    """Comets, planets' moons and fast bodies (> 150″/h) one by one: sightings (photos), how many have an old dot file,
+    found by the old dots, the new dots, a dot or peak, a dot / peak / ext row, a streak, a dot or streak (6.15″)."""
+    if not len(bo) or "cls" not in bo:
+        return []
+    cls, name = bo["cls"].astype(str), bo["name"].astype(str)
+    comet = cls.str.lower().str.contains("comet") | name.str.contains("/")
+    q = bo[comet | cls.isin(["moon", "planet"]) | (bo["rate"] > 150)].copy()
+    q.loc[comet[q.index], "cls"] = "comet"
+    if not len(q):
+        return []
+    for c in ("after_peaks_ext", "after_streak", "after_or_streak"):
+        if c not in q:
+            q[c] = False
+    q["before_n"] = q["before"].fillna(0).astype(float)
+    g = q.groupby("name", observed=True)
+    out = g.agg(cls=("cls", "first"), v=("v", "first"), rate=("rate", "mean"), n=("after", "size"),
+                n_before=("has_before", "sum"), before=("before_n", "sum"), after=("after", "sum"),
+                after_peaks=("after_peaks", "sum"), after_peaks_ext=("after_peaks_ext", "sum"),
+                streak=("after_streak", "sum"), dot_or_streak=("after_or_streak", "sum"))
+    return out.round(1).reset_index().sort_values(["cls", "rate"]).to_dict("records")
+
+
 def streak_report(rows: list) -> dict:
     """Streak files (<folder>_streaks/): rows and bytes per photo by detector, clean ones (why 0), and how many repeat
     in another exposure of the same session and detector (a streak centred within 6″ at a PA within 20°: a fixed
@@ -329,6 +352,7 @@ def main(argv=None) -> dict:
                         | near(te, cra, cdec, a.body_arcsec)[0]
                 b["after_or_streak"] = b["after"] | b["after_streak"]
                 b["rate"] = k["rate"].to_numpy()
+                b["cls"] = k["class"].to_numpy() if "class" in k else ""
                 b["before"] = near(tb, kra, kdec, a.body_arcsec)[0] if tb is not None else np.nan
                 b["has_before"] = tb is not None
                 bodies.append(b)
@@ -343,9 +367,14 @@ def main(argv=None) -> dict:
                 un = ~near(cat_tree, d["ra"].to_numpy(), d["dec"].to_numpy(), a.star_arcsec)[0]
                 if ktree is not None:
                     un &= ~near(ktree, d["ra"].to_numpy(), d["dec"].to_numpy(), a.body_arcsec)[0]
+                # shifted control: the same dots against the catalogue and bodies moved 45″ (what chance matches)
+                sra, sdec = shifted(d["ra"].to_numpy(), d["dec"].to_numpy())
+                un_s = ~near(cat_tree, sra, sdec, a.star_arcsec)[0]
+                if ktree is not None:
+                    un_s &= ~near(ktree, sra, sdec, a.body_arcsec)[0]
                 y = d["y"].to_numpy()
                 unmatched.append({"zone": zone, "detector": det, "photo": pid, "which": name, "dots": int(len(d)),
-                                  "unmatched": int(un.sum()), "unmatched_snr_lt7": int((un & (d["snr"].to_numpy() < 7)).sum()),
+                                  "unmatched": int(un.sum()), "unmatched_shifted": int(un_s.sum()), "unmatched_snr_lt7": int((un & (d["snr"].to_numpy() < 7)).sum()),
                                   "unmatched_rows_lt330": int((un & (y < 330)).sum()),
                                   "unmatched_rows_ge1975": int((un & (y >= 1975)).sum()),
                                   "has_before": bef is not None})
@@ -435,7 +464,9 @@ def main(argv=None) -> dict:
                                     streak=("after_streak", "sum"), either=("after_or_streak", "sum"))
                                .round(1).reset_index().to_dict("records") if len(bo) and "has_streaks" in bo else []),
         "streaks": streak_report(streak_rows),
-        "unmatched_per_photo": (un.groupby(["which", "detector"])[["dots", "unmatched", "unmatched_snr_lt7",
+        "named_bodies": named_bodies(bo),
+        "unmatched_per_photo": (un.groupby(["which", "detector"])[["dots", "unmatched", "unmatched_shifted",
+                                                                    "unmatched_snr_lt7",
                                                                     "unmatched_rows_lt330", "unmatched_rows_ge1975"]]
                                 .mean().round(1).reset_index().to_dict("records")) if len(un) else [],
         "bright_found_by_g": bright_table(pd.concat(bright, ignore_index=True) if bright else pd.DataFrame()),
