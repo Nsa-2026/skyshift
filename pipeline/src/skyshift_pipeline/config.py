@@ -171,8 +171,23 @@ MF_ZONE_GROUP = 3              # ePSF zones merged 3 × 3 per kernel tile (21 ×
 SEP_FLAG_MF_PASS = 0x400
 SEP_FLAG_CENTROID_FALLBACK = 0x800  # set by core detect (16 Nov, second pass) on every dot written from then on: the
                                     # windowed centroid failed or moved > 1 px, x, y = its start point (0.6-2.2% of dots)
+# Rejected peaks (18 Nov; rerun/reports/rejected-peaks.md): a peak >= the threshold that the saturation guard, a glow
+# star's own pixels or the mirror test refuses is a dot too (measured like the other matched-filter dots, sep_flag
+# SEP_FLAG_MF_PASS plus one bit per test that refuses it), never dropped: on the bench, 87 of 343 missed known asteroids
+# V < 18 and 2,081 of 5,574 missed Gaia G < 12 had such a peak. Off (MF_REFUSED_DOTS False): those stay peaks (why 1-3).
+# sep_flag is int16: 0x8000 is its sign bit, so 0x100 (above sep's 0x1-0x80) and 0x1000-0x4000 are the free bits.
+MF_REFUSED_DOTS = os.environ.get("SKYSHIFT_MF_REFUSED_DOTS", "1") == "1"  # env 0: off (the bench's baseline)
+SEP_FLAG_MF_GUARD = 0x1000     # within DETECT_SAT_GUARD_PX of an OVERFLOW/NONLINEAR pixel (a saturated star's wings)
+SEP_FLAG_MF_MIRROR = 0x2000    # within PSF_PASS_R_PX of a subtracted dot and failing the mirror test (a ring / PSF error)
+SEP_FLAG_MF_EXCLUDED = 0x4000  # inside an excluded region (a glow star's own pixels)
+# Low-S/N dots: matched-filter peaks from MF_DOT_LOW_SNR up to the threshold (both x the block scale) are dots with
+# SEP_FLAG_MF_LOW_SNR; below MF_DOT_LOW_SNR they stay in the peaks file. MF_DOT_LOW_SNR >= the threshold: none
+# (env SKYSHIFT_MF_DOT_LOW_SNR, for the bench).
+MF_DOT_LOW_SNR = float(os.environ.get("SKYSHIFT_MF_DOT_LOW_SNR", "4.5"))
+SEP_FLAG_MF_LOW_SNR = 0x100
 # Peaks file (v2): every other local maximum of the same S/N map >= MF_PEAK_SNR with no dot within MF_PASS_DEDUP_PX
-# (S/N 4–5, and the >= 5 peaks the guard / glow / mirror test refused): <folder>_peaks/<obs_id>D<det>.parquet.
+# (S/N 4 to MF_DOT_LOW_SNR; with MF_REFUSED_DOTS off also the peaks the guard / glow / mirror test refused):
+# <folder>_peaks/<obs_id>D<det>.parquet.
 MF_PEAK_SNR = 4.0
 DOTS_TRANSIENT_R_PX = 3.0      # v2 column n_transient: TRANSIENT pixels within this radius of the dot
 EMPIRICAL_NOISE_N = 400        # v2 photo metadata: r = 2 px forced aperture at this many random places ...
