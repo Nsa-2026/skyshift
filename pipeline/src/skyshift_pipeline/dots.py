@@ -535,6 +535,17 @@ def _mf_pass(l2, det: np.ndarray, comp: tuple | None, ctx: PhotoContext, s: C.De
     elif len(md):
         comp = (np.concatenate([comp[0], md]), comp[1])
     timing["mf_pass_s"] = time.perf_counter() - t0
+    if extras is not None and C.STREAKS:  # fast movers' trails on the same residual: own file (streaks.py)
+        from .streaks import streak_search
+        allx = [np.asarray(det["x"])] + ([np.asarray(comp[0]["x"])] if comp is not None else [])
+        ally = [np.asarray(det["y"])] + ([np.asarray(comp[0]["y"])] if comp is not None else [])
+        alls = [np.asarray(det["snr"])] + ([np.asarray(comp[0]["snr"])] if comp is not None else [])
+        try:  # never costs the photo its dots
+            extras["streaks"] = streak_search(resid, noise, ctx.bad, getattr(l2, "epsf", None), np.concatenate(allx),
+                                              np.concatenate(ally), np.concatenate(alls), f3=ctx.f3,
+                                              sat_dist=dsat if dsat is not None else sat_distance(flags), timing=timing)
+        except Exception as e:  # noqa: BLE001
+            extras["streaks_error"] = f"{type(e).__name__}: {e}"[:200]
     return comp
 
 
@@ -1246,6 +1257,8 @@ class Pending:
     partner: "PartnerImage | None" = None
     peaks: pd.DataFrame | None = None
     peaks_rel: str | None = None
+    streaks: pd.DataFrame | None = None
+    streaks_rel: str | None = None
 
 
 def _measure(store: Store, l2, obs_id: str, detector: int, session: int, visit: int, zone: str | None,
@@ -1308,6 +1321,15 @@ def _measure(store: Store, l2, obs_id: str, detector: int, session: int, visit: 
             if ctx is not None:
                 out.peaks = peaks_table(l2, ctx, extras.get("peaks"), df)
                 out.peaks_rel = peaks_rel(obs_id, detector, ddir)
+                if "streaks" in extras:
+                    from . import streaks as SK
+                    out.streaks = SK.streaks_table(l2, extras["streaks"], ctx.conv)
+                    out.streaks_rel = SK.streaks_rel(obs_id, detector, ddir)
+                    meta["streaks"] = SK.streak_meta(extras["streaks"])
+                    st["streak_s"] = round(float(extras["streaks"].info.get("time_s", 0.0)), 2)
+                elif "streaks_error" in extras:
+                    meta["streaks"] = {"error": extras["streaks_error"]}
+                    st["streaks_error"] = extras["streaks_error"]
             st["v2_s"] = round(time.time() - t0, 2)
         return out
     except Exception as e:  # noqa: BLE001
@@ -1317,7 +1339,8 @@ def _measure(store: Store, l2, obs_id: str, detector: int, session: int, visit: 
 
 
 def _finish(store: Store, p: Pending | None, st: dict) -> dict:
-    """Write a measured photo: the peaks file (v2), then the dot file (last: a dot file = photo fully done)."""
+    """Write a measured photo: the peaks and streak files (v2), then the dot file (last: a dot file = photo fully
+    done)."""
     if p is None:
         return st
     try:
@@ -1325,6 +1348,10 @@ def _finish(store: Store, p: Pending | None, st: dict) -> dict:
             pt = pa.Table.from_pandas(p.peaks, preserve_index=False)
             st["peaks_bytes"] = _retry(lambda: _write(store, p.peaks_rel, pt))
             st["n_peaks"] = int(len(p.peaks))
+        if p.streaks is not None:
+            stt = pa.Table.from_pandas(p.streaks, preserve_index=False)
+            st["streaks_bytes"] = _retry(lambda: _write(store, p.streaks_rel, stt))
+            st["n_streaks"] = int(len(p.streaks))
         if "partner_flux_ujy" in p.df:
             p.meta["n_partner"] = int(np.isfinite(p.df["partner_flux_ujy"].to_numpy(np.float64)).sum())
         table = dots_arrow(p.df, p.meta)

@@ -174,6 +174,45 @@ SEP_FLAG_CENTROID_FALLBACK = 0x800  # set by core detect (16 Nov, second pass) o
 # Peaks file (v2): every other local maximum of the same S/N map >= MF_PEAK_SNR with no dot within MF_PASS_DEDUP_PX
 # (S/N 4–5, and the >= 5 peaks the guard / glow / mirror test refused): <folder>_peaks/<obs_id>D<det>.parquet.
 MF_PEAK_SNR = 4.0
+# Streak search (18 Nov; streaks.py): trails of fast movers on the matched-filter pass's residual, written to their own
+# file <folder>_streaks/<obs_id>D<det>.parquet (dots unchanged). On under extraction v2 (env SKYSHIFT_STREAKS=0 turns
+# it off). 1 px = 6.15″ = 195″/h over a 113.6 s exposure. Kernels: the ePSF along a segment of each length, angles so
+# that a segment's end moves STREAK_END_STEP_PX from one to the next; longer trails are chains of their pieces.
+STREAKS = os.environ.get("SKYSHIFT_STREAKS", "1") == "1"
+STREAK_LENGTHS_PX = (4.0, 6.0, 9.0)
+STREAK_END_STEP_PX = 1.0
+STREAK_PROFILE = "uniform"     # light along the trail: uniform, or ramp (6τ(1 − τ): a least-squares slope of the ramp)
+STREAK_SNR = 5.5               # a streak: snr_local (S/N normalised by its length's own scatter here) >= this
+STREAK_PIECE_SNR = 4.0         # a piece (for chains): a local maximum of the bank's snr_local >= this
+STREAK_CLIP_SIGMA = 10.0       # the search clips the residual at ±this × noise per pixel (fluxes don't)
+STREAK_NORM_GRID = 8           # each bank length's S/N map normalised by its own sigma and median in this × this blocks
+STREAK_DEN_BOX = 15            # the maps' Σ w·K²: ΣK² × the good pixels' mean weight in a box this size (px)
+STREAK_MIN_DCHI2 = 9.0         # not a trail when snr² − snr_point² is below this (pieces dropped; streaks: WHY_POINT)
+# A streak: snr_point / snr at most this at each length (px, ratio; interpolated). One point source on the segment
+# explains more of a star or a faint blend than of a trail. Injected trails (18 Nov, 4 photos) at these lengths have a
+# median ratio 0.71 / 0.63 / 0.55 / 0.5, 90% below 0.79 / 0.72 / 0.65 / 0.7; the photos' own candidates 0.81 / 0.78 /
+# 0.74 / 0.71: the cut drops ~half the rest. With it, injected 4–9 px trails are found (centre within 1 px, angle
+# within 20°) 60–70% at S/N 10 and 81–88% at S/N 15 (20 Nov, 4 photos × 80 per length).
+STREAK_POINT_RATIO = ((4.0, 0.8), (6.0, 0.75), (9.0, 0.7), (15.0, 0.65))
+STREAK_CHAIN_DTH_DEG = 15.0    # chains: pieces' angles within this ...
+STREAK_CHAIN_PERP_PX = 1.5     # ... each centre within this of the other's line ...
+STREAK_CHAIN_GAP_PX = 6.0      # ... and at most this between their ends
+STREAK_NULL_N = 32             # a chain's kernel is normalised by its own S/N at this many places around it
+STREAK_MERGE_PX = 2.0          # a candidate centred within this of a better one's segment is the same trail ...
+STREAK_MERGE_DEG = 30.0        # ... when their angles are within this (a trail crossing another is its own)
+STREAK_REFINE_LEN = (0.85, 1.0, 1.18)  # length factors tried around a candidate's (then a parabola)
+STREAK_PART_MIN_PX = 3.0       # the uniformity test cuts a trail into parts of at least this length ...
+STREAK_MAX_PARTS = 4           # ... and at most this many
+STREAK_PARTS_FRAC = 0.1        # ... each part's error + this share of its expected flux (the kernel's shape error)
+STREAK_PARTS_P = 1e-3          # WHY_LUMPY: the parts' χ² probability below this
+STREAK_DOT_PX = 1.5            # a dot within this of the segment is on it (n_dots)
+STREAK_DOT_RATIO = 2.0         # WHY_DOT: a dot on it with S/N >= this × the streak's (a trail's own dot is not brighter)
+STREAK_MAX_PERP = 0.7          # WHY_ROUND: the perpendicular kernel's S/N above this × the trail's
+STREAK_MAX_MASKED = 0.3        # WHY_MASKED: this share of the kernel on bad pixels
+STREAK_SAT_PX = 6.0            # WHY_SATURATED: closer than this to an OVERFLOW/NONLINEAR pixel (the saturation guard's)
+STREAK_EDGE_PX = 3.0           # WHY_EDGE: an end closer than this to the photo's edge
+STREAK_AXIS_DEG = 2.0          # WHY_AXIS: within this of a pixel row or column
+STREAK_EXPOSURE_S = 113.6      # rate_arcsec_h = length over the exposure (header XPOSURE when present)
 DOTS_TRANSIENT_R_PX = 3.0      # v2 column n_transient: TRANSIENT pixels within this radius of the dot
 EMPIRICAL_NOISE_N = 400        # v2 photo metadata: r = 2 px forced aperture at this many random places ...
 EMPIRICAL_NOISE_MIN_SEP_PX = 8.0  # ... at least this far from every dot

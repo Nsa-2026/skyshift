@@ -98,12 +98,28 @@ def load_known(data: Path, zone: str) -> pd.DataFrame:
             continue
         names = ob.get("name", [])
         v, cls = dict(zip(names, ob.get("v", []))), dict(zip(names, ob.get("class", [])))
-        rate = dict(zip(names, np.hypot(np.asarray(ob.get("dra_arcsec_h", [np.nan] * len(names)), float),
-                                        np.asarray(ob.get("ddec_arcsec_h", [np.nan] * len(names)), float))))
+        dra = np.asarray(ob.get("dra_arcsec_h", [np.nan] * len(names)), float)
+        ddec = np.asarray(ob.get("ddec_arcsec_h", [np.nan] * len(names)), float)
+        rate = dict(zip(names, np.hypot(dra, ddec)))
+        pa = dict(zip(names, np.degrees(np.arctan2(dra, ddec)) % 180.0))  # dRA·cos dec, dDec: east of north, no sign
         df = pd.DataFrame(pp)
         df["v"], df["class"], df["rate"] = df["name"].map(v), df["name"].map(cls), df["name"].map(rate)
+        df["pa"] = df["name"].map(pa)
         rows.append(df)
     return pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(columns=["obs_id", "detector", "name", "ra", "dec", "v"])
+
+
+def streak_hits(tr: SkyTree | None, st: pd.DataFrame | None, ra, dec, pa, arcsec: float, dpa: float = 20.0) -> np.ndarray:
+    """A streak centred within `arcsec` of each position whose sky PA is within `dpa` of `pa` (NaN pa: any)."""
+    ra, dec, pa = np.atleast_1d(ra), np.atleast_1d(dec), np.atleast_1d(np.asarray(pa, float))
+    out = np.zeros(len(ra), bool)
+    if tr is None or not len(ra):
+        return out
+    for i, li in enumerate(tr.query_radius(ra, dec, arcsec)):
+        if len(li):
+            d = np.abs((st["pa_deg"].to_numpy()[li] - pa[i] + 90) % 180 - 90)
+            out[i] = bool(np.isnan(pa[i]) or (d <= dpa).any())
+    return out
 
 
 def num(df: pd.DataFrame) -> pd.DataFrame:
@@ -125,6 +141,45 @@ def table(df: pd.DataFrame, by: list[str], cols: list[str]) -> list[dict]:
     return out.reset_index().to_dict("records")
 
 
+def streak_report(rows: list) -> dict:
+    """Streak files (<folder>_streaks/): rows and bytes per photo by detector, clean ones (why 0), and how many repeat
+    in another exposure of the same session and detector (a streak centred within 6″ at a PA within 20°: a fixed
+    source, not a mover; a real trail moves by its own length in ~2 exposures' time)."""
+    if not rows:
+        return {}
+    st = pd.concat(rows, ignore_index=True)
+    photos = st.drop_duplicates("photo")[["photo", "detector", "file_bytes"]]
+    st = st[st["ra"].notna()].reset_index(drop=True)
+    st["static"] = False
+    for _, g in st.groupby(["zone", "session", "detector"]):
+        if g["photo"].nunique() < 2:
+            continue
+        tr = SkyTree(g["ra"].to_numpy(), g["dec"].to_numpy())
+        ph, pa = g["photo"].to_numpy(), g["pa_deg"].to_numpy()
+        for i, li in zip(g.index, tr.query_radius(g["ra"].to_numpy(), g["dec"].to_numpy(), 6.0)):
+            j = np.asarray(li)
+            k = g.index.get_loc(i)
+            other = j[ph[j] != ph[k]]
+            if len(other) and (np.abs((pa[other] - pa[k] + 90) % 180 - 90) <= 20).any():
+                st.loc[i, "static"] = True
+    st["clean"] = st["why"] == 0
+    per = st.groupby("photo").agg(n=("ra", "size"), clean=("clean", "sum"),
+                                  moving=("static", lambda v: int((~v).sum())),
+                                  moving_clean=("static", lambda v: int((~v & st.loc[v.index, "clean"]).sum())))
+    per = photos.set_index("photo").join(per).fillna(0)
+    byd = per.groupby("detector").agg(photos=("n", "size"), streaks=("n", "mean"), clean=("clean", "mean"),
+                                      not_repeated=("moving", "mean"), not_repeated_clean=("moving_clean", "mean"),
+                                      kb=("file_bytes", lambda v: v.mean() / 1e3)).round(1).reset_index()
+    deg2 = len(per) * PHOTO_DEG2
+    return {"photos": int(len(per)), "streaks_per_photo": round(float(per["n"].mean()), 1),
+            "clean_per_photo": round(float(per["clean"].mean()), 1),
+            "not_repeated_per_photo": round(float(per["moving"].mean()), 1),
+            "not_repeated_clean_per_photo": round(float(per["moving_clean"].mean()), 1),
+            "not_repeated_clean_per_deg2": round(float(per["moving_clean"].sum() / deg2), 2),
+            "mb_per_photo": round(float(per["file_bytes"].mean()) / 1e6, 3),
+            "by_detector": byd.to_dict("records")}
+
+
 def main(argv=None) -> dict:
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", default=str(R.DEFAULT_DATA))
@@ -138,7 +193,7 @@ def main(argv=None) -> dict:
     folder = C.zone_dots(None)[0]
     sel = R.bench_photos(data, json.loads(Path(a.targets).read_text())["targets"])
 
-    stars, bodies, unmatched, named, counts = [], [], [], [], []
+    stars, bodies, unmatched, named, counts, streak_rows = [], [], [], [], [], []
     refcats: dict[str, pd.DataFrame | None] = {}
     knowns: dict[str, pd.DataFrame] = {}
     try:
@@ -170,6 +225,14 @@ def main(argv=None) -> dict:
             if aft is None:
                 continue
             pk = read(root / f"{folder}_peaks" / f"{pid}.parquet")
+            sk = finite(read(root / f"{folder}_streaks" / f"{pid}.parquet"))
+            tk = tree_of(sk)
+            if sk is not None:
+                fsz = (root / f"{folder}_streaks" / f"{pid}.parquet").stat().st_size
+                streak_rows.append(sk.assign(zone=zone, session=int(r.session), detector=det, photo=pid,
+                                             mjd=float(r.mjd), file_bytes=fsz)[
+                    ["zone", "session", "detector", "photo", "mjd", "ra", "dec", "pa_deg", "length_px", "rate_arcsec_h",
+                     "snr", "snr_local", "why", "file_bytes"]])
             bdir = "dots_deblend1e-4_cp3_g6_psf" if zone in FINE_ZONES else "dots"
             bef = read(data / "before" / bdir / f"{pid}.parquet")
             sk_key = stack_keys.get((str(r.obs_id), det))
@@ -216,7 +279,12 @@ def main(argv=None) -> dict:
                                   "after_peaks": near(ta, kra, kdec, a.body_arcsec)[0] | near(tp, kra, kdec, a.body_arcsec)[0],
                                   "after_stack": near(ts, kra, kdec, a.body_arcsec)[0],
                                   "control_after": near(ta, cra, cdec, a.body_arcsec)[0],
-                                  "control_peaks": near(tp, cra, cdec, a.body_arcsec)[0]})
+                                  "control_peaks": near(tp, cra, cdec, a.body_arcsec)[0],
+                                  "has_streaks": sk is not None,
+                                  "after_streak": streak_hits(tk, sk, kra, kdec, k["pa"].to_numpy(), a.body_arcsec),
+                                  "control_streak": streak_hits(tk, sk, cra, cdec, k["pa"].to_numpy(), a.body_arcsec)})
+                b["after_or_streak"] = b["after"] | b["after_streak"]
+                b["rate"] = k["rate"].to_numpy()
                 b["before"] = near(tb, kra, kdec, a.body_arcsec)[0] if tb is not None else np.nan
                 b["has_before"] = tb is not None
                 bodies.append(b)
@@ -306,6 +374,15 @@ def main(argv=None) -> dict:
                                                                   "control_after"]),
         "known_found_by_detector": table(num(both_bo), ["detector"], ["before", "after", "after_peaks",
                                                                                  "after_stack", "control_after"]),
+        "known_found_by_rate_streaks": (table(bo[bo["has_streaks"]], ["rate_bin"], ["after", "after_streak", "after_or_streak",
+                                                                                   "control_after", "control_streak"])
+                                        if len(bo) and "has_streaks" in bo else []),
+        "fast_known_streaks": (bo[bo["has_streaks"] & (bo["rate"] > 150)]
+                               .groupby(["name", "detector"], observed=True)
+                               .agg(rate=("rate", "mean"), v=("v", "first"), n=("after", "size"), dot=("after", "sum"),
+                                    streak=("after_streak", "sum"), either=("after_or_streak", "sum"))
+                               .round(1).reset_index().to_dict("records") if len(bo) and "has_streaks" in bo else []),
+        "streaks": streak_report(streak_rows),
         "unmatched_per_photo": (un.groupby(["which", "detector"])[["dots", "unmatched", "unmatched_snr_lt7",
                                                                     "unmatched_rows_lt330", "unmatched_rows_ge1975"]]
                                 .mean().round(1).reset_index().to_dict("records")) if len(un) else [],
@@ -314,8 +391,13 @@ def main(argv=None) -> dict:
     (root / "score.json").write_text(json.dumps(rep, indent=1, default=str))
     pd.set_option("display.width", 200)
     for k in ("dots_per_photo", "gaia_found_by_detector", "gaia_found_by_g", "known_found_by_v",
-              "known_found_by_rate", "known_found_by_detector", "unmatched_per_photo"):
+              "known_found_by_rate", "known_found_by_detector", "unmatched_per_photo", "known_found_by_rate_streaks",
+              "fast_known_streaks"):
         print(f"\n== {k}\n{pd.DataFrame(rep[k]).to_string(index=False)}")
+    if rep["streaks"]:
+        print("\n== streaks per photo, by detector")
+        print(pd.DataFrame(rep["streaks"]["by_detector"]).to_string(index=False))
+        print({k: v for k, v in rep["streaks"].items() if k != "by_detector"})
     print("\n== named")
     for n in named:
         print(" ", n)
