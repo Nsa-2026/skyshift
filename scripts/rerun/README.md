@@ -1,0 +1,44 @@
+# The photo rerun on the PC (scripts/rerun)
+
+One read of every SPHEREx photo in the sky zones with extraction v2, the session stacks fused into the same worker
+and forced photometry with the red layer (docs/extraction-v2.md, docs/session-stacks.md §8). Each photo is streamed
+from NASA's public S3 (free) into memory and never saved. Nothing here reads or writes gs://.
+
+```bash
+cd ~/skyshift
+R="uv run --project pipeline python scripts/rerun/rerun.py"
+$R plan --workers 20                 # dry run: photos, download, extra reads, days, disk; writes ~/skyshift-data/rerun/plan.json
+$R bench --workers 12                # the benchmark sessions (bench_targets.json) into ~/skyshift-data/rerun-bench/
+$R plan --workers 20                 # again: now with the benchmark's numbers
+$R run --workers 20                  # the full run, zone by zone; run it again to resume
+```
+
+Before `bench` and `run`, the data root (`~/skyshift-data`, or `--data`) needs:
+
+| what | how | cost |
+|---|---|---|
+| `photolists/s3index/` and `photolists/zones/` | copied from the bucket (`gcloud storage rsync -r gs://nasa-glazing-data/photolists/ …`, 381 MB, ~$0.05), or `skyshift-pipeline s3index --root ~/skyshift-data` | free from NASA's S3 |
+| `refcat/sky/forced_n32/` (Gaia G < 17.5, 3.9 GB) | copied from the bucket (~$0.51), or `python -m skyshift_pipeline.forced_sky --root ~/skyshift-data` | free from ESA |
+| `refcat/sky/forced_red_n32/` (AllWISE red layer) | `python -m skyshift_pipeline.forced_sky --red --root ~/skyshift-data --workers 32` | free from AllWISE on S3 |
+
+`SKYSHIFT_FORCED_SKY_RED=off` runs a bench without the red layer (a smoke test only).
+
+`score_bench.py` (after a bench) compares the new extraction with the old one of the same photos (`~/skyshift-data/before/`)
+and with known things: isolated Gaia stars by G and detector, MPC asteroids and comets by V (`cache/mpc/<zone>/`),
+306P, 3I/ATLAS, Galatea and the featured targets (nearest dot, peak, stack row, forced row), dots with nothing
+catalogued under them, and a 45″-shifted control for chance matches. Writes `<root>/score.json`.
+
+What `bench` reports (`rerun-bench/bench.json`, from every bench run so far): a worker's seconds per photo (read wait,
+detection, forced, writing, its share of the stack), RAM per worker, MB per photo for dots, peaks, forced, stack tables
+and session maps (maps are written for every bench zone so they can be sized), and the per-detector split. `plan`
+uses those numbers once they exist.
+
+## Measured on 17 Nov 2026 (index of 14 Nov)
+
+- NASA's S3 holds 1,628,230 Level 2 photos (106 TB). The 333 sky zones (hunt + 332 ecliptic zones, ±45° of the
+  ecliptic) touch 856,377 of them (63 TB to read with the extra reads below); the other 771,853 lie near the ecliptic
+  poles (median |β| 76°). Docs before 17 Nov said ~495,000.
+- Every photo is in ~2 zones. Dot files are shared, so a photo is measured once, but a session cut differently by two
+  zones gets two stack keys: 121,735 photos (14%) are read a second time for a stack.
+- Smoke test (R Draconis, 8 photos, 2 workers): detection 6.5 s per photo; the read took 32 s on the PC's Wi-Fi
+  (~2–4 MB/s per download, ~10 MB/s for any number in parallel). The run is network-bound until the PC is on Ethernet.

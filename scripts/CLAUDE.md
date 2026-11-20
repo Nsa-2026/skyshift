@@ -48,6 +48,12 @@ Shared scripts. Run with uv run, except make_fixtures.py (stdlib only).
                    block), combine, report, frames-check, fill-todo. Never deletes in the bucket; writes there only with
                    `--upload-known-index` or `--upload-refcat` (old refcats copied to refcat/before-pc-rebuild/ first).
                    Tests: cd pipeline && uv run pytest ../scripts/rebuild/tests
+- rerun/           P1. The one combined photo rerun on the lead's PC (README.md): rerun.py plan (dry run: photos, download,
+                   extra stack reads from overlapping zones, days, disk), bench (bench_targets.json: sessions around
+                   known objects; seconds, RAM and MB per photo into ~/skyshift-data/rerun-bench/bench.json), run (zone by
+                   zone `skyshift-pipeline dots` with SKYSHIFT_DOTS_V2=1 SKYSHIFT_SESSION_STACK=1, local root, disk watchdog,
+                   resumable). Photos stream from NASA's S3; nothing touches gs://.
+                   Tests: cd pipeline && uv run pytest ../scripts/rerun/tests
 - vet/             P1. Vet one finding against the photos, catalogues and known bodies (vet.py tools), build agent
                    rounds (make_round.py), run a round through the Claude API (api_round.py, key from the environment),
                    compare runs (compare_runs.py), blind rounds (make_scenarios.py), piles (triage.py), a learned score (rb_score.py; the exporter's model: rb_train.py), easy/hard routing (route.py)
