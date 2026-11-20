@@ -9,6 +9,7 @@ Truth  = Gaia DR3 G < 20 in <data>/refcat/<zone>.parquet moved to each photo's t
          source within 12.3″, more than 30″ inside the footprint); MPC asteroids and comets at each photo's time from
          SPHEREx (<data>/cache/mpc/<zone>/run_*.json per_photo); 306P/LINEAR (reports-16nov/ecl04-306P-vs-dots.csv);
          3I/ATLAS (scripts/validate/data/photolists/3i-atlas.csv); the featured targets (web/src/data/targets.json).
+Ext = <root>/<v2 dots folder>_ext/ (the extended pass, when written): named rows `ext`, known `after_peaks_ext`.
 A match is the nearest dot within --star-arcsec (stars, 3″) or --body-arcsec (bodies, 6.15″ = 1 px). Chance: the same
 truth shifted 45″ (the `control` columns), so a found share can be read against it.
 Writes <root>/score.json and prints the tables.
@@ -190,6 +191,8 @@ def main(argv=None) -> dict:
             if aft is None:
                 continue
             pk = read(root / f"{folder}_peaks" / f"{pid}.parquet")
+            ext = finite(read(root / f"{folder}_ext" / f"{pid}.parquet"))  # the extended pass's rows, when written
+            te = tree_of(ext)
             bdir = "dots_deblend1e-4_cp3_g6_psf" if zone in FINE_ZONES else "dots"
             bef = read(data / "before" / bdir / f"{pid}.parquet")
             sk_key = stack_keys.get((str(r.obs_id), det))
@@ -201,7 +204,8 @@ def main(argv=None) -> dict:
             ta, tb, tp, ts = tree_of(aft), tree_of(bef), tree_of(pk), tree_of(stk)
             counts.append({"zone": zone, "detector": det, "photo": pid, "after": len(aft),
                            "before": None if bef is None else len(bef), "peaks": None if pk is None else len(pk),
-                           "stack_rows": None if stk is None else len(stk)})
+                           "stack_rows": None if stk is None else len(stk),
+                           "ext_rows": np.nan if ext is None else len(ext)})
             # --- catalogue truth at this photo's time
             cat_tree = None
             if rc is not None and len(rc):
@@ -248,6 +252,10 @@ def main(argv=None) -> dict:
                                   "after_stack": near(ts, kra, kdec, a.body_arcsec)[0],
                                   "control_after": near(ta, cra, cdec, a.body_arcsec)[0],
                                   "control_peaks": near(tp, cra, cdec, a.body_arcsec)[0]})
+                if te is not None:  # a dot, a peak or an extended-pass row
+                    b["after_peaks_ext"] = b["after_peaks"] | near(te, kra, kdec, a.body_arcsec)[0]
+                    b["control_peaks_ext"] = b["control_peaks"] | near(tp, cra, cdec, a.body_arcsec)[0] \
+                        | near(te, cra, cdec, a.body_arcsec)[0]
                 b["before"] = near(tb, kra, kdec, a.body_arcsec)[0] if tb is not None else np.nan
                 b["has_before"] = tb is not None
                 bodies.append(b)
@@ -307,14 +315,15 @@ def main(argv=None) -> dict:
                 if not fp.contains([ra0], [dec0])[0]:
                     continue
                 rec = {"name": nm, "photo": pid, "zone": zone, "detector": det}
-                for which, d, tr in (("after", aft, ta), ("peaks", pk, tp), ("stack", stk, ts), ("before", bef, tb)):
+                for which, d, tr in (("after", aft, ta), ("peaks", pk, tp), ("stack", stk, ts), ("before", bef, tb),
+                                     ("ext", ext, te)):
                     if tr is None:
                         rec[which] = None
                         continue
                     dist, i = tr.nearest(np.array([ra0]), np.array([dec0]))
                     row = d.iloc[int(i[0])]
                     rec[which] = {"sep_arcsec": round(float(dist[0]), 2),
-                                  "snr": round(float(row.get("snr", row.get("snr_mf", np.nan))), 1),
+                                  "snr": round(float(row.get("snr", row.get("snr_mf", row.get("snr_ext", np.nan)))), 1),
                                   "saturated": bool(int(row.get("flags_peak", 0) or 0) & F.SAT_BITS) if "flags_peak" in d else None}
                 named.append(rec)
 
@@ -325,14 +334,16 @@ def main(argv=None) -> dict:
     both_bo = bo[bo["has_before"]] if len(bo) else bo
     rep = {
         "photos_scored": int(len(counts)),
-        "dots_per_photo": table(pd.DataFrame(counts), ["detector"], ["after", "before", "peaks", "stack_rows"]),
+        "dots_per_photo": table(pd.DataFrame(counts), ["detector"],
+                                ["after", "before", "peaks", "stack_rows", "ext_rows"]),
         "gaia_found_by_detector": table(num(both_st), ["detector"], ["before", "after", "after_peaks",
                                                                                "after_stack", "control_after"]),
         "gaia_found_by_g": table(num(both_st), ["g_bin"], ["before", "after", "after_peaks",
                                                                      "after_stack", "control_after"]),
         "gaia_found_by_zone": table(num(both_st), ["zone", "detector"], ["before", "after", "after_peaks"]),
         "known_found_by_v": table(num(both_bo), ["v_bin"], ["before", "after", "after_peaks",
-                                                                      "after_stack", "control_after", "control_peaks"]),
+                                                                      "after_stack", "control_after", "control_peaks"]
+                                  + [c for c in ("after_peaks_ext", "control_peaks_ext") if c in both_bo]),
         "known_found_by_rate": table(num(both_bo), ["rate_bin"], ["before", "after", "after_peaks", "after_stack",
                                                                   "control_after"]),
         "known_found_by_detector": table(num(both_bo), ["detector"], ["before", "after", "after_peaks",
