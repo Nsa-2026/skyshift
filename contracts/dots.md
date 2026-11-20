@@ -100,8 +100,8 @@ matched-filter fakes per deg² on negative images 9.9–42 → 0.3–2.3, Gaia s
 267 → 265 found. Forced files: a photo whose `forced/` file already exists keeps it (the rule above), so the hole
 mask and the red layer (below) reach only forced files written after them.
 
-**Extraction v2, 18 Nov fixes (dot_flag, saturated cores, rejected peaks, extended file).** Still behind
-`SKYSHIFT_DOTS_V2=1`, same folder. Three changes, measured on the bench of 386 photos around known objects
+**Extraction v2, 18 Nov fixes (dot_flag, saturated cores, rejected peaks, extended file, streak file).** Still behind
+`SKYSHIFT_DOTS_V2=1`, same folder. Four changes, measured on the bench of 386 photos around known objects
 (`scripts/rerun`, reports in `~/skyshift-data/rerun/reports/` on the lead's PC). The lead's rule: a doubtful detection
 stays, flagged with why; cuts happen downstream.
 
@@ -125,6 +125,8 @@ stays, flagged with why; cuts happen downstream.
    star); farther out a matched-filter dot keeps only its own bits. Bench: Gaia G < 6 within 3″ 23% → 94%, G 6–8 34% → 96%; R Draconis 0 → 8 of 8, RW Aurigae 5 → 8 of 8,
    Barnard's Star 2 → 7 of 8.
 3. **Extended-source file** `<folder>_ext/<obs_id>D<det>.parquet` (below). Dot files are not changed by it.
+4. **Streak file** `<folder>_streaks/<obs_id>D<det>.parquet` (below): trails of fast movers. Dot files are not changed
+   by it.
 
 `dot_flag` (int32, v2 files written from 18 Nov; after `partner_err_ujy`): why a dot is doubtful or special, one bit
 per meaning, bits combine. 0 = a dot the code before 18 Nov kept the same way. Files without the column: read as 0.
@@ -150,7 +152,8 @@ became the core's dot or a row added for it. `sep_flag` (int16) keeps only the m
 `n_mf_excluded`, `n_mf_low_snr`, `n_glow_pieces_mf`, `n_sat_cores`, `n_sat_core_dots_new`, `n_sat_core_dots_no_flux`,
 `n_sat_core_dots_centre`, `n_sat_core_dup_mf_flagged` (dots given 0x40), and (extended pass) `n_subtracted`, `n_peaks_s2`, `n_peaks_s4`, `n_wide_s2`,
 `n_wide_s4`, `n_ext_pass`, `n_ext_s2`, `n_ext_s4`, `n_ext_glow_pieces`; `stages_s` adds
-`sat_core_s`, `ext_pass_s`.
+`sat_core_s`, `ext_pass_s` and the streak search's `streaks_s` (total), `streak_maps_s`, `streak_point_s`,
+`streak_pieces_s`, `streak_merge_s`, `streak_measure_s`; `streaks` (below).
 
 **Peaks file from 18 Nov:** with the refused peaks as dots, `why` 1–3 are no longer written; every row is `why` 0,
 now meaning matched-filter S/N from 4 up to 4.5 (`MF_DOT_LOW_SNR`) × its block's noise scale. Files written before keep
@@ -169,13 +172,53 @@ total if it has the kernel's shape), `flux_ujy`, `flux_err_ujy` float32 (µJy, r
 per photo, 77% with no catalogue source within 3″; 0.39 per deg² on negative images): cut on `snr_ext` and
 `snr_ext / snr_point` (≥ 1.5 keeps ~110 per photo). Env `SKYSHIFT_DOTS_EXT=0`: no file.
 
+**Streak file (v2, 18–20 Nov)** `<folder>_streaks/<obs_id>D<det>.parquet` (pipeline `streaks.py`), written with the
+peaks and ext files, before the dot file. Candidate trails of fast movers ≥ 4 px long (≳ 780″/h over the 113.6 s
+exposure; 1 px = 6.15″ = 195″/h), found on the matched-filter pass's residual with ePSF trail kernels (4, 6, 9 px × angles
+whose ends step 1 px, by FFT, inverse-variance); each length's S/N map normalised by its own scatter in 8 × 8 blocks;
+longer trails are chains of collinear pieces fitted as one segment. A row needs `snr_local` ≥ `STREAK_SNR` **4.5** (the
+lead's rule, 20 Nov: more fakes rather than miss; 5.5 in the first version: +35% rows); every row keeps `snr` and
+`snr_local`, so downstream cuts where it wants. Not written: candidates one point source explains as well
+(snr² − snr_point² < 9, or snr_point / snr above 0.8 / 0.75 / 0.7 / 0.65 at 4 / 6 / 9 / ≥ 15 px): stars and blends,
+already dots or peaks. One row per streak:
+
+| column | type | unit | meaning |
+|---|---|---|---|
+| ra, dec | float64 | deg | centre (a mover's place at MJD-AVG) |
+| ra1, dec1, ra2, dec2 | float64 | deg | the two ends (a trail has no direction: 1 and 2 are arbitrary) |
+| x, y, x1, y1, x2, y2 | float32 | px | the same, 0-based pixels |
+| length_px, length_arcsec | float32 | px, ″ | end to end |
+| theta_deg | float32 | deg | pixel frame, from +x towards +y, 0–180 |
+| pa_deg | float32 | deg | sky position angle of the segment, east of north, 0–180 |
+| rate_arcsec_h | float32 | ″/h | length_arcsec / XPOSURE × 3600 |
+| flux_ujy, flux_err_ujy | float32 | µJy | trail-kernel fit (inverse-variance), the dots' flux_ujy scale (no aperture correction) |
+| snr | float32 | | inverse-variance S/N of the trail kernel |
+| snr_local, sigma_local | float32 | | (snr − local median) / local sigma of this length's S/N map; the threshold is on snr_local |
+| snr_point | float32 | | best point-source matched-filter S/N on the segment |
+| snr_perp | float32 | | the same kernel turned 90° |
+| parts_chi2, min_part_snr, n_parts | float32, float32, int8 | | the trail cut into n_parts equal parts: χ² against a uniform trail (10% slack), faintest part's S/N |
+| n_pieces | int16 | | 1 = one bank kernel; ≥ 2 = a chain of that many pieces |
+| n_dots, dot_snr_max | int16, float32 | | dots within 1.5 px of the segment (every dot, flagged ones too), the brightest one's S/N |
+| flags | int32 | | OR of the 3 × 3 FLAGS along the segment |
+| masked_frac | float32 | | share of the kernel on bad pixels |
+| sat_px | float32 | px | nearest OVERFLOW/NONLINEAR pixel along the segment (capped 999) |
+| why | int16 | bits | 0 = nothing against it; 1 point (snr² − snr_point² < 9), 2 lumpy (parts χ² p < 1e-3), 4 round (snr_perp > 0.7 snr), 8 dot (a dot on it ≥ 2× its S/N), 16 masked (≥ 30%), 32 saturated (< 6 px), 64 edge (an end < 3 px from the edge), 128 STREAK flag under it, 256 axis (within 2° of a row or column) |
+
+Footer key `streaks` in the dot file: {`n_streaks`, `n_clean` (why 0), `n_pieces`, `n_chains`, `config` {`lengths_px`,
+`end_step_px`, `snr`, `piece_snr`, `profile`, `point_ratio`, `min_dchi2`}}, or {`error`} when the search failed (the
+photo keeps its dots; no streak file). Most rows are not movers (faint galaxies, blends and star residuals that look
+elongated in one photo; at 5.5 the bench had ~2,500 per photo, ~880 with why 0, and 1.5% of that on negative images):
+a reader must use cross-photo tests (a streak or dot at the centre in another exposure of the session at the same PA =
+a fixed source; the D1↔D4 / D2↔D5 / D3↔D6 partner showing the same trail; centres along a line over the session at
+the streaks' own rate). No step reads it yet. Env `SKYSHIFT_STREAKS=0`: no file.
+
 **What downstream must learn (no step reads `dot_flag` yet; until one does, every flagged dot is an ordinary dot):**
 calib (distortion, flux scale) leaves out 0x1/0x2/0x4/0x40 and uses 0x10 only as saturated; astrometry/highpm treat 0x1/0x4
 as saturated-neighbour dots and keep 0x10 under `ASTRO_SAT_OFFSET` (its wings fit sits −0.11 to −0.18 px in x);
 spectra, light curves, changes and classify drop 0x1/0x2/0x4/0x40 and 0x20 from fluxes (0x8 can stay); link/fragments: a
 source whose member dots are mostly 0x1/0x2/0x4/0x40 is a `bright_fragment` candidate, orphans drops those, a mover resting
 only on such dots is a vetting reason; suspects/vet free-dot density maps may leave out 0x8; qa's dots-per-photo grows
-most in crowded fields. Readers of older files: no `dot_flag` = 0; no `_ext` folder = not run.
+most in crowded fields. Readers of older files: no `dot_flag` = 0; no `_ext` or `_streaks` folder = not run.
 
 | column | type | unit | meaning |
 |---|---|---|---|
@@ -410,9 +453,9 @@ warning `warn`; no flaw columns or `track_overruled` = not measured; no `counter
 
 **18 Nov (extraction v2 fixes; no contracts/api.md change).** What changed here: the `dot_flag` column (int32, v2
 files), saturated-core dots, refused and S/N 4.5–5 matched-filter peaks as dots, the peaks file's `why` (0 only), the
-extended-source file `<folder>_ext/`, and their footer keys. All behind `SKYSHIFT_DOTS_V2=1`: nothing in an existing
+extended-source file `<folder>_ext/`, the streak file `<folder>_streaks/`, and their footer keys. All behind `SKYSHIFT_DOTS_V2=1`: nothing in an existing
 folder changes. Readers of older tables: no `dot_flag` = 0; why 1–3 rows only in peaks files written before; no `_ext`
-folder = the pass did not run.
+folder = the pass did not run; no `_streaks` folder = no streak search.
 
 **16 Nov night (contracts/api.md v3.27).** highpm `counterpart_offset_now_arcsec`; extraction v2 rewrites existing
 forced files (`forced_replaced`); `sigma_grid` all null on a nearly empty photo; crossids `allwise_ref_id`,
