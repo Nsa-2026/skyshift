@@ -52,6 +52,21 @@ export function visitMjd(resp: FramesResponse, det: Det): number | null {
   return t.length ? t[Math.floor((t.length - 1) / 2)] : null;
 }
 
+/**
+ * The two answers show the same visit of their detectors: the time spans of `da`'s exposures in `a` and
+ * `db`'s in `b` overlap (a day's margin). Near the ecliptic poles each detector's fullest visit can be
+ * another one (D2 in October, D5 in June): asked without `mjd`, the partner then shares no moment.
+ */
+export function sameVisit(a: FramesResponse, da: Det, b: FramesResponse, db: Det): boolean {
+  const span = (r: FramesResponse, d: Det) => {
+    const t = r.epochs.filter((e) => e.det === d).map((e) => e.mjd_mid);
+    return t.length ? [Math.min(...t), Math.max(...t)] : null;
+  };
+  const x = span(a, da);
+  const y = span(b, db);
+  return !!x && !!y && x[0] <= y[1] + 1 && y[0] <= x[1] + 1;
+}
+
 /** The live hours request for this grid's visit: centre and field of `resp`, `det`, at `mjd`. */
 export function liveVisitUrl(resp: FramesResponse, fov: number, det: Det, mjd: number | null): string {
   const p = new URLSearchParams({ ra: String(resp.center.ra), dec: String(resp.center.dec), clock: "hours", fov: String(fov), det: String(det) });

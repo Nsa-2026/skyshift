@@ -19,6 +19,8 @@ import {
   pagesText,
   partialLacksPhotos,
   retryDelay,
+  sameVisit,
+  visitMjd,
   photosOf,
   sameGrid,
   streamDone,
@@ -2787,9 +2789,15 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     // photos are of the same moments; a plain live answer asks as before.
     const src = v.clock === "hours" ? visitSource(resp, rawUrl, v.fov, v.det, pg.on ? mainMjd() : null) : null;
     const at = src ? Number(new URL(src.url0).searchParams.get("mjd")) : NaN;
+    // A plain live answer: the partner is asked the same way, and asked again at a time of the plate's
+    // visit when its fullest visit is another one (near the poles), or no moment would combine.
+    const mine = v.clock === "hours" && !(at > 0) ? visitMjd(resp, v.det) : null;
     void Promise.allSettled(
       want.map(async (d) => {
-        const r = await loadFrames({ ra: resp.center.ra, dec: resp.center.dec, clock: v.clock, fov: v.fov, det: d, slug: null, ...(at > 0 ? { mjd: at } : {}) });
+        const ask = (mjd: number | null) =>
+          loadFrames({ ra: resp.center.ra, dec: resp.center.dec, clock: v.clock, fov: v.fov, det: d, slug: null, ...(mjd != null && mjd > 0 ? { mjd } : {}) });
+        let r = await ask(at > 0 ? at : null);
+        if (mine != null && !destroyed && liveDets.key === key && !sameVisit(resp, v.det, r.frames, d)) r = await ask(mine);
         if (!destroyed && liveDets.key === key && r.frames.clock === v.clock) liveDets.got.set(d, { resp: r.frames, url: r.jsonUrl });
       }),
     ).then(async () => {
@@ -2867,13 +2875,15 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     if (pg.streams.some((s) => s.det === d) || !pg.merged) return;
     const inMain = pg.merged.epochs.some((e) => e.det === d);
     const part = !inMain && liveDets.key === waveKey(view) ? liveDets.got.get(d) : undefined;
-    if (!inMain && !(part && sameGrid(part.resp, pg.merged))) return;
+    if (!inMain && !(part && sameGrid(part.resp, pg.merged) && sameVisit(pg.merged, view.det, part.resp, d))) return;
     const src = inMain ? visitSource(pg.merged, pg.base, view.fov, d, mainMjd()) : visitSource(part!.resp, part!.url, view.fov, d, mainMjd());
     if (src) pg.streams.push({ ...newStream(d, src), part: !inMain, first: !inMain && src.start === 1 ? idsOf(part!.resp, d) : "", joined: new Set() });
   }
   /** Ask the next pages, a few page numbers at a time; every stream asks the same numbers together. */
   function pump(gen: number) {
     if (gen !== pg.gen || !pg.on || pg.hold || !view || destroyed) return;
+    // One detector (All off): the partner's pages stop; they would hold this detector's photos back.
+    if (!allWave && pg.streams.length > 1) pg.streams = pg.streams.filter((s) => !s.part && s.det === view!.det);
     // All wavelengths: the detector beside the plate is on its way (fetchOtherDets); its pages and
     // these go together once it is here, so no moment shows one detector alone.
     if (allWave && liveDets.key === waveKey(view) && liveDets.pending) return renderPages();
@@ -3313,6 +3323,10 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       if (all !== allWave) {
         allWave = all;
         if (rawF && (all || Number(d.det) === view.det)) void load(view, rawF, rawUrl);
+        if (pg.on && !pg.hold) {
+          pump(pg.gen); // off: the partner's pages stop; on: it joins again
+          if (pg.dirty && !pairPending()) schedule();
+        }
       }
       if (!all && Number(d.det) !== view.det) opts.onViewChange({ det: Number(d.det) as Det });
       else renderRow();

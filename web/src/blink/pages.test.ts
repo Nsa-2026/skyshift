@@ -2,7 +2,7 @@
 // how a page joins, which page to ask next, and the line under the strip.
 import { describe, expect, it } from "vitest";
 import type { Det, Epoch, FramesResponse, Measured } from "../api/types";
-import { joinPage, liveVisitUrl, newStream, nextPage, pageUrl, pagesText, partialLacksPhotos, photosOf, retryDelay, streamDone, visitMjd, visitSource } from "./pages";
+import { joinPage, liveVisitUrl, newStream, nextPage, pageUrl, pagesText, partialLacksPhotos, photosOf, retryDelay, sameVisit, streamDone, visitMjd, visitSource } from "./pages";
 import { visitSpan } from "./strip";
 
 const ep = (id: string, mjd: number, det: Det = 2): Epoch => ({
@@ -149,5 +149,17 @@ describe("asking again", () => {
   });
   it("waits 3, 6 and 12 s between tries", () => {
     expect([1, 2, 3].map(retryDelay)).toEqual([3000, 6000, 12000]);
+  });
+});
+
+describe("the partner's visit", () => {
+  const r = (det: Det, ts: number[]): FramesResponse =>
+    ({ clock: "hours", center: { ra: 0, dec: 0 }, pixel_arcsec: 6.15, size: [4, 4], gaia: [], known: [], measured: null,
+       epochs: ts.map((t, i) => ({ id: `d${det}-${i}`, det, mjd_mid: t })) }) as unknown as FramesResponse;
+  it("is the same when the two detectors' times overlap, another when months apart", () => {
+    expect(sameVisit(r(2, [100, 105, 120]), 2, r(5, [101, 118]), 5)).toBe(true);
+    expect(sameVisit(r(2, [100, 101]), 2, r(5, [101.5, 102]), 5)).toBe(true); // a day's margin
+    expect(sameVisit(r(2, [300, 330]), 2, r(5, [100, 125]), 5)).toBe(false); // October and June
+    expect(sameVisit(r(2, [100]), 2, r(5, []), 5)).toBe(false);
   });
 });
