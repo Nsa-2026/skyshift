@@ -968,7 +968,8 @@
 
 /* The globe's canvas for tonight's search: over the survey, under Aladin's marks. */
 .atl-searchcanvas,
-.atl-zonecanvas {
+.atl-zonecanvas,
+.atl-nowcanvas {
   position: absolute;
   inset: 0;
   width: 100%;

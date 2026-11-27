@@ -1,6 +1,6 @@
-// The sky page's state in the URL (web/DESIGN.md "Sky"): #/sky/<ra>,<dec>,<fov>[,gal][,mol][,kinds]
+// The sky page's state in the URL (web/DESIGN.md "Sky"): #/sky/<ra>,<dec>,<fov>[,gal][,mol][,now][,kinds]
 // ra, dec: the view centre in ICRS degrees; fov: the map's field of view in degrees.
-// gal: galactic grid; mol: the whole-sky (Mollweide) map instead of the globe;
+// gal: galactic grid; mol: the whole-sky (Mollweide) map instead of the globe; now: SPHEREx now on;
 // kinds: letters of the kinds shown (m fast movers, p moving stars, s odd spectra), left out when
 // all are shown, "none" when none are. Pure.
 import type { Candidate, CandidateKind } from "../api/types";
@@ -14,6 +14,8 @@ export interface AtlasState {
   gal: boolean;
   mol: boolean;
   kinds: CandidateKind[];
+  /** SPHEREx now switched on. */
+  now?: boolean;
 }
 
 export const MIN_FOV = 0.02;
@@ -56,6 +58,7 @@ export function parseState(param: string | null | undefined): AtlasState | null 
     const t = tok.toLowerCase();
     if (t === "gal") s.gal = true;
     else if (t === "mol") s.mol = true;
+    else if (t === "now") s.now = true;
     else if (t === "none") s.kinds = [];
     else if (t && [...t].every((ch) => BY_CODE.has(ch))) {
       s.kinds = KINDS.filter((k) => t.includes(KIND_TEXT[k].code));
@@ -69,6 +72,7 @@ export function formatState(s: AtlasState): string {
   const parts = [trim(wrap360(s.ra), 4), trim(s.dec, 4), fovText(s.fov)];
   if (s.gal) parts.push("gal");
   if (s.mol) parts.push("mol");
+  if (s.now) parts.push("now");
   const shown = KINDS.filter((k) => s.kinds.includes(k));
   if (shown.length === 0) parts.push("none");
   else if (shown.length < KINDS.length) parts.push(shown.map((k) => KIND_TEXT[k].code).join(""));

@@ -157,6 +157,13 @@ Click empty sky → a small pin with "Blink here" (Explore) and the coordinates 
 Equatorial | Galactic · Layers ("Adjust": SPHEREx, 2MASS, AllWISE backgrounds; heat map on/off; zones;
 Gaia rings) · kind chips (Fast movers, Moving stars, Odd spectra) · search box (same parser as Blink).
 State lives in the hash: `#/sky/<ra>,<dec>,<fov>[,gal][,kinds]` so every view can be shared.
+**SPHEREx now (added 27 Nov, switch beside Oval | Globe, `,now` in the hash):** on both shapes, the newest
+public photos (field centres, faded by age), where the survey works on the day shown (the pattern measured
+on those photos relative to the Sun, turned with the Sun), where it goes in 45 and 90 days, and "probably
+here": the point overhead from SPHEREx's orbit elements (NORAD 63182) with the 35° cone it points into.
+A panel under the intro holds the date (slider from the oldest photo carried to six months ahead, real time or
+10 min a second) and both clocks: estimated now, real photos 4–6 weeks behind (NASA publishes a week at a
+time). Data: `/data/spherex-now.json` from `scripts/precompute/spherex_now.py`; re-run it after each batch.
 **Fallback without WebGL2 or tiles:** a static Aitoff SVG of the same heat map and signals (no background
 image), with the same drawer. Never a blank page.
 **First visit:** a three-step hint over the map (Zoom into a red patch → Click a signal → Review it),
