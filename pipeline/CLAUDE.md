@@ -256,6 +256,8 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   SKYSHIFT_COND_NEG=0 off). Hooks in dots.py only stash arrays it has (extras glow_px, guard_px, mf_neg) and call
   cond.attach / cond.write; a failure leaves the dots and the footer `cond.error`. Dot tables identical on and off.
   scripts/rerun/cond_report.py groups the files (noise × star density × detector) with score_bench --stars-out.
+  62 bench photos: 22.3 kB per photo (64 px 53 kB, 256 px 12.8 kB; the footer's per-column metadata is ~5 kB),
+  +0.21 s CPU per photo for the table and +0.08–0.11 s in mf_pass for the negative peaks (v2 detection 22 s median).
 - classify and photoz read only sources.parquet (+ optional dot shape columns, crossids, refcat); never photos.
   photoz queries SDSS DR17 once per zone (cached in cache/sdss/<zone>.parquet); a network failure only skips the report.
 - refcat: Gaia DR3 (G<20), CatWISE2020, 2MASS PSC over zone + 0.1° in 1° tiles (cache/refcat/<zone>/), writes
