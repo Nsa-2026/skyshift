@@ -75,10 +75,10 @@ Gaia pairs 12–15″ split 0% → 95%; negative-image fakes 21 → 65 dots per 
 | n_masked | int8 | | Masked or non-finite pixels (contracts/flags.md mask; from the second pass also the dark holes, below) with centres within 2 px (the aperture), at most 127 |
 | partner_flux_ujy | float32 | µJy | r = 2 px aperture on the partner photo's (hole-masked) IMAGE minus its detection background map (no glow or model subtracted, no annulus, no aperture correction: as `flux_ujy`; forced photometry's ePSF fluxes are about 3% higher, its × 1.033) at the dot's sky position (ra_psf, dec_psf where `psf_pos_ok`, else ra, dec) in the simultaneous partner detector's photo (D1↔D4, D2↔D5, D3↔D6, same exposure). NaN outside it (2 px margin), with a masked pixel within 1 px, or when the partner failed |
 | partner_err_ujy | float32 | µJy | Its formal 1σ × the partner photo's empirical aperture-noise factor (`aperture_noise.factor`; 1 when that factor is null or 0) |
-| dot_flag | int32 | | **18 Nov.** Why a dot is doubtful or special, one bit per meaning (the bit table under "Extraction v2, 18 Nov fixes"): 0x1 matched-filter dot in the saturation guard, 0x2 failing the mirror test, 0x4 inside a glow star's own pixels, 0x8 matched-filter S/N 4.5–5, 0x10 a saturated core's dot, 0x20 that dot without a flux, 0x40 a matched-filter dot within 2 px of a saturated core's dot. 0 = none. v2 files written before 18 Nov lack it: read as 0 |
+| dot_flag | int32 | | **18 Nov.** Why a dot is doubtful or special, one bit per meaning (the bit table under "Extraction v2, 18 Nov fixes"): 0x1 matched-filter dot in the saturation guard, 0x2 failing the mirror test, 0x4 inside a glow star's own pixels, 0x8 matched-filter S/N 4.5–5, 0x10 a saturated core's dot, 0x20 that dot without a flux, 0x40 a matched-filter dot within 2 px of a saturated core's dot, 0x80 (27 Nov) a refused dot whose wings fit was skipped (x, y the matched-filter position). 0 = none. v2 files written before 18 Nov lack it: read as 0 |
 
 **Peaks file (v2)** `<folder>_peaks/<obs_id>D<det>.parquet`, written before the dot file: the matched-filter local
-maxima with S/N ≥ 4 (`MF_PEAK_SNR`) that are not dots (no dot within 1 px). `x`, `y` float32 (pixel, 0-based), `ra`,
+maxima with S/N ≥ 4 (`MF_PEAK_SNR`; **3.5 from 27 Nov**) that are not dots (no dot within 1 px). `x`, `y` float32 (pixel, 0-based), `ra`,
 `dec` float64 (deg), `snr_mf` float32, `flux_mf_ujy` float32 (µJy, the matched-filter flux), `flags` int32 (3 × 3 OR),
 `n_transient` int8, `why` int8: 0 = S/N 4–5 (from the second pass also a peak ≥ 5 refused by its block's noise scale, below), 1 = refused by the saturation guard, 2 = refused by the mirror test,
 3 = inside a glow star's own pixels. From 18 Nov the refused peaks are dots (`dot_flag`), so only why 0 is written,
@@ -140,13 +140,14 @@ per meaning, bits combine. 0 = a dot the code before 18 Nov kept the same way. F
 | 0x10 | DOT_FLAG_SAT_CORE | the one dot of a saturated core, placed by its wings fit (values above) |
 | 0x20 | DOT_FLAG_SAT_NOFIT | (with 0x10) the wings fit gave no flux: `flux_ujy`, `flux_psf_ujy` NaN |
 | 0x40 | DOT_FLAG_SAT_CORE_DUP | matched-filter dot within 2 px (`SAT_CORE_DUP_PX`) of a saturated core's dot (0x10): mostly the same star a second time (a refused peak in its hole or on its rim; it then carries 0x1/0x2/0x4 too), sometimes a real neighbour (a moon, an asteroid passing the star). Kept, never dropped: cut downstream |
+| 0x80 | DOT_FLAG_POS_NOREFIT | **27 Nov.** A refused matched-filter dot (with 0x1, 0x2 or 0x4) with OVERFLOW/NONLINEAR in its 3 × 3 whose wings fit was skipped by the rule `SAT_REFIT_REFUSED_*` (below): `x`, `y`, `ra`, `dec` are the matched-filter position (the other saturated dots are re-centred on their wings). Everything else about the dot is measured as usual at that position |
 
-The bits 0x1–0x8 and 0x40 are only ever set on matched-filter dots (`sep_flag` 0x400); 0x10/0x20 on a first-pass dot that
+The bits 0x1–0x8, 0x40 and 0x80 are only ever set on matched-filter dots (`sep_flag` 0x400); 0x10/0x20 on a first-pass dot that
 became the core's dot or a row added for it. `sep_flag` (int16) keeps only the meanings it had (sep's 0x1–0x80, 0x200,
 0x400, 0x800); no new bit goes there (0x8000 is its sign, the others are taken). The dot set of 16 Nov: rows with
 `dot_flag & 0x4F == 0`; the core dots replaced what was then the nearest ring piece. Footer: top-level `dot_flag`
 {name: bit} (`mf_guard`, `mf_mirror`, `mf_glow_piece`, `mf_low_snr`, `sat_core`, `sat_nofit`,
-`sat_core_dup`); `mf` adds
+`sat_core_dup`, `pos_norefit` from 27 Nov); `mf` adds
 `refused_flags` {`guard`, `mirror`, `excluded`: their dot_flag bits; null when refused peaks are not dots},
 `low_snr` (4.5), `low_snr_flag` (0x8); `ext` (below); `detect` adds the counts `n_mf_guard`, `n_mf_mirror`,
 `n_mf_excluded`, `n_mf_low_snr`, `n_glow_pieces_mf`, `n_sat_cores`, `n_sat_core_dots_new`, `n_sat_core_dots_no_flux`,
@@ -212,13 +213,100 @@ a reader must use cross-photo tests (a streak or dot at the centre in another ex
 a fixed source; the D1↔D4 / D2↔D5 / D3↔D6 partner showing the same trail; centres along a line over the session at
 the streaks' own rate). No step reads it yet. Env `SKYSHIFT_STREAKS=0`: no file.
 
+**Extraction v2, 27 Nov (conditions file, stamp file, wings-fit rule, peaks floor, slim switch).** Still behind
+`SKYSHIFT_DOTS_V2=1`, same folder; the dot tables are unchanged by the two new files (checked on and off).
+
+1. **Conditions file** `<folder>_cond/<obs_id>D<det>.parquet` (pipeline `cond.py`, config `COND*`, on under v2; env
+   `SKYSHIFT_COND=0`: no file), written before the dot file. One row per `COND_TILE_PX` (128) × 128 px tile (256 rows
+   for a 2040² photo): what the search met there and what it found. Units: pixels 0-based, degrees, µm, MJy/sr (as
+   IMAGE), µJy (point source, the dots' flux scale, no aperture correction); counts are pixels or rows whose position
+   is in the tile. Medians and scatters from every `COND_STEP`-th (2) pixel in x and y.
+
+   | column | type | meaning |
+   |---|---|---|
+   | tile | int16 | ty × ntx + tx (ntx, nty, tile_px in the footer summary) |
+   | x, y | float32 | tile centre (px) |
+   | ra, dec | float32 | tile centre (deg) |
+   | wl_um, bw_um | float16 | WCS-WAVE wavelength and bandwidth at the centre (µm) |
+   | n_px, n_good | uint16 | pixels in the tile; not masked (detection's bad-pixel mask) |
+   | bkg_mjysr | float16 | median of the detection background map (sep, box 32) |
+   | bkg_rms_mjysr | float16 | median of that background's rms map |
+   | sky_sigma_mjysr | float16 | robust scatter of IMAGE − background on good pixels (median − 15.87th percentile) |
+   | zodi_mjysr | float16 | median of NASA's ZODI model (not subtracted from IMAGE) |
+   | var_sigma_mjysr | float16 | median √VARIANCE |
+   | noise_mjysr | float16 | median per-pixel 1σ detection uses: max(√VARIANCE, background rms) |
+   | psf_sigma_ujy | float32 | median matched-filter 1σ of a point source: conv / √(Σ w·K²) (µJy) |
+   | mf_sigma | float16 | the S/N map's own sigma (footer mf.sigma_grid) over the tile, median |
+   | thresh_ujy | float32 | median point-source threshold applied: min_snr × block scale × psf_sigma_ujy (µJy) |
+   | n_transient, n_overflow, n_sur_error, n_nonfunc, n_dichroic, n_missing_data, n_hot, n_cold, n_phanmiss, n_nonlinear, n_persist, n_streak, n_snowball | uint16 | pixels with that FLAGS bit (the mask list of flags.md) |
+   | n_sat | uint16 | OVERFLOW or NONLINEAR pixels |
+   | n_hole | uint16 | bad without a mask bit: v2's dark holes (and non-finite IMAGE) |
+   | n_bloom, n_halo | uint16 | pixels with BLOOM, HALO (recorded bits) |
+   | n_glow | uint8 | glow-model stars whose reach touches the tile |
+   | n_glow_px | uint16 | pixels the glow model changes (model ≠ 0 or noise factor > 1) |
+   | n_guard_px | uint16 | pixels within the saturation guard (`DETECT_SAT_GUARD_PX`) |
+   | n_gaia, n_red | uint16 | forced targets: Gaia (G < 17.5), the red AllWISE layer |
+   | gaia_ab_min | float16 | brightest Gaia forced target, AB from its ePSF flux in this detector (saturated stars read faint) |
+   | n_dots, n_dots_sep, n_dots_psf, n_dots_mf | uint16 | dots; by pass (first, 0x200, 0x400) |
+   | n_dots_flagged | uint16 | dots with dot_flag ≠ 0 |
+   | n_df_mf_guard, n_df_mf_mirror, n_df_mf_glow_piece, n_df_mf_low_snr, n_df_sat_core, n_df_sat_nofit, n_df_sat_core_dup, n_df_pos_norefit | uint16 | dots with each dot_flag bit (one column per `DOT_FLAGS` entry; n_df_sat_core = the tile's saturated cores) |
+   | n_peaks, n_ext, n_streaks | uint16 | peaks, ext and streak rows |
+   | n_neg_4, n_neg_45, n_neg_5 | uint16 | negative-residual peaks (the matched filter on −residual, `psf.matched_filter` `neg`) ≥ 4 / 4.5 / 5 × the block scale: the false-alarm count per tile |
+   | n_neg_4_clear, n_neg_5_clear | uint16 | of those, > `PSF_PASS_R_PX` from every dot of S/N ≥ `PSF_PASS_PRIMARY_SNR` and outside the glow and guard regions (pure noise) |
+
+   Footer (Parquet key `skyshift_cond`, JSON): `version`, `obs_id`, `detector`, `tile_px`, `step`, `n_tiles`, `ntx`,
+   `nty`, `shape`, `mf_min_snr`, `mf_min_snr_used`, `mf_normalise`, `mf_sigma_min_scale`, `mf_low_snr`,
+   `ujy_per_mjysr`, `neg` (null when off), `median` {…}, `thresh_ujy_p10_p90`, `total` {…, `n_bad`}, `inputs`.
+   Written with byte-stream-split floats, DELTA integers, no statistics, no stored Arrow schema. Dot file footer key
+   `cond`: {`file`, `version`, `tile_px`, `n_tiles`, `bytes`} or {…, `error`} (the photo keeps its dots, no file).
+   Env `SKYSHIFT_COND_NEG=0`: no negative peaks (columns 0, summary `neg` null).
+2. **Stamp file** `<folder>_stamps/<obs_id>D<det>.parquet` (pipeline `stamps.py`, `stamplist.py`; config `STAMP_*`,
+   env `SKYSHIFT_STAMPS=0` off, `SKYSHIFT_STAMP_LIST` the list folder, absolute or relative to the root, default
+   `stamplists`), written before the dot file, only for a photo with rows in the stamp list. The list
+   (`<STAMP_LIST_DIR>/<kind>/<period>.parquet`, kinds `STAMP_LIST_KINDS` = comets) holds every MPC comet (cometels +
+   allcometels, 3I/ATLAS included; `STAMP_COMET_MAG_MAX` 99: no magnitude cut) within `STAMP_LIST_PAD_DEG` 0.25° of each index photo, geocentric;
+   the worker moves each to MJD-AVG and to SPHEREx (IMAGE header X_SC..). One row per stamp, at most
+   `STAMP_MAX_PER_PHOTO` 200: (2 half + 1)² px around the rounded predicted pixel, clipped to the photo (x0, y0, nx,
+   ny say where); half 30–128 px from a 1e5 km coma plus the exposure's motion. Columns: `kind`, `name`, `obs_id`
+   string, `detector` int8, `mjd` float64 (MJD-AVG), `ra_pred`, `dec_pred` float64 (deg, from SPHEREx at MJD-AVG),
+   `x_pred`, `y_pred` float64 (px), `sigma_arcsec` float32 (NaN unknown), `rate_ra_arcsec_h` (dRA·cos dec),
+   `rate_dec_arcsec_h`, `rate_arcsec_h`, `pa_deg` float32 (north through east), `delta_au` float64, `r_au`,
+   `phase_deg`, `mag_pred`, `parallax_arcsec` float32, `observer` string (spacecraft | geocentre), `half_px`, `x0`,
+   `y0`, `nx`, `ny` int16, `cd1_1`, `cd1_2`, `cd2_1`, `cd2_2` float64 (local Jacobian, deg/px), `q_step` float32,
+   `n_bad`, `list_row` int32; planes as binary columns (byte-shuffled, zstd `STAMP_ZSTD_LEVEL` 9): `image`, `zodi`,
+   `bkg` (the worker's background), `resid` (the extended pass's point-free residual, NaN plane when that pass did not
+   run) as int32 × `q_step` (= the stamp's median √VARIANCE / `STAMP_QUANT` 16: rounding adds 0.018σ rms),
+   `variance` as float16 √VARIANCE / q_step, `flags` int32, `bad` uint8 (1 = masked), `wave`, `bandwidth` int32 ×
+   `STAMP_WAVE_STEP_UM` 1e-5 µm. `stamps.read_stamps` gives the arrays back. Column `skyshift_stamps` (the same JSON in
+   every row, dictionary-encoded, stored once): the photo's WCS header (TAN-SIP), SPHEREx's position and velocity,
+   MJD-BEG/AVG/END, planes, quant, the list's counts. Dot file footer key `stamps`: {`kinds`, `rows`, `off_photo`,
+   `cut`, `capped`, `file`} or {`error`}. The dots are never changed by it.
+3. **Wings fit of refused dots bounded** (`SAT_REFIT_REFUSED_MIN_SNR_MF` 7, `SAT_REFIT_REFUSED_MAX` 2000; env
+   `SKYSHIFT_SAT_REFIT_MIN_SNR_MF`, `SKYSHIFT_SAT_REFIT_MAX`). A refused matched-filter dot (0x1/0x2/0x4) with
+   OVERFLOW/NONLINEAR in its 3 × 3 is wings-fitted when its matched-filter S/N at the matched-filter position (the
+   `snr_mf` definition) is ≥ 7, brightest first, at most 2000 per measured set; the others keep the matched-filter
+   position and get `dot_flag` 0x80. Measured in one process: t_gc D3 (16,385 such dots) detection 204 → 84 s; the
+   other six photos (t_cygnus D4, t_lmc D2, hunt D4, ecl17 D3, 3I/ATLAS's two D3 photos) fit every dot ≥ 7 as before
+   and are unchanged within noise. Dot set and every other dot bit-identical. Skipped dots against their fitted
+   position (t_gc): p50 0.30 px, p90 1.8 px; 24 of the 16,385 lie within 3″ of a Gaia star (wing pieces, not
+   catalogued stars). MIN 0 and MAX −1: every one is fitted (before 27 Nov).
+4. **Peaks file floor** `MF_PEAK_SNR` 4.0 → **3.5** (env `SKYSHIFT_MF_PEAK_SNR`): `why` 0 rows now from S/N 3.5 up to
+   4.5 × the block scale (~16.4k rows, 0.4 MB per photo against 9.7k, 0.2 MB at 4.0).
+5. **Slim switch** (config `PARQUET_SLIM`, env `SKYSHIFT_PARQUET_SLIM=1`, off by default; `rerun.py bench --slim`):
+   the worker's parquet files (dots, peaks, forced, ext, streaks, session stack tables and maps) are written with
+   lossless settings (byte-stream-split floats including the flux_ap lists, dictionary only for strings with repeats,
+   DELTA for (nearly) sorted integers, one data page per column chunk, zstd `PARQUET_SLIM_LEVEL` 15); the cond and stamp
+   files keep their own encodings at that zstd level. Same tables, schema, metadata and row order: readers change
+   nothing.
+
 **What downstream must learn (no step reads `dot_flag` yet; until one does, every flagged dot is an ordinary dot):**
-calib (distortion, flux scale) leaves out 0x1/0x2/0x4/0x40 and uses 0x10 only as saturated; astrometry/highpm treat 0x1/0x4
+calib (distortion, flux scale) leaves out 0x1/0x2/0x4/0x40 (so 0x80 too) and uses 0x10 only as saturated; astrometry/highpm treat 0x1/0x4
 as saturated-neighbour dots and keep 0x10 under `ASTRO_SAT_OFFSET` (its wings fit sits −0.11 to −0.18 px in x);
 spectra, light curves, changes and classify drop 0x1/0x2/0x4/0x40 and 0x20 from fluxes (0x8 can stay); link/fragments: a
 source whose member dots are mostly 0x1/0x2/0x4/0x40 is a `bright_fragment` candidate, orphans drops those, a mover resting
 only on such dots is a vetting reason; suspects/vet free-dot density maps may leave out 0x8; qa's dots-per-photo grows
-most in crowded fields. Readers of older files: no `dot_flag` = 0; no `_ext` or `_streaks` folder = not run.
+most in crowded fields. Readers of older files: no `dot_flag` = 0; no `_ext` or `_streaks` folder = not run; no
+`_cond` / `_stamps` folder = not written (27 Nov); no 0x80 = every refused saturated dot was wings-fitted.
 
 | column | type | unit | meaning |
 |---|---|---|---|
@@ -450,6 +538,11 @@ shape's catalogue neighbours and blocked fits; the `changes` table. Readers of o
 flagged; no v2 second-pass keys = absent; no `stack_key`/`stack_row` = real dots only; no `warn_levels` = every
 warning `warn`; no flaw columns or `track_overruled` = not measured; no `counterpart` = read status as before; no
 `bd_veto` = ""; no `catalogue_checked` = the refcat-only claim.
+
+**27 Nov (extraction v2; no contracts/api.md change).** `dot_flag` 0x80 `DOT_FLAG_POS_NOREFIT` (the wings-fit rule),
+the conditions file `<folder>_cond/`, the stamp file `<folder>_stamps/` and their footer keys `cond`, `stamps`, the
+peaks file's floor 3.5, the slim writer switch (same tables). Readers of older tables: no `_cond` / `_stamps` folder
+= not written; peaks files before 27 Nov start at S/N 4.
 
 **18 Nov (extraction v2 fixes; no contracts/api.md change).** What changed here: the `dot_flag` column (int32, v2
 files), saturated-core dots, refused and S/N 4.5–5 matched-filter peaks as dots, the peaks file's `why` (0 only), the
