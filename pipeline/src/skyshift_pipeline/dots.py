@@ -1357,10 +1357,16 @@ def dots_arrow(df: pd.DataFrame, meta: dict | None = None):
     return t.replace_schema_metadata(md)
 
 
-def parquet_bytes(table) -> bytes:
+def parquet_bytes(table, slim: bool | None = None) -> bytes:
     """Parquet bytes for a dot or forced table: zstd, byte-stream-split floats, no dictionary for
-    numbers (unique noisy floats: 10.5 -> 6.5 MB on the Cygnus photo's dot file)."""
+    numbers (unique noisy floats: 10.5 -> 6.5 MB on the Cygnus photo's dot file). slim (default config
+    PARQUET_SLIM, env SKYSHIFT_PARQUET_SLIM=1): the same table in fewer bytes (slim_write_options)."""
     import pyarrow.parquet as pq
+
+    if C.PARQUET_SLIM if slim is None else slim:
+        buf = io.BytesIO()
+        pq.write_table(table, buf, **slim_write_options(table))
+        return buf.getvalue()
 
     def is_float(t) -> bool:
         return pa.types.is_floating(t) or (pa.types.is_fixed_size_list(t) and pa.types.is_floating(t.value_type))
@@ -1371,6 +1377,38 @@ def parquet_bytes(table) -> bytes:
     pq.write_table(table, buf, compression="zstd", compression_level=3, use_dictionary=strings,
                    use_byte_stream_split=floats or False)
     return buf.getvalue()
+
+
+def slim_write_options(table) -> dict:
+    """pq.write_table keywords that store `table` losslessly in fewer bytes (~/skyshift-data/rerun/reports/slim.md):
+    byte-stream-split for every float leaf, a list's too (the name given to use_byte_stream_split must be the leaf
+    path `<name>.list.element`: today's top-level name leaves flux_ap_ujy / flux_ap_err_ujy PLAIN, 25% of a dot file);
+    a dictionary only for strings with repeats (a forced file's ref_id is unique per row); DELTA_BINARY_PACKED for
+    integer columns that (nearly) never decrease (a stack's stack_row; PARQUET_SLIM_DELTA_MIN_SORTED); one data page per column chunk (zstd sees the whole
+    column); zstd PARQUET_SLIM_LEVEL. Values, schema, metadata and row order are unchanged."""
+    import pyarrow.compute as pc
+
+    enc: dict[str, str] = {}
+    dict_cols: list[str] = []
+    for f in table.schema:
+        nested = pa.types.is_fixed_size_list(f.type) or pa.types.is_list(f.type) or pa.types.is_large_list(f.type)
+        typ = f.type.value_type if nested else f.type
+        leaf = f"{f.name}.list.element" if nested else f.name
+        col = table.column(f.name)
+        if pa.types.is_floating(typ):
+            enc[leaf] = "BYTE_STREAM_SPLIT"
+        elif pa.types.is_string(typ) or pa.types.is_large_string(typ):
+            if pc.count_distinct(col).as_py() <= C.PARQUET_SLIM_DICT_MAX_SHARE * max(len(col), 1):
+                dict_cols.append(leaf)
+        elif pa.types.is_integer(typ) and not nested and len(col) > 1 and col.null_count == 0:
+            v = col.to_numpy()
+            if float(np.mean(v[1:] >= v[:-1])) >= C.PARQUET_SLIM_DELTA_MIN_SORTED:
+                enc[leaf] = "DELTA_BINARY_PACKED"
+    kw = dict(compression="zstd", compression_level=C.PARQUET_SLIM_LEVEL, use_dictionary=dict_cols or False,
+              max_rows_per_page=C.PARQUET_SLIM_ROWS_PER_PAGE, data_page_size=C.PARQUET_SLIM_PAGE_BYTES)
+    if enc:
+        kw["column_encoding"] = enc
+    return kw
 
 
 def _write(store: Store, rel: str, table) -> int:
