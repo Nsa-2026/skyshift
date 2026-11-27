@@ -273,6 +273,20 @@ STREAK_SAT_PX = 6.0            # WHY_SATURATED: closer than this to an OVERFLOW/
 STREAK_EDGE_PX = 3.0           # WHY_EDGE: an end closer than this to the photo's edge
 STREAK_AXIS_DEG = 2.0          # WHY_AXIS: within this of a pixel row or column
 STREAK_EXPOSURE_S = 113.6      # rate_arcsec_h = length over the exposure (header XPOSURE when present)
+# Conditions table (27 Nov, agent "conditions"; cond.py): per photo, one row per COND_TILE_PX tile of what the search
+# met there (background, noise, ZODI, VARIANCE, the matched filter's threshold in µJy, masked pixels by cause,
+# saturated cores, glow and guard regions, forced targets) and what it found (dots by pass and dot_flag bit, peaks,
+# ext, streak rows; negative-residual peaks), written to <folder>_cond/<obs_id>D<det>.parquet next to the dots. On
+# under extraction v2 (env SKYSHIFT_COND=0 turns it off); never changes a dot; a failure is recorded in the dot
+# file's footer `cond.error` and the photo keeps its dots.
+COND = os.environ.get("SKYSHIFT_COND", "1") == "1"
+COND_TILE_PX = int(os.environ.get("SKYSHIFT_COND_TILE_PX", "128"))
+COND_STEP = 2                  # medians and scatters per tile from every COND_STEP-th pixel in x and y (smooth maps)
+# Negative-residual peaks (the matched filter on −residual: −(min over phases) of the same S/N, psf.matched_filter
+# `neg`), counted per tile at each S/N here × the block scale the positive peaks get: the false-alarm rate per tile
+# with no second read. Env SKYSHIFT_COND_NEG=0 turns it off.
+COND_NEG = os.environ.get("SKYSHIFT_COND_NEG", "1") == "1"
+COND_NEG_SNR = (4.0, 4.5, 5.0)
 DOTS_TRANSIENT_R_PX = 3.0      # v2 column n_transient: TRANSIENT pixels within this radius of the dot
 EMPIRICAL_NOISE_N = 400        # v2 photo metadata: r = 2 px forced aperture at this many random places ...
 EMPIRICAL_NOISE_MIN_SEP_PX = 8.0  # ... at least this far from every dot
