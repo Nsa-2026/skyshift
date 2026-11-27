@@ -72,6 +72,16 @@ def test_sky_zone_order_hunt_first_then_nearest_the_ecliptic(tmp_path):
         R.sky_zone_names(tmp_path, "nope")
 
 
+def test_all_leaves_out_the_wide_samples_test_zones_unless_named(tmp_path):
+    z = tmp_path / "photolists" / "zones"
+    z.mkdir(parents=True)
+    for n in ("ecl00", "hunt", "t_nep", "w_gc", "w_zodi060"):
+        (z / f"{n}.parquet").write_bytes(b"")
+    assert R.sky_zone_names(tmp_path, "all") == ["ecl00", "hunt", "t_nep"]
+    assert "w_gc" not in R.sky_zone_names(tmp_path, "sky")
+    assert R.sky_zone_names(tmp_path, "w_gc,hunt") == ["w_gc", "hunt"]
+
+
 def test_parallel_workers_counts_smt_threads_at_a_fraction():
     assert R.parallel_workers(8, 12, 0.25) == 8
     assert R.parallel_workers(20, 12, 0.25) == 14
@@ -101,3 +111,66 @@ def test_score_helpers_shift_box_and_finite():
     assert S.in_box(z, np.array([15.0, 10.001, 25.0]), np.array([0.0, 0.0, 0.0])).tolist() == [True, False, False]
     df = pd.DataFrame({"ra": [1.0, np.nan, 3.0], "dec": [0.0, 0.0, np.inf]})
     assert S.finite(df)["ra"].tolist() == [1.0]
+
+
+def test_bench_resume_redoes_zero_byte_dot_files_left_by_a_crash(tmp_path):
+    """The 18 Nov bench was cut off by a crash: 0-byte dot / peaks / streak / forced files stayed and a resumed bench
+    skipped them (any dot file that existed counted as done). bench's worker call (dots.process_photos) now measures
+    such a photo again; `plan` counts only whole dot files as done (Store.complete_parquets)."""
+    from skyshift_pipeline import config as C
+    from skyshift_pipeline import dots
+    from skyshift_pipeline.store import Store, dots_rel
+
+    cutout = Path(__file__).resolve().parents[3] / "fixtures" / "fits" / "cutout_2025W18_1B_0074_2D1.fits"
+    folder = C.zone_dots(None)[0]
+    p = tmp_path / dots_rel("2025W18_1B_0074_2", 1, folder)
+    p.parent.mkdir(parents=True)
+    p.write_bytes(b"")
+    (p.parent / "2025W18_1B_0074_3D1.parquet").write_bytes(b"")
+    photo = [("2025W18_1B_0074_2", 1, str(cutout), 7, 2)]
+    st = dots.process_photos(str(tmp_path), photo, None, False, [])
+    assert [s["status"] for s in st] == ["done"] and st[0].get("incomplete_replaced")
+    assert p.stat().st_size > 0 and len(pd.read_parquet(p)) == st[0]["n_dots"]
+    assert [s["status"] for s in dots.process_photos(str(tmp_path), photo, None, False, [])] == ["skipped"]
+    assert Store(str(tmp_path)).complete_parquets(folder) == {"2025W18_1B_0074_2D1.parquet"}
+
+
+def test_isolated_gaia_ignores_the_stars_own_catwise_and_2mass_entries():
+    """27 Nov: a Gaia star's own CatWISE / 2MASS entries (within 2.5″) are the star itself, not neighbours; the old rule
+    (any other refcat entry within 12.3″) kept only Gaia stars without an infrared counterpart. A real neighbour at 8″
+    still drops the star, and another Gaia entry always counts."""
+    import numpy as np
+
+    import score_bench as S
+    from skyshift_pipeline.sky import SkyTree, offset_radec
+
+    ra0, dec0 = np.array([10.0, 20.0, 30.0]), np.array([5.0, 5.0, 5.0])
+    # star 0: its own CatWISE 0.6″ and 2MASS 0.9″ away; star 1: a CatWISE neighbour 8″ away; star 2: a Gaia entry 1.5″ away
+    cw_ra, cw_dec = offset_radec(np.array([10.0, 20.0]), np.array([5.0, 5.0]), np.array([0.6, 8.0]), np.array([0.0, 0.0]))
+    tm_ra, tm_dec = offset_radec(np.array([10.0]), np.array([5.0]), np.array([0.0]), np.array([0.9]))
+    g2_ra, g2_dec = offset_radec(np.array([30.0]), np.array([5.0]), np.array([1.5]), np.array([0.0]))
+    all_ra = np.r_[ra0, g2_ra, cw_ra, tm_ra]
+    all_dec = np.r_[dec0, g2_dec, cw_dec, tm_dec]
+    other = SkyTree(np.r_[cw_ra, tm_ra], np.r_[cw_dec, tm_dec])
+    full = SkyTree(all_ra, all_dec)
+    assert S.isolated_gaia(ra0, dec0, full, other).tolist() == [True, False, False]
+    assert S.isolated_gaia_old(ra0, dec0, full).tolist() == [False, False, False]
+    # a Gaia-only refcat: no other_tree, the rule is the old one
+    gonly = SkyTree(ra0, dec0)
+    assert S.isolated_gaia(ra0, dec0, gonly, None).tolist() == [True, True, True]
+
+
+def test_score_known_bodies_with_only_comets_have_numeric_v(tmp_path):
+    """A photo whose only known bodies are comets (no V) gave v as None objects, which pd.cut could not bin."""
+    import json
+
+    import score_bench as S
+    d = tmp_path / "cache" / "mpc" / "w_x"
+    d.mkdir(parents=True)
+    (d / "run_a.json").write_text(json.dumps({
+        "per_photo": {"obs_id": ["o_1"], "detector": [1], "name": ["C/2099 A1"], "ra": [1.0], "dec": [2.0]},
+        "objects": {"name": ["C/2099 A1"], "v": [None], "class": ["comet"], "dra_arcsec_h": [None],
+                    "ddec_arcsec_h": [None]}}))
+    k = S.load_known(tmp_path, "w_x")
+    assert k["v"].dtype.kind == "f" and k["v"].isna().all()
+    pd.cut(k["v"], S.V_BINS)  # no TypeError

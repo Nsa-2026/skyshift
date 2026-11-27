@@ -15,7 +15,9 @@ Commands
     fetch   local copies of the bench photos (<data>/photo-cache/, ~65 MB each, free from NASA's S3); `bench
             --photo-cache <dir>` then reads them, so a rerun after a fix costs CPU only.
     run     the full run, zone by zone (`skyshift-pipeline dots` per zone, one subprocess each). Resumable: a photo
-            whose dot file exists and a stack whose file exists are skipped. Before each zone it checks the free disk
+            whose dot file is a whole parquet file and a stack whose file is are skipped (a 0-byte or cut-short file
+            left by a crash is redone: Store.complete_parquet; writes fsync before their rename, the same for `bench`
+            and its photos). Before each zone it checks the free disk
             against the zone's estimate; while a zone runs, a watchdog stops it if the disk falls under --min-free-gb.
 
 Data root: --data (default $SKYSHIFT_DATA or ~/skyshift-data). It must hold photolists/s3index/ (the photo index,
@@ -60,6 +62,9 @@ ESTIMATE = {
     "ram_gb_per_worker": 1.7,
 }
 SKY_PREFIXES = ("ecl",)               # the 332 ecliptic zones; + hunt = the 333 zones of the sky run
+TEST_ZONE_PREFIXES = ("w_",)          # test-only zones (the wide sample's w_<name>, 27 Nov): never in "all" (their photos
+#                                       are other zones' photos too: a whole-sky plan would count and read them twice);
+#                                       named one by one they run as asked
 
 
 def log(msg: str) -> None:
@@ -88,11 +93,12 @@ def load_index(data: Path) -> pd.DataFrame:
 
 def sky_zone_names(data: Path, which: str) -> list[str]:
     """Zones in run order. "sky": hunt, then the ecliptic zones nearest the ecliptic first (row 0, ±1, …), column by
-    column, so neighbouring zones (which share ~half their photos) follow each other. "all": every zone with a list.
-    Otherwise a comma list."""
+    column, so neighbouring zones (which share ~half their photos) follow each other. "all": every zone with a list
+    except the test zones (TEST_ZONE_PREFIXES, e.g. the wide sample's w_*). Otherwise a comma list (test zones allowed
+    by name)."""
     have = sorted(p.stem for p in (data / "photolists" / "zones").glob("*.parquet"))
     if which == "all":
-        return have
+        return [z for z in have if not z.startswith(TEST_ZONE_PREFIXES)]
     if which != "sky":
         names = [z.strip() for z in which.split(",") if z.strip()]
         missing = [z for z in names if z not in have]
@@ -111,6 +117,17 @@ def sky_zone_names(data: Path, which: str) -> list[str]:
 
 def zone_photos(data: Path, zone: str) -> pd.DataFrame:
     return pd.read_parquet(data / "photolists" / "zones" / f"{zone}.parquet")
+
+
+def zone_box(zone: str, target: dict | None = None):
+    """The zone's RA/Dec box: config's zone, else the target's `box` [ra_min, ra_max, dec_min, dec_max] (the wide
+    sample's zones w_<name>, wide_targets.json), else None (score_bench then counts the whole photo)."""
+    from skyshift_pipeline import config as C
+
+    if zone in C.ZONES:
+        return C.ZONES[zone]
+    box = (target or {}).get("box")
+    return C.Zone(zone, *(float(x) for x in box)) if box else None
 
 
 # --- plan: reads, overlap, time, disk -----------------------------------------------------------------------------
@@ -181,7 +198,9 @@ def cmd_plan(a) -> dict:
     from skyshift_pipeline import config as C
 
     folder = C.zone_dots(None)[0]
-    done = len(list((Path(a.root) / folder).glob("*.parquet"))) if (Path(a.root) / folder).exists() else 0
+    from skyshift_pipeline.store import Store
+
+    done = len(Store(str(a.root)).complete_parquets(folder))  # 0-byte / cut-short files (a crash) are redone
     todo = max(0, sim["unique_photos"] - done)
     cpu = num["worker_s_per_photo"]
     eff = parallel_workers(a.workers, a.cores, a.smt_gain)
@@ -287,9 +306,9 @@ def _worker_init(map_zones: tuple) -> None:
 def bench_root(data: Path, root: Path) -> None:
     """The bench root: its own output folders, the data root's photo lists and sky forced lists linked in."""
     root.mkdir(parents=True, exist_ok=True)
-    for rel in ("photolists", "refcat"):
+    for rel in ("photolists", "refcat", "stamplists"):  # stamplists: stamplist.py's lists, when built
         link = root / rel
-        if not link.exists():
+        if not link.exists() and not link.is_symlink() and (rel != "stamplists" or (data / rel).exists()):
             link.symlink_to(data / rel)
 
 
@@ -441,12 +460,14 @@ def bench_report(data: Path, root: Path, folder: str) -> dict:
         "dots": [file_size(root / folder / f"{o}D{d}.parquet") for o, d in zip(ok["obs_id"], ok["detector"])],
         "peaks": [file_size(root / f"{folder}_peaks" / f"{o}D{d}.parquet") for o, d in zip(ok["obs_id"], ok["detector"])],
         "forced": [file_size(root / C.FORCED_DIR / f"{o}D{d}.parquet") for o, d in zip(ok["obs_id"], ok["detector"])],
+        **{side: [file_size(root / f"{folder}_{side}" / f"{o}D{d}.parquet") for o, d in zip(ok["obs_id"], ok["detector"])]
+           for side in ("ext", "streaks", "cond", "stamps")},  # ext, streak (18 Nov), conditions and stamp files (27 Nov)
         "detector": ok["detector"].astype(int).values})
     sd, md = root / C.SESSION_STACK_DIR, root / C.SESSION_STACK_MAP_DIR
     keys = list(sk_ok["key"]) if len(sk_ok) else []
     stack_tab = {s: sum(file_size(sd / f"{k}{s}.parquet") for k in keys) for s in ("", "_photos", "_moving")}
     maps = sum(file_size(md / f"{k}.npz") for k in keys)
-    mb = {k: round(float(per[k].sum()) / n / 1e6, 3) for k in ("dots", "peaks", "forced")}
+    mb = {k: round(float(per[k].sum()) / n / 1e6, 3) for k in ("dots", "peaks", "forced", "ext", "streaks", "cond", "stamps")}
     mb["stack_tables"] = round(sum(stack_tab.values()) / n / 1e6, 3)
     mb["stack_maps"] = round(maps / n / 1e6, 3)
     # A worker's time per photo: waiting for its read (prefetch hides most of it), measuring, writing, and its share
@@ -552,7 +573,13 @@ def main(argv: list[str] | None = None) -> None:
         if name == "bench":
             s.add_argument("--targets", default=str(TARGETS))
             s.add_argument("--dry-run", action="store_true")
+            s.add_argument("--slim", action="store_true",
+                           help="lossless slim parquet writers (env SKYSHIFT_PARQUET_SLIM=1, config PARQUET_SLIM; off by default)")
     a = ap.parse_args(argv)
+    if getattr(a, "slim", False):  # the spawned workers inherit it; set before any of them starts
+        os.environ["SKYSHIFT_PARQUET_SLIM"] = "1"
+        from skyshift_pipeline import config as _C
+        _C.PARQUET_SLIM = True
     if a.root is None:
         a.root = str(Path(a.data) / "rerun-bench") if a.cmd == "bench" else a.data
     {"plan": cmd_plan, "bench": cmd_bench, "run": cmd_run, "fetch": cmd_fetch}[a.cmd](a)

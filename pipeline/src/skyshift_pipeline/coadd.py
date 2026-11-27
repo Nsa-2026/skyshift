@@ -1104,8 +1104,27 @@ def _parquet(df: pd.DataFrame, meta: dict | None = None) -> bytes:
     t = pa.Table.from_pandas(df, preserve_index=False)
     if meta is not None:
         t = t.replace_schema_metadata({**(t.schema.metadata or {}), b"skyshift": json.dumps(meta, default=str).encode()})
+    if C.PARQUET_SLIM:  # the same table in fewer bytes (config PARQUET_SLIM: today's stack files are ~40% larger)
+        from .dots import parquet_bytes
+        return parquet_bytes(t, slim=True)
     buf = io.BytesIO()
     pq.write_table(t, buf, compression="zstd")
+    return buf.getvalue()
+
+
+def npz_bytes(arrays: dict, slim: bool | None = None) -> bytes:
+    """A map file: np.savez_compressed (zip deflate); slim (default config PARQUET_SLIM) the same .npy members as bzip2
+    zip entries, which np.load reads unchanged (bench maps 3.82 → 3.40 MB per photo; ~0.3 s more CPU to write)."""
+    buf = io.BytesIO()
+    if not (C.PARQUET_SLIM if slim is None else slim):
+        np.savez_compressed(buf, **arrays)
+        return buf.getvalue()
+    import zipfile
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_BZIP2, compresslevel=9) as zf:
+        for k, v in arrays.items():
+            m = io.BytesIO()
+            np.lib.format.write_array(m, np.asanyarray(v), allow_pickle=False)
+            zf.writestr(f"{k}.npy", m.getvalue())
     return buf.getvalue()
 
 
@@ -1123,7 +1142,7 @@ def run_task(root: str, task: dict, maps: bool = False, loader=None) -> dict:
     store = Store(root)
     rel = session_rel(task["key"])
     st = _task_stats(task)
-    if store.exists(rel):
+    if store.complete_parquet(rel):  # a 0-byte or cut-short file (a crash) is built again
         st["status"] = "exists"
         return st
     loader = loader or load_photo
@@ -1168,9 +1187,7 @@ def write_task(store, task: dict, cuts: list[S.Cut], prep: list[dict], maps: boo
         store.write_bytes(session_rel(task["key"], photos=True), _parquet(ph))
         store.write_bytes(session_moving_rel(task["key"]), _parquet(moving_rows(src, ph)))
         if mp is not None:
-            buf = io.BytesIO()
-            np.savez_compressed(buf, **mp)
-            store.write_bytes(session_map_rel(task["key"]), buf.getvalue())
+            store.write_bytes(session_map_rel(task["key"]), npz_bytes(mp))
         store.write_bytes(session_rel(task["key"]), _parquet(src, meta))  # last: its existence means the session is done
     except Exception as e:  # noqa: BLE001 - one session failing never stops the zone
         st.update(status="failed", error=repr(e)[:300])

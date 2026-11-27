@@ -581,3 +581,133 @@ def noise_factor(z: ArrayLike, x: ArrayLike, y: ArrayLike, r_min: ArrayLike, r_m
         k_max[i] = float(np.max(kk))
         k[y0:y1, x0:x1] = np.maximum(k[y0:y1, x0:x1], kk)
     return k, r_k, k_max
+
+
+SATFIT_PAD_PX = 8.0         # saturated_centre: the wings fitted out to the core radius + this
+SATFIT_MIN_R_PX = 6.0       # ... and at least this far
+SATFIT_ALPHA_PX = 1.0       # the profile's core width, fixed: wings alone can't tell it (a free alpha ran to its 0.3
+                            # px bound on 404 of 404 cores of a D1 photo: the wings are a power law)
+SATFIT_REL_ERR = 0.1        # model error added to each pixel's noise: this x its level above the local sky
+SATFIT_MIN_PX = 20          # good wing pixels needed
+SATFIT_MAX_SHIFT_PX = 2.0   # the centre may move at most max(this, the core radius / 2) from the core's centre
+SATFIT_BETA = (1.05, 6.0)   # bounds of the power (the wings fall as r^-2 beta)
+SATFIT_MAX_NFEV = 60
+
+SATFIT_DTYPE = np.dtype([
+    ("x", "f8"), ("y", "f8"),     # centre, 0-based pixels (the core's centre where the fit failed)
+    ("flux", "f8"),               # total flux of the fitted profile, image units x px (NaN when not measured)
+    ("flux_err", "f8"),
+    ("ok", "?"),                  # the fit converged inside its bounds
+    ("n_px", "i4"),               # wing pixels used
+    ("why", "i1"),                # 0 ok, 1 too few pixels, 2 no convergence, 3 centre on its bound,
+                                  # 5 beta on its lower bound (no finite flux), 6 beta on its upper bound
+    ("beta", "f4"),
+])
+
+
+def saturated_centre(
+    sub: ArrayLike,
+    noise: ArrayLike,
+    bad: ArrayLike,
+    x: float,
+    y: float,
+    r_core: float,
+    *,
+    sat: ArrayLike | None = None,
+    pad: float = SATFIT_PAD_PX,
+    min_r: float = SATFIT_MIN_R_PX,
+    alpha: float = SATFIT_ALPHA_PX,
+    rel_err: float = SATFIT_REL_ERR,
+) -> np.void:
+    """Centre and total flux of a saturated star from its unmasked wings: a circular profile
+    a (1 + r^2/alpha^2)^-beta + c (pixel centres; alpha fixed, a Moffat whose wings are a power law) fitted to the good
+    pixels within max(min_r, r_core + pad) of the masked core's centre (x, y), pixels within 1 px of a saturated one
+    left out (`sat`), weights 1 / (noise^2 + (rel_err x level)^2), soft-L1 loss (a neighbour star, spikes). The ePSF
+    stops at +-3.2 px, so a core wider than ~2 px leaves it nothing to fit; the wings reach as far as the light does.
+    Total flux = a pi alpha^2 / (beta - 1): a model's extrapolation under the masked core, rough.
+    Returns one SATFIT_DTYPE row; `ok` false (centre = (x, y), flux NaN, `why` says why) when the fit has too few
+    pixels, fails or ends on a bound."""
+    from scipy.optimize import least_squares
+    out = np.zeros((), SATFIT_DTYPE)
+    out["x"], out["y"], out["flux"], out["flux_err"], out["ok"], out["n_px"], out["why"] = x, y, np.nan, np.nan, False, 0, 1
+    out["beta"] = np.nan
+    s = np.asarray(sub)
+    ny, nx = s.shape
+    R = max(float(min_r), float(r_core) + float(pad))
+    h = int(np.ceil(R))
+    ix, iy = int(round(x)), int(round(y))
+    y0, y1, x0, x1 = max(iy - h, 0), min(iy + h + 1, ny), max(ix - h, 0), min(ix + h + 1, nx)
+    if y1 - y0 < 5 or x1 - x0 < 5:
+        return out
+    v = np.asarray(s[y0:y1, x0:x1], np.float64)
+    nz = np.asarray(noise, np.float64)[y0:y1, x0:x1] if np.ndim(noise) else np.full(v.shape, float(noise))
+    g = ~np.asarray(bad, bool)[y0:y1, x0:x1] & np.isfinite(v) & np.isfinite(nz) & (nz > 0)
+    if sat is not None:
+        g &= ~ndimage.binary_dilation(np.asarray(sat, bool)[y0:y1, x0:x1], structure=np.ones((3, 3), bool))
+    yy, xx = np.mgrid[y0:y1, x0:x1].astype(np.float64)
+    r = np.hypot(xx - x, yy - y)
+    g &= r <= R
+    n = int(g.sum())
+    out["n_px"] = n
+    if n < SATFIT_MIN_PX:
+        return out
+    vx, vy, vv, vn, vr = xx[g], yy[g], v[g], nz[g], r[g]
+    outer = vr >= R - 2.0
+    c0 = float(np.median(vv[outer])) if outer.sum() >= 5 else 0.0
+    inner = vr <= np.min(vr) + 1.5
+    a2 = float(alpha) ** 2
+    be0 = 1.8
+    r_in = float(np.median(vr[inner]))
+    a0 = max(float(np.median(vv[inner])) - c0, float(np.max(vn))) * (1.0 + r_in ** 2 / a2) ** be0
+    w = 1.0 / np.sqrt(vn ** 2 + (rel_err * np.maximum(vv - c0, 0.0)) ** 2)
+    shift = max(SATFIT_MAX_SHIFT_PX, 0.5 * float(r_core))
+    blo, bhi = SATFIT_BETA
+    lo = [x - shift, y - shift, 0.0, blo, -np.inf]
+    hi = [x + shift, y + shift, np.inf, bhi, np.inf]
+    p0 = np.array([x, y, a0, be0, c0])
+
+    def parts(p):
+        dx, dy = vx - p[0], vy - p[1]
+        u = 1.0 + (dx * dx + dy * dy) / a2
+        up = u ** (-p[3])
+        return dx, dy, u, up
+
+    def resid(p):
+        _, _, _, up = parts(p)
+        return (p[2] * up + p[4] - vv) * w
+
+    def jac(p):
+        dx, dy, u, up = parts(p)
+        k = 2.0 * p[2] * p[3] * up / u / a2
+        return np.stack([k * dx, k * dy, up, -p[2] * up * np.log(u), np.ones_like(u)], axis=1) * w[:, None]
+
+    try:
+        res = least_squares(resid, p0, jac=jac, bounds=(lo, hi), loss="soft_l1", f_scale=3.0, x_scale="jac",
+                            max_nfev=SATFIT_MAX_NFEV)
+    except (ValueError, np.linalg.LinAlgError):
+        out["why"] = 2
+        return out
+    p = res.x
+    if res.status <= 0 or not np.all(np.isfinite(p)):
+        out["why"] = 2
+        return out
+    out["beta"] = p[3]
+    eps = 1e-3
+    why = 3 if (abs(p[0] - x) >= shift - eps or abs(p[1] - y) >= shift - eps) else 5 if p[3] <= blo + eps \
+        else 6 if p[3] >= bhi - eps else 0
+    out["why"] = why
+    if why == 3:
+        return out
+    out["x"], out["y"], out["ok"] = p[0], p[1], True   # the centre stands even when beta sits on a bound
+    if why:
+        return out
+    flux = p[2] * np.pi * a2 / (p[3] - 1.0)
+    try:
+        J = res.jac
+        cov = np.linalg.pinv(J.T @ J) * max(2.0 * res.cost / max(n - 5, 1), 1.0)
+        gr = np.array([np.pi * a2 / (p[3] - 1.0), -p[2] * np.pi * a2 / (p[3] - 1.0) ** 2])
+        ferr = float(np.sqrt(max(gr @ cov[np.ix_([2, 3], [2, 3])] @ gr, 0.0)))
+    except (np.linalg.LinAlgError, ValueError):
+        ferr = np.nan
+    out["flux"], out["flux_err"] = flux, ferr
+    return out

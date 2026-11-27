@@ -51,13 +51,23 @@ def _stack_files(root, key):
     return {suffix: root / f"{C.SESSION_STACK_DIR}/{key}{suffix}.parquet" for suffix in ("", "_photos", "_moving")}
 
 
+def _untimed(meta: dict) -> dict:
+    """A stack footer without its CPU and wall times: the top-level TIMING keys and each photo's tiles[].mf_s (CPU
+    seconds rounded to 0.01: 0.0 on this cutout on an idle machine, 0.01 when a run is slowed, which made the
+    comparison fail on a loaded machine)."""
+    out = {k: v for k, v in meta.items() if k not in TIMING}
+    if isinstance(out.get("tiles"), list):
+        out["tiles"] = [{k: v for k, v in t.items() if k != "mf_s"} for t in out["tiles"]]
+    return out
+
+
 def _same_stacks(a, b, tasks):
     for t in tasks:
         fa, fb = _stack_files(a, t["key"]), _stack_files(b, t["key"])
         for s in fa:
             pd.testing.assert_frame_equal(pd.read_parquet(fa[s]), pd.read_parquet(fb[s]))
         ma, mb = CO.read_meta(fa[""].read_bytes()), CO.read_meta(fb[""].read_bytes())
-        assert {k: v for k, v in ma.items() if k not in TIMING} == {k: v for k, v in mb.items() if k not in TIMING}
+        assert _untimed(ma) == _untimed(mb)
         drop = {"prep_s", "glow_s", "read_wall_s"}
         assert [{k: v for k, v in p.items() if k not in drop} for p in ma["prepare"]] == \
                [{k: v for k, v in p.items() if k not in drop} for p in mb["prepare"]]

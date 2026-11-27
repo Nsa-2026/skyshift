@@ -171,15 +171,190 @@ MF_ZONE_GROUP = 3              # ePSF zones merged 3 × 3 per kernel tile (21 ×
 SEP_FLAG_MF_PASS = 0x400
 SEP_FLAG_CENTROID_FALLBACK = 0x800  # set by core detect (16 Nov, second pass) on every dot written from then on: the
                                     # windowed centroid failed or moved > 1 px, x, y = its start point (0.6-2.2% of dots)
+# dot_flag (18 Nov, extraction v2; contracts/dots.md): an int32 dot column (v2 files), one bit per reason a dot is
+# doubtful or special. sep_flag (int16) keeps only sep's own bits 0x1-0x80 and the passes' 0x200 / 0x400 / 0x800 and
+# has no free bit left (0x8000 is its sign), so every newer flag lives here, and every dot_flag bit is listed here and
+# nowhere else. dot_flag 0: a dot the code before 18 Nov kept the same way. Bits combine.
+DOT_FLAG_MF_GUARD = 0x1        # matched-filter dot within DETECT_SAT_GUARD_PX of an OVERFLOW/NONLINEAR pixel (a
+                               # saturated star's wings): the saturation guard refused it (rejected peaks, #413)
+DOT_FLAG_MF_MIRROR = 0x2       # matched-filter dot within PSF_PASS_R_PX of a subtracted dot, failing the mirror test (a
+                               # ring / PSF error, or a faint source beside a brighter one: 3I/ATLAS)
+DOT_FLAG_MF_GLOW_PIECE = 0x4   # matched-filter dot inside a glow star's own pixels (max(GLOW_SELF_PX, core + 1.5 px);
+                               # or mf_pass's `exclude` region): kept, was dropped as a piece of the star (Rhea)
+DOT_FLAG_MF_LOW_SNR = 0x8      # matched-filter dot with S/N from MF_DOT_LOW_SNR (4.5) up to the threshold (5 x scale)
+DOT_FLAG_SAT_CORE = 0x10       # the one dot of a saturated core, placed by its wings fit (add_core_dots, #414)
+DOT_FLAG_SAT_NOFIT = 0x20      # ... whose wings fit gave no flux: flux_ujy, flux_psf_ujy NaN
+DOT_FLAG_SAT_CORE_DUP = 0x40   # matched-filter dot within SAT_CORE_DUP_PX of a saturated core's dot: the star again
+                               # (a refused peak in its hole) or a real neighbour (a moon, an asteroid passing it)
+DOT_FLAG_POS_NOREFIT = 0x80    # a refused matched-filter dot (0x1/0x2/0x4) with a saturated pixel in its 3 x 3 whose
+                               # wings fit was skipped (SAT_REFIT_REFUSED_*): x, y are the matched-filter position
+DOT_FLAGS = {"mf_guard": DOT_FLAG_MF_GUARD, "mf_mirror": DOT_FLAG_MF_MIRROR, "mf_glow_piece": DOT_FLAG_MF_GLOW_PIECE,
+             "mf_low_snr": DOT_FLAG_MF_LOW_SNR, "sat_core": DOT_FLAG_SAT_CORE, "sat_nofit": DOT_FLAG_SAT_NOFIT,
+             "sat_core_dup": DOT_FLAG_SAT_CORE_DUP, "pos_norefit": DOT_FLAG_POS_NOREFIT}
+# In memory, until the dot table is built, detections are core.detect's DETECTION_DTYPE rows, whose sep_flag is int32:
+# the dot_flag bits ride there shifted up by DOT_FLAG_SHIFT (dot_flag_mem), above sep_flag's own 16 bits, and
+# dots._measure_dots splits them into the two columns. No file ever holds the shifted form.
+DOT_FLAG_SHIFT = 16
+SEP_FLAG_MASK = (1 << DOT_FLAG_SHIFT) - 1
+
+
+def dot_flag_mem(bits: int) -> int:
+    """dot_flag bits as carried in an in-memory detection's int32 sep_flag."""
+    return int(bits) << DOT_FLAG_SHIFT
+
+
+# Rejected peaks (18 Nov; rerun/reports/rejected-peaks.md): a peak >= the threshold that the saturation guard, a glow
+# star's own pixels or the mirror test refuses is a dot too (measured like the other matched-filter dots, sep_flag
+# SEP_FLAG_MF_PASS, dot_flag one bit per test that refuses it), never dropped: on the bench, 87 of 343 missed known
+# asteroids V < 18 and 2,081 of 5,574 missed Gaia G < 12 had such a peak. Off (MF_REFUSED_DOTS False): those stay
+# peaks (why 1-3).
+MF_REFUSED_DOTS = os.environ.get("SKYSHIFT_MF_REFUSED_DOTS", "1") == "1"  # env 0: off (the bench's baseline)
+# Low-S/N dots: matched-filter peaks from MF_DOT_LOW_SNR up to the threshold (both x the block scale) are dots with
+# DOT_FLAG_MF_LOW_SNR; below MF_DOT_LOW_SNR they stay in the peaks file. MF_DOT_LOW_SNR >= the threshold: none
+# (env SKYSHIFT_MF_DOT_LOW_SNR, for the bench).
+MF_DOT_LOW_SNR = float(os.environ.get("SKYSHIFT_MF_DOT_LOW_SNR", "4.5"))
 # Peaks file (v2): every other local maximum of the same S/N map >= MF_PEAK_SNR with no dot within MF_PASS_DEDUP_PX
-# (S/N 4–5, and the >= 5 peaks the guard / glow / mirror test refused): <folder>_peaks/<obs_id>D<det>.parquet.
-MF_PEAK_SNR = 4.0
+# (S/N MF_PEAK_SNR to MF_DOT_LOW_SNR; with MF_REFUSED_DOTS off also the peaks the guard / glow / mirror test refused):
+# <folder>_peaks/<obs_id>D<det>.parquet.
+# Env SKYSHIFT_MF_PEAK_SNR (27 Nov, agent "inject"; scripts/rerun/inject.py, ~/skyshift-data/rerun/reports/inject.md):
+# a lower floor only adds rows (why 0) to the peaks file; every dot, ext and streak row is the same, and the footer's
+# mf.peak_snr says which floor wrote the file. 82 bench photos with fakes (chance-corrected): point fakes found
+# anywhere (dots, peaks, ext, streaks) at optimal S/N 3.5-4 39% (4.0) -> 57% (3.5) -> 72% (3.0), S/N at 50% 4.0 ->
+# 3.5 -> 3.0 (movers 4.1 -> 3.7 -> 3.2); peaks rows per photo 9.7k -> 16.4k -> 26.5k, 0.24 -> 0.40 -> 0.66 MB;
+# -IMAGE dots + peaks at or above the floor per photo (64-px edge strip out) 236 -> 625 -> 2,340.
+# Default 27 Nov: 4.0 -> 3.0 (lead: more fakes rather than misses; inject.md §8.1: +16,860 rows, +0.42 MB per photo).
+MF_PEAK_SNR = float(os.environ.get("SKYSHIFT_MF_PEAK_SNR", "3.0"))
+# Extended-source pass (18 Nov, agent "comets"; psf.ext_pass, dots._ext_pass, dots.ext_table): diffuse sources a point
+# filter misses (comet comae, galaxies). On the matched-filter pass's residual with every other dot's ePSF subtracted
+# too: filters EXT_SCALES × the PSF FWHM wide (ePSF ⊗ Gaussian), noise-normalised like the matched filter; a peak >=
+# EXT_PASS_SNR (× the map's block sigma where > MF_SIGMA_MIN_SCALE) that the wide filter sees at >= EXT_RATIO × the
+# point filter's S/N (wider than a star: a star gives 0.76 / 0.42), > EXT_DEDUP_PX from every dot, outside the
+# saturation guard and a glow star's reach, is a row of <folder>_ext/<obs_id>D<det>.parquet (dots.EXT_COLUMNS), never a
+# dot. 80 bench photos (positive vs -IMAGE): 5.0 / 1.0 gives ~2,400 rows per photo (71% with nothing catalogued within
+# 3″: unresolved faint stars, confusion, galaxies, comae) and 0.39 per deg² on the negative images; 1.25 → 830 / 0.29;
+# 1.5 → 206 / 0.20. Kept wide on purpose (the lead's rule): cut downstream on snr_ext and snr_ext / snr_point.
+# Extraction v2 only; env SKYSHIFT_DOTS_EXT=0 turns it off (no ext file).
+EXT_PASS = os.environ.get("SKYSHIFT_DOTS_EXT", "1") == "1"
+# 27 Nov: (2, 4) -> (2, 4, 6, 8) (inject.md §8.2: fuzzy fakes of 6-12 × FWHM found 88.5% -> 90.1%). Checked on the 324
+# bench photos outside the t_ zones (731 comet sightings, 3I/ATLAS, 306P): no comet loses its ext row (3I D3 keeps its
+# 2.5" row), C/2022 N2 gains one (10" off, S/N 31, scale 8); rows per photo 508 -> 535 (4.1% of the old rows merge into
+# a wider one, 2.2% change ext_scale), 26.9 -> 27.4 kB; -IMAGE ext rows 3.25 -> 3.25 per photo (16 photos).
+# Env SKYSHIFT_EXT_SCALES: a comma list of the widths (× FWHM), e.g. "2,4" for the old filters.
+EXT_SCALES = tuple(float(v) for v in os.environ.get("SKYSHIFT_EXT_SCALES", "2,4,6,8").split(","))
+EXT_PASS_SNR = 5.0
+EXT_RATIO = 1.0
+EXT_DEDUP_PX = 1.5
+EXT_NORMALISE = "block"
+
+# Streak search (18 Nov; streaks.py): trails of fast movers on the matched-filter pass's residual, written to their own
+# file <folder>_streaks/<obs_id>D<det>.parquet (dots unchanged). On under extraction v2 (env SKYSHIFT_STREAKS=0 turns
+# it off). 1 px = 6.15″ = 195″/h over a 113.6 s exposure. Kernels: the ePSF along a segment of each length, angles so
+# that a segment's end moves STREAK_END_STEP_PX from one to the next; longer trails are chains of their pieces.
+STREAKS = os.environ.get("SKYSHIFT_STREAKS", "1") == "1"
+STREAK_LENGTHS_PX = (4.0, 6.0, 9.0)
+STREAK_END_STEP_PX = 1.0
+STREAK_PROFILE = "uniform"     # light along the trail: uniform, or ramp (6τ(1 − τ): a least-squares slope of the ramp)
+STREAK_SNR = 4.5               # a streak: snr_local (S/N normalised by its length's own scatter here) >= this. 4.5,
+                               # not 5.5 (lead, 20 Nov: more fakes rather than miss; cut downstream on snr / snr_local):
+                               # 4 photos rows +35%, negative-image rows +27%, ~+0.2 s (reports/streaks.md)
+STREAK_PIECE_SNR = 4.0         # a piece (for chains): a local maximum of the bank's snr_local >= this
+STREAK_CLIP_SIGMA = 10.0       # the search clips the residual at ±this × noise per pixel (fluxes don't)
+STREAK_NORM_GRID = 8           # each bank length's S/N map normalised by its own sigma and median in this × this blocks
+STREAK_DEN_BOX = 15            # the maps' Σ w·K²: ΣK² × the good pixels' mean weight in a box this size (px)
+STREAK_MIN_DCHI2 = 9.0         # not a trail when snr² − snr_point² is below this (pieces dropped; streaks: WHY_POINT)
+# A streak: snr_point / snr at most this at each length (px, ratio; interpolated). One point source on the segment
+# explains more of a star or a faint blend than of a trail. Injected trails (18 Nov, 4 photos) at these lengths have a
+# median ratio 0.71 / 0.63 / 0.55 / 0.5, 90% below 0.79 / 0.72 / 0.65 / 0.7; the photos' own candidates 0.81 / 0.78 /
+# 0.74 / 0.71: the cut drops ~half the rest. With it, injected 4–9 px trails are found (centre within 1 px, angle
+# within 20°) 60–70% at S/N 10 and 81–88% at S/N 15 (20 Nov, 4 photos × 80 per length).
+STREAK_POINT_RATIO = ((4.0, 0.8), (6.0, 0.75), (9.0, 0.7), (15.0, 0.65))
+STREAK_CHAIN_DTH_DEG = 15.0    # chains: pieces' angles within this ...
+STREAK_CHAIN_PERP_PX = 1.5     # ... each centre within this of the other's line ...
+STREAK_CHAIN_GAP_PX = 6.0      # ... and at most this between their ends
+STREAK_NULL_N = 32             # a chain's kernel is normalised by its own S/N at this many places around it
+STREAK_MERGE_PX = 2.0          # a candidate centred within this of a better one's segment is the same trail ...
+STREAK_MERGE_DEG = 30.0        # ... when their angles are within this (a trail crossing another is its own)
+STREAK_REFINE_LEN = (0.85, 1.0, 1.18)  # length factors tried around a candidate's (then a parabola)
+STREAK_PART_MIN_PX = 3.0       # the uniformity test cuts a trail into parts of at least this length ...
+STREAK_MAX_PARTS = 4           # ... and at most this many
+STREAK_PARTS_FRAC = 0.1        # ... each part's error + this share of its expected flux (the kernel's shape error)
+STREAK_PARTS_P = 1e-3          # WHY_LUMPY: the parts' χ² probability below this
+STREAK_DOT_PX = 1.5            # a dot within this of the segment is on it (n_dots)
+STREAK_DOT_RATIO = 2.0         # WHY_DOT: a dot on it with S/N >= this × the streak's (a trail's own dot is not brighter)
+STREAK_MAX_PERP = 0.7          # WHY_ROUND: the perpendicular kernel's S/N above this × the trail's
+STREAK_MAX_MASKED = 0.3        # WHY_MASKED: this share of the kernel on bad pixels
+STREAK_SAT_PX = 6.0            # WHY_SATURATED: closer than this to an OVERFLOW/NONLINEAR pixel (the saturation guard's)
+STREAK_EDGE_PX = 3.0           # WHY_EDGE: an end closer than this to the photo's edge
+STREAK_AXIS_DEG = 2.0          # WHY_AXIS: within this of a pixel row or column
+STREAK_EXPOSURE_S = 113.6      # rate_arcsec_h = length over the exposure (header XPOSURE when present)
+# Conditions table (27 Nov, agent "conditions"; cond.py): per photo, one row per COND_TILE_PX tile of what the search
+# met there (background, noise, ZODI, VARIANCE, the matched filter's threshold in µJy, masked pixels by cause,
+# saturated cores, glow and guard regions, forced targets) and what it found (dots by pass and dot_flag bit, peaks,
+# ext, streak rows; negative-residual peaks), written to <folder>_cond/<obs_id>D<det>.parquet next to the dots. On
+# under extraction v2 (env SKYSHIFT_COND=0 turns it off); never changes a dot; a failure is recorded in the dot
+# file's footer `cond.error` and the photo keeps its dots.
+COND = os.environ.get("SKYSHIFT_COND", "1") == "1"
+COND_TILE_PX = int(os.environ.get("SKYSHIFT_COND_TILE_PX", "128"))
+COND_STEP = 2                  # medians and scatters per tile from every COND_STEP-th pixel in x and y (smooth maps)
+# Negative-residual peaks (the matched filter on −residual: −(min over phases) of the same S/N, psf.matched_filter
+# `neg`), counted per tile at each S/N here × the block scale the positive peaks get: the false-alarm rate per tile
+# with no second read. Env SKYSHIFT_COND_NEG=0 turns it off.
+COND_NEG = os.environ.get("SKYSHIFT_COND_NEG", "1") == "1"
+COND_NEG_SNR = (4.0, 4.5, 5.0)
+
+# Stamps (27 Nov, agent "comet-stamps"; stamps.py, stamplist.py): the dots worker cuts a small patch (IMAGE, VARIANCE,
+# FLAGS, ZODI, its background, the point-free residual, wavelength and bandwidth) around every position a stamp list
+# gives for the photo, so that faint known comets can be stacked along their path later without reading any photo
+# again (306P in D3: S/N 1–3 per photo, ~6 stacked). One file per photo with stamps: <folder>_stamps/<obs_id>D<det>.parquet.
+# The list (stamplist.py, built once on the PC from MPC orbits with kete) is <STAMP_LIST_DIR>/<kind>/<period>.parquet,
+# one row per (photo, target): geocentric position, rates and distance at the index's photo time; the worker moves it
+# to SPHEREx (IMAGE header X_SC.., MJD-AVG). Env SKYSHIFT_STAMPS=0: no stamps; SKYSHIFT_STAMP_LIST: the list's folder
+# (absolute, or relative to the run's root). Extraction v2 only. A failure never costs the photo its dots.
+STAMPS = os.environ.get("SKYSHIFT_STAMPS", "1") == "1"
+STAMP_LIST_DIR = os.environ.get("SKYSHIFT_STAMP_LIST", "stamplists")
+STAMP_LIST_KINDS = ("comets",)          # sub-folders of STAMP_LIST_DIR the worker reads (generic: any kind of target)
+STAMP_QUANT = 16.0                      # IMAGE, ZODI, BKG, RESID stored as int32 × step, step = median σ / this (fpack's
+#                                         q = 16: rounding adds σ/(16·√12) = 0.018σ rms, 1.00016 × the noise variance)
+STAMP_WAVE_STEP_UM = 1e-5               # wavelength and bandwidth stored as int32 × this (µm): 1e-5 of a 0.02–0.1 µm channel
+STAMP_MAX_PER_PHOTO = 200               # a photo with more stamp rows keeps the first ones (by kind, then the list's order)
+STAMP_ZSTD_LEVEL = 9                    # the stamp file's zstd level (planes are byte-shuffled first)
+# The comet list (stamplist.py): every comet of cometels + allcometels (merge rule of known_mpc.merge_comets, epoch from
+# 2015 on; 3I/ATLAS is in cometels as orbit type I) whose geocentric position at the photo's time lies within
+# STAMP_LIST_PAD_DEG of the photo's footprint, kept when its MPC total magnitude H + 5 log Δ + 2.5 G log r is at most
+# STAMP_COMET_MAG_MAX or unknown. Size: half-width (px) = coma (STAMP_COMA_KM at the comet's Δ) + motion over the
+# exposure / 2 + STAMP_MARGIN_PX, between STAMP_HALF_MIN_PX and STAMP_HALF_MAX_PX.
+STAMP_LIST_PAD_DEG = 0.25
+STAMP_COMET_MAG_MAX = 99.0
+STAMP_COMA_KM = 1.0e5
+STAMP_MARGIN_PX = 20
+STAMP_HALF_MIN_PX = 30
+STAMP_HALF_MAX_PX = 128
 DOTS_TRANSIENT_R_PX = 3.0      # v2 column n_transient: TRANSIENT pixels within this radius of the dot
 EMPIRICAL_NOISE_N = 400        # v2 photo metadata: r = 2 px forced aperture at this many random places ...
 EMPIRICAL_NOISE_MIN_SEP_PX = 8.0  # ... at least this far from every dot
 EMPIRICAL_NOISE_SEED = 0
 PARTNER_DETECTOR = {1: 4, 4: 1, 2: 5, 5: 2, 3: 6, 6: 3}  # exposed at the same moment (CLAUDE.md)
 SAT_CORES_MAX = 1000           # v2 photo metadata: OVERFLOW/NONLINEAR clumps listed (largest first)
+# Saturated-core dots (18 Nov, agent "saturated"; dots.add_core_dots, with the glow model): every saturated core that
+# is a star (the glow's rule: a masked blob holding OVERFLOW/NONLINEAR whose rim reaches S/N 50; no 400-star or
+# 2,000 px limit) keeps exactly one dot, placed on the star by a fit of its unmasked wings, never on a ring piece or the
+# hole. Before: R Draconis (core radius ~6 px) got 0 of 8 dots within 6″ (its dot was a ring piece 21–44″ out), RW
+# Aurigae 5 of 8 (the glow kept the ring piece nearest the core's centre, which then missed the wings centroid that
+# runs only on dots with OVERFLOW/NONLINEAR in their 3×3), Gaia G < 6 23% within 3″.
+SAT_CORE_DOTS = True
+# Its dot: dot_flag DOT_FLAG_SAT_CORE, + DOT_FLAG_SAT_NOFIT without a flux (pos_err says how its x, y were found).
+SAT_CORE_DUP_PX = 2.0          # a matched-filter dot this close to a core's dot may be the same star again: kept,
+                               # dot_flag DOT_FLAG_SAT_CORE_DUP (dots.flag_core_duplicates; = GLOW_SELF_PX, 12″)
+SAT_CORE_MAX_PX = 200_000      # a saturated blob larger than this is no star (the glow model stops at 2,000: Saturn's
+                               # D1 blob with Titan and Rhea inside it is larger)
+SAT_CORE_SMALL_PX = 3.0        # cores up to this radius: position from the Gaussian wings fit (recentroid_saturated)
+SAT_CORE_APCORR = 1.033        # flux_ujy of a core dot = the wings fit's total flux / this (the r = 2 px aperture's scale)
+# The power-law wings fit (alpha 1 px) puts too little light under the masked core: its total is this share of the
+# catalogue flux (2MASS J/H/K, CatWISE W1/W2 interpolated to the dot's wavelength; hunt + t_gc bench photos, 18 Nov:
+# D2 1,370 cores 0.218, D3 1,129 0.233, D4 855 0.472, D5 201 0.456, D6 68 0.524; scatter 0.10-0.12 dex, D6 0.23; flat
+# from 10^5.5 to 10^8 uJy). D1 is not measured (no catalogue band below J): D2's. Divided out.
+SAT_CORE_FLUX_SHARE = {1: 0.218, 2: 0.218, 3: 0.233, 4: 0.472, 5: 0.456, 6: 0.524}
+SAT_CORE_POS_ERR_ARCSEC = {"small": 0.5, "wings": 0.9, "centre": 2.0}  # pos_err of core dots per axis, by method
 # Dark holes (16 Nov, second pass; core skyshift_core.holes): unflagged pixels far below the sky (mostly cold pixels
 # missing from NASA's COLD mask: the same detector pixels week after week; 300-1,250 per MWIR photo, 20-120 SWIR) are
 # set to NaN (a bad pixel) before anything is measured. 7 sigma left 2/3 of the negative-image fakes (their deepest
@@ -269,6 +444,15 @@ def zone_dots(zone: str | None) -> tuple[str, float]:
 PIXEL_ARCSEC = 6.152
 NET_RETRIES = 3
 SAT_RECENTROID_HALF_PX = 12    # stamp half-size for the wings fit of saturated dots
+# Wings fit of refused matched-filter dots (27 Nov). A refused dot (dot_flag 0x1/0x2/0x4) with a saturated pixel in its
+# 3 x 3 gets the wings fit like any saturated dot (dots.recentroid_saturated, ~8 ms each), but crowded saturated
+# fields hold tens of thousands of them (t_gc D3: 45k refused dots, ~140 of 199 s of detection). They are fitted when
+# their matched-filter S/N at the matched-filter position (psf.mf_at: the snr_mf column's definition) is at least
+# SAT_REFIT_REFUSED_MIN_SNR_MF, brightest first, at most SAT_REFIT_REFUSED_MAX per measured set (< 0: no cap); the
+# others keep the matched-filter position and get DOT_FLAG_POS_NOREFIT. Real objects carry these bits (3I/ATLAS in D3:
+# mirror-refused, S/N 32) and keep the fit. MIN 0 and MAX < 0: every one is fitted (before 27 Nov).
+SAT_REFIT_REFUSED_MIN_SNR_MF = float(os.environ.get("SKYSHIFT_SAT_REFIT_MIN_SNR_MF", "7.0"))
+SAT_REFIT_REFUSED_MAX = int(os.environ.get("SKYSHIFT_SAT_REFIT_MAX", "2000"))
 FINAST_OK = 0                  # IMAGE header FINAST != 0 means bad astrometry: skip the photo
 DOTS_TASK_PHOTOS = 4           # photos per worker task (one process per core); the run order is unchanged
 DOTS_PREFETCH = True           # read the next photo of a task while this one is measured (same results)
@@ -1314,6 +1498,21 @@ FRAGMENTS_BLEND_G_MAX = 19.0       # ... brighter than this (18 before 15 Nov mi
 FRAGMENTS_BLEND_MIN_GAIA = 2
 FRAGMENTS_PARENT_G = 12.0          # a bright_fragment's parent: the brightest Gaia star brighter than this (nearer on a tie) ...
 FRAGMENTS_PARENT_ARCSEC = 60.0     # ... this close (hunt: 2,226 of 2,234 have one; the ring sits ~10″ out at G 8–11, ~30″ at G < 6)
+
+# --- slim output files (27 Nov, ~/skyshift-data/rerun/reports/slim.md) ----------------------------------------------
+# Off by default: env SKYSHIFT_PARQUET_SLIM=1 writes the photo worker's files (dots, peaks, forced, ext, streaks; the
+# session stacks' sources, _photos, _moving and maps) with lossless settings: every float column byte-stream-split
+# (the dot files' flux_ap lists too: today they are PLAIN), dictionary only for strings with repeats, DELTA for
+# integer columns that (nearly) never decrease (stack_row), one data page per column chunk, zstd PARQUET_SLIM_LEVEL;
+# maps as bzip2 members of the same .npz (np.load reads them unchanged). Same tables, schema, metadata and row order
+# (dots.parquet_bytes, coadd.npz_bytes; tests/test_slim_parquet.py).
+PARQUET_SLIM = os.environ.get("SKYSHIFT_PARQUET_SLIM", "0") == "1"
+PARQUET_SLIM_LEVEL = int(os.environ.get("SKYSHIFT_PARQUET_SLIM_LEVEL", "15"))  # zstd level (today's dot files: 3)
+PARQUET_SLIM_ROWS_PER_PAGE = 1 << 20      # rows per data page (Arrow's default 20,000 cuts a dot column into ~3 pages)
+PARQUET_SLIM_PAGE_BYTES = 8 << 20         # data page size limit (Arrow's default 1 MiB)
+PARQUET_SLIM_DICT_MAX_SHARE = 0.5         # a string column is dictionary-encoded when distinct values ≤ this share
+PARQUET_SLIM_DELTA_MIN_SORTED = 0.95      # an integer column is DELTA-coded when this share of its steps is ≥ 0
+                                          # (a stack's _photos stack_row: 99.999% of 5.3 M steps on the bench)
 
 # --- session stacks (coadd.py, step `sessionstack`, 16 Nov evening; docs/session-stacks.md) -------------------------
 # A session's 1–5 exposures (2.1 min apart) of one detector added on one grid and searched with the ePSF-matched
