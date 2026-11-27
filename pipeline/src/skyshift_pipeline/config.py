@@ -329,6 +329,34 @@ STAMP_COMA_KM = 1.0e5
 STAMP_MARGIN_PX = 20
 STAMP_HALF_MIN_PX = 30
 STAMP_HALF_MAX_PX = 128
+
+# Known-body forced photometry (27 Nov, agent "known-forced"; knownlist.py, knownforced.py): with extraction v2 and env
+# SKYSHIFT_KNOWN_FORCED=1 (default off) the dots worker measures, at the predicted place of every known asteroid,
+# comet, planet and moon in the photo (whatever its brightness), the ePSF forced flux, the flux of the ePSF smeared
+# along the predicted motion, the best matched-filter peak within a search radius, and the local conditions, one row
+# per body, into <folder>_known/<obs_id>D<det>.parquet (contracts/dots.md proposal in PR). The list
+# (knownlist.py, built once on the PC: MPC orbits with kete, JPL Horizons) is <KNOWN_LIST_DIR>/<kind>/<period>.parquet,
+# geocentric at the index's photo time; the worker moves each row to MJD-AVG and to SPHEREx (stamps.topocentric).
+KNOWN_FORCED = os.environ.get("SKYSHIFT_KNOWN_FORCED", "0") == "1"
+KNOWN_LIST_DIR = os.environ.get("SKYSHIFT_KNOWN_LIST", "knownlists")
+KNOWN_LIST_KINDS = ("asteroids", "comets", "planets")  # sub-folders of KNOWN_LIST_DIR the worker reads
+KNOWN_LIST_PAD_DEG = 0.1        # list rows within this of the footprint (geocentric): covers SPHEREx's parallax to 0.027 AU
+KNOWN_PLANET_NEAR_DEG = 3.0     # planets: photos whose centre is within this + the system's radius_deg (half diagonal 2.5°)
+KNOWN_LIST_ROW_GROUP = 8192     # list files: rows per row group (sorted by obs_id, detector: the worker reads its own)
+KNOWN_SEARCH_FLOOR_ARCSEC = 6.0   # matched-filter peak search radius: clip(KNOWN_SEARCH_SIGMAS × sigma, floor, cap) ...
+KNOWN_SEARCH_CAP_ARCSEC = 30.0
+KNOWN_SEARCH_SIGMAS = 3.0
+KNOWN_SEARCH_COMET_ARCSEC = 15.0  # ... comets and bodies with no sigma (135P sat 10–12″ off its orbit)
+KNOWN_EDGE_PX = 3.0             # forced flux only at least this far inside the frame (as FORCED_EDGE_PX); rows to the
+                                # search radius outside are kept (flag off_edge, fluxes NaN)
+KNOWN_SMEAR_MIN_PX = 1.0        # trail over the exposure longer than this: also the ePSF smeared along the motion
+KNOWN_SMEAR_MAX_PX = 40.0       # ... at most this long (longer: smeared fit over the central 40 px, flag smear_capped)
+KNOWN_SMEAR_STEP_PX = 0.25      # sub-positions along the trail every this many px
+KNOWN_EXPOSURE_S = 113.6        # the trail's length = rate × this (header XPOSURE when present)
+KNOWN_SAT_GUARD_PX = 6.0        # saturated (OVERFLOW/NONLINEAR) pixel within this of the prediction: flag sat_guard
+KNOWN_BLEND_PX = 2.0            # a dot or forced-list star within this (px) of the prediction: flag blend_dot / blend_star
+KNOWN_NEAR_SEARCH_PX = 10.0     # nearest dot / forced star looked for within this (px; beyond: NaN)
+KNOWN_MAX_PER_PHOTO = 20000     # a photo with more rows keeps the brightest (V NaN last); counted in the footer
 DOTS_TRANSIENT_R_PX = 3.0      # v2 column n_transient: TRANSIENT pixels within this radius of the dot
 EMPIRICAL_NOISE_N = 400        # v2 photo metadata: r = 2 px forced aperture at this many random places ...
 EMPIRICAL_NOISE_MIN_SEP_PX = 8.0  # ... at least this far from every dot
