@@ -78,7 +78,7 @@ Gaia pairs 12–15″ split 0% → 95%; negative-image fakes 21 → 65 dots per 
 | dot_flag | int32 | | **18 Nov.** Why a dot is doubtful or special, one bit per meaning (the bit table under "Extraction v2, 18 Nov fixes"): 0x1 matched-filter dot in the saturation guard, 0x2 failing the mirror test, 0x4 inside a glow star's own pixels, 0x8 matched-filter S/N 4.5–5, 0x10 a saturated core's dot, 0x20 that dot without a flux, 0x40 a matched-filter dot within 2 px of a saturated core's dot, 0x80 (27 Nov) a refused dot whose wings fit was skipped (x, y the matched-filter position). 0 = none. v2 files written before 18 Nov lack it: read as 0 |
 
 **Peaks file (v2)** `<folder>_peaks/<obs_id>D<det>.parquet`, written before the dot file: the matched-filter local
-maxima with S/N ≥ 4 (`MF_PEAK_SNR`; **3.5 from 27 Nov**) that are not dots (no dot within 1 px). `x`, `y` float32 (pixel, 0-based), `ra`,
+maxima with S/N ≥ 4 (`MF_PEAK_SNR`; **3.0 from 27 Nov**) that are not dots (no dot within 1 px). `x`, `y` float32 (pixel, 0-based), `ra`,
 `dec` float64 (deg), `snr_mf` float32, `flux_mf_ujy` float32 (µJy, the matched-filter flux), `flags` int32 (3 × 3 OR),
 `n_transient` int8, `why` int8: 0 = S/N 4–5 (from the second pass also a peak ≥ 5 refused by its block's noise scale, below), 1 = refused by the saturation guard, 2 = refused by the mirror test,
 3 = inside a glow star's own pixels. From 18 Nov the refused peaks are dots (`dot_flag`), so only why 0 is written,
@@ -162,11 +162,11 @@ their 1–3 rows. (Env `SKYSHIFT_MF_REFUSED_DOTS=0` and `SKYSHIFT_MF_DOT_LOW_SNR
 benches only.)
 
 **Extended-source file (v2, 18 Nov)** `<folder>_ext/<obs_id>D<det>.parquet`, written before the dot file: every peak of
-a 2× or 4× PSF-FWHM filter (ePSF ⊗ Gaussian, inverse-variance, on the matched-filter residual with every dot's ePSF
+a 2×, 4×, 6× or 8× PSF-FWHM filter (`EXT_SCALES`; 2× or 4× before 27 Nov; ePSF ⊗ Gaussian, inverse-variance, on the matched-filter residual with every dot's ePSF
 subtracted) with S/N ≥ 5 (× the map's block sigma where > 1.1), seen at ≥ 1.0 × the point filter's S/N, > 1.5 px from
 every final dot, outside the saturation guard and the glow stars' reach. Not dots: no step reads it yet. Columns: `x`,
 `y` float32 (px), `ra`, `dec` float64 (deg), `snr_ext` float32, `snr_point` float32 (snr_ext / snr_point ≈ 0.76 (2×) /
-0.42 (4×) for a star, 1.25 / 2.4 for a source that wide), `ext_scale` int8 (2 or 4), `flux_ext_ujy` float32 (µJy,
+0.42 (4×) for a star, 1.25 / 2.4 for a source that wide), `ext_scale` int8 (2, 4, 6 or 8: the filter that saw it best), `flux_ext_ujy` float32 (µJy,
 total if it has the kernel's shape), `flux_ujy`, `flux_err_ujy` float32 (µJy, r = 2 px on the point-free residual),
 `flags` int32 (3 × 3 OR), `near_dot_px` float32. Footer key `ext` in the dot file: `scales`, `min_snr`, `ratio`,
 `dedup_px`, `normalise`, `file`, and each map's `sigma_lo`, `median`, `n_neg`. Doubtful by design (bench: ~1,200 rows
@@ -213,7 +213,7 @@ a reader must use cross-photo tests (a streak or dot at the centre in another ex
 a fixed source; the D1↔D4 / D2↔D5 / D3↔D6 partner showing the same trail; centres along a line over the session at
 the streaks' own rate). No step reads it yet. Env `SKYSHIFT_STREAKS=0`: no file.
 
-**Extraction v2, 27 Nov (conditions file, stamp file, wings-fit rule, peaks floor, slim switch).** Still behind
+**Extraction v2, 27 Nov (conditions file, stamp file, wings-fit rule, peaks floor, slim switch, ext filters).** Still behind
 `SKYSHIFT_DOTS_V2=1`, same folder; the dot tables are unchanged by the two new files (checked on and off).
 
 1. **Conditions file** `<folder>_cond/<obs_id>D<det>.parquet` (pipeline `cond.py`, config `COND*`, on under v2; env
@@ -290,14 +290,22 @@ the streaks' own rate). No step reads it yet. Env `SKYSHIFT_STREAKS=0`: no file.
    and are unchanged within noise. Dot set and every other dot bit-identical. Skipped dots against their fitted
    position (t_gc): p50 0.30 px, p90 1.8 px; 24 of the 16,385 lie within 3″ of a Gaia star (wing pieces, not
    catalogued stars). MIN 0 and MAX −1: every one is fitted (before 27 Nov).
-4. **Peaks file floor** `MF_PEAK_SNR` 4.0 → **3.5** (env `SKYSHIFT_MF_PEAK_SNR`): `why` 0 rows now from S/N 3.5 up to
-   4.5 × the block scale (~16.4k rows, 0.4 MB per photo against 9.7k, 0.2 MB at 4.0).
+4. **Peaks file floor** `MF_PEAK_SNR` 4.0 → **3.0** (env `SKYSHIFT_MF_PEAK_SNR`; the lead: more fakes rather than
+   misses): `why` 0 rows now from S/N 3.0 up to 4.5 × the block scale; the footer's `mf.peak_snr` says which floor wrote
+   a file. A lower floor only adds rows: every dot, ext and streak row is the same. Fake objects (scripts/rerun/inject.py,
+   82 bench photos): points found anywhere (dots, peaks, ext, streaks) reach 50% at S/N 3.0 instead of 4.0; +16,860 rows,
+   +0.42 MB per photo against floor 4; −IMAGE rows at or above the floor 236 → 2,340 per photo (the file goes from 2.4%
+   to 8.8% noise). 48 photos (Saturn, 3I/ATLAS, 306P; slim): 13,437 rows, 0.33 MB per photo at 3.5 → 24,531, 0.59 MB.
 5. **Slim switch** (config `PARQUET_SLIM`, env `SKYSHIFT_PARQUET_SLIM=1`, off by default; `rerun.py bench --slim`):
    the worker's parquet files (dots, peaks, forced, ext, streaks, session stack tables and maps) are written with
    lossless settings (byte-stream-split floats including the flux_ap lists, dictionary only for strings with repeats,
    DELTA for (nearly) sorted integers, one data page per column chunk, zstd `PARQUET_SLIM_LEVEL` 15); the cond and stamp
    files keep their own encodings at that zstd level. Same tables, schema, metadata and row order: readers change
    nothing.
+6. **Extended pass filters** `EXT_SCALES` (2, 4) → **(2, 4, 6, 8)** × FWHM (env `SKYSHIFT_EXT_SCALES`, a comma list).
+   Not a pure addition: on 324 bench photos 95.9% of the old rows stay, 4.1% merge into a wider row, 2.2% change
+   `ext_scale`; rows per photo 508 → 535, 26.9 → 27.4 kB; no comet loses its row (731 MPC comet sightings, 3I/ATLAS,
+   306P), C/2022 N2 gains one; −IMAGE ext rows 3.25 → 3.25 per photo. Fuzzy fakes of 6–12 × FWHM found 88.5% → 90.1%.
 
 **What downstream must learn (no step reads `dot_flag` yet; until one does, every flagged dot is an ordinary dot):**
 calib (distortion, flux scale) leaves out 0x1/0x2/0x4/0x40 (so 0x80 too) and uses 0x10 only as saturated; astrometry/highpm treat 0x1/0x4
@@ -541,8 +549,9 @@ warning `warn`; no flaw columns or `track_overruled` = not measured; no `counter
 
 **27 Nov (extraction v2; no contracts/api.md change).** `dot_flag` 0x80 `DOT_FLAG_POS_NOREFIT` (the wings-fit rule),
 the conditions file `<folder>_cond/`, the stamp file `<folder>_stamps/` and their footer keys `cond`, `stamps`, the
-peaks file's floor 3.5, the slim writer switch (same tables). Readers of older tables: no `_cond` / `_stamps` folder
-= not written; peaks files before 27 Nov start at S/N 4.
+peaks file's floor 3.0, the ext filters 2, 4, 6 and 8 × FWHM (`ext_scale` 6 or 8 new), the slim writer switch (same
+tables). Readers of older tables: no `_cond` / `_stamps` folder = not written; peaks files before 27 Nov start at S/N 4
+(footer `mf.peak_snr`); ext files before 27 Nov have scales 2 and 4 only (footer `ext.scales`).
 
 **18 Nov (extraction v2 fixes; no contracts/api.md change).** What changed here: the `dot_flag` column (int32, v2
 files), saturated-core dots, refused and S/N 4.5–5 matched-filter peaks as dots, the peaks file's `why` (0 only), the
