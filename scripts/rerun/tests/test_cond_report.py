@@ -39,7 +39,7 @@ def test_cond_report_groups_rates_and_gaia(tmp_path):
     _write(d, "B_1D2", 2, [0.01, 0.02, 0.03], [10, 10, 70], [7, 3, 30], [0, 1, 0])
     stars = pd.DataFrame({"photo": ["A_1D2", "A_1D2", "B_1D2", "B_1D2", "C_1D2"], "ra": [10.01, 10.39, 10.0, 10.41, 10.0],
                           "dec": [0, 0, 0, 0, 0], "g_mag": [15.0, 18.5, 15.5, 18.2, 15.0],
-                          "after": [True, False, True, True, True]})
+                          "after": [True, False, True, True, True], "detector": 2, "zone": "z"})  # as score_bench writes
     sp = tmp_path / "stars.parquet"
     stars.to_parquet(sp)
     out = CR.main(["--root", str(tmp_path / "root"), "--stars", str(sp), "--out", str(tmp_path / "r.json")])

@@ -114,7 +114,8 @@ def report(t: pd.DataFrame, stars: pd.DataFrame | None = None) -> pd.DataFrame:
         rows.append(r)
     rep = pd.DataFrame(rows)
     if stars is not None and len(stars) and len(rep):
-        s = stars[stars["tile"] >= 0].merge(t[["photo", "tile"] + keys], on=["photo", "tile"], how="inner")
+        s = stars[stars["tile"] >= 0].drop(columns=[k for k in keys if k in stars])
+        s = s.merge(t[["photo", "tile"] + keys], on=["photo", "tile"], how="inner")
         s["g_bin"] = pd.cut(s["g_mag"], G_BINS).astype(str)
         f = s.groupby(keys + ["g_bin"])["after"].agg(["mean", "size"]).reset_index()
         for gb, fg in f.groupby("g_bin"):
