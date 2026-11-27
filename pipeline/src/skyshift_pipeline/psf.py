@@ -819,6 +819,7 @@ class ExtPass:
     info: dict
     snr_point: np.ndarray | None = None  # the point filter's S/N there (largest over the peak's 3 × 3), same residual
     flux_ext: np.ndarray | None = None   # the winning filter's flux there (image units × px: the total, if that wide)
+    resid: np.ndarray | None = None      # the point-free residual the filters ran on (stamps.py keeps a patch of it)
 
 
 def ext_pass(resid: np.ndarray, noise: np.ndarray, bad: np.ndarray, epsf, dot_x: np.ndarray, dot_y: np.ndarray, *,
@@ -909,4 +910,4 @@ def ext_pass(resid: np.ndarray, noise: np.ndarray, bad: np.ndarray, epsf, dot_x:
     info["n_ext_pass"] = int(len(dots))
     for sc in scales:
         info[f"n_ext_s{sc:g}"] = int((scale == np.rint(sc)).sum())
-    return ExtPass(dots, snr_ext, scale, info, snr_pt, fx)
+    return ExtPass(dots, snr_ext, scale, info, snr_pt, fx, resid)

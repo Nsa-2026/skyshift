@@ -273,6 +273,34 @@ STREAK_SAT_PX = 6.0            # WHY_SATURATED: closer than this to an OVERFLOW/
 STREAK_EDGE_PX = 3.0           # WHY_EDGE: an end closer than this to the photo's edge
 STREAK_AXIS_DEG = 2.0          # WHY_AXIS: within this of a pixel row or column
 STREAK_EXPOSURE_S = 113.6      # rate_arcsec_h = length over the exposure (header XPOSURE when present)
+
+# Stamps (27 Nov, agent "comet-stamps"; stamps.py, stamplist.py): the dots worker cuts a small patch (IMAGE, VARIANCE,
+# FLAGS, ZODI, its background, the point-free residual, wavelength and bandwidth) around every position a stamp list
+# gives for the photo, so that faint known comets can be stacked along their path later without reading any photo
+# again (306P in D3: S/N 1–3 per photo, ~6 stacked). One file per photo with stamps: <folder>_stamps/<obs_id>D<det>.parquet.
+# The list (stamplist.py, built once on the PC from MPC orbits with kete) is <STAMP_LIST_DIR>/<kind>/<period>.parquet,
+# one row per (photo, target): geocentric position, rates and distance at the index's photo time; the worker moves it
+# to SPHEREx (IMAGE header X_SC.., MJD-AVG). Env SKYSHIFT_STAMPS=0: no stamps; SKYSHIFT_STAMP_LIST: the list's folder
+# (absolute, or relative to the run's root). Extraction v2 only. A failure never costs the photo its dots.
+STAMPS = os.environ.get("SKYSHIFT_STAMPS", "1") == "1"
+STAMP_LIST_DIR = os.environ.get("SKYSHIFT_STAMP_LIST", "stamplists")
+STAMP_LIST_KINDS = ("comets",)          # sub-folders of STAMP_LIST_DIR the worker reads (generic: any kind of target)
+STAMP_QUANT = 16.0                      # IMAGE, ZODI, BKG, RESID stored as int32 × step, step = median σ / this (fpack's
+#                                         q = 16: rounding adds σ/(16·√12) = 0.018σ rms, 1.00016 × the noise variance)
+STAMP_WAVE_STEP_UM = 1e-5               # wavelength and bandwidth stored as int32 × this (µm): 1e-5 of a 0.02–0.1 µm channel
+STAMP_MAX_PER_PHOTO = 200               # a photo with more stamp rows keeps the first ones (by kind, then the list's order)
+STAMP_ZSTD_LEVEL = 9                    # the stamp file's zstd level (planes are byte-shuffled first)
+# The comet list (stamplist.py): every comet of cometels + allcometels (merge rule of known_mpc.merge_comets, epoch from
+# 2015 on; 3I/ATLAS is in cometels as orbit type I) whose geocentric position at the photo's time lies within
+# STAMP_LIST_PAD_DEG of the photo's footprint, kept when its MPC total magnitude H + 5 log Δ + 2.5 G log r is at most
+# STAMP_COMET_MAG_MAX or unknown. Size: half-width (px) = coma (STAMP_COMA_KM at the comet's Δ) + motion over the
+# exposure / 2 + STAMP_MARGIN_PX, between STAMP_HALF_MIN_PX and STAMP_HALF_MAX_PX.
+STAMP_LIST_PAD_DEG = 0.25
+STAMP_COMET_MAG_MAX = 99.0
+STAMP_COMA_KM = 1.0e5
+STAMP_MARGIN_PX = 20
+STAMP_HALF_MIN_PX = 30
+STAMP_HALF_MAX_PX = 128
 DOTS_TRANSIENT_R_PX = 3.0      # v2 column n_transient: TRANSIENT pixels within this radius of the dot
 EMPIRICAL_NOISE_N = 400        # v2 photo metadata: r = 2 px forced aperture at this many random places ...
 EMPIRICAL_NOISE_MIN_SEP_PX = 8.0  # ... at least this far from every dot
