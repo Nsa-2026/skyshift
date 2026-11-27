@@ -136,6 +136,8 @@ def load_known(data: Path, zone: str) -> pd.DataFrame:
         pa = dict(zip(names, np.degrees(np.arctan2(dra, ddec)) % 180.0))  # dRA·cos dec, dDec: east of north, no sign
         df = pd.DataFrame(pp)
         df["v"], df["class"], df["rate"] = df["name"].map(v), df["name"].map(cls), df["name"].map(rate)
+        # a photo with only comets (no V: None) left v as objects, which pd.cut cannot bin (wide batch, 27 Nov)
+        df["v"], df["rate"] = pd.to_numeric(df["v"], errors="coerce"), pd.to_numeric(df["rate"], errors="coerce")
         df["pa"] = df["name"].map(pa)
         rows.append(df)
     return pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(columns=["obs_id", "detector", "name", "ra", "dec", "v"])

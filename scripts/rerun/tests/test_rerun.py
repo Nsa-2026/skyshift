@@ -158,3 +158,19 @@ def test_isolated_gaia_ignores_the_stars_own_catwise_and_2mass_entries():
     # a Gaia-only refcat: no other_tree, the rule is the old one
     gonly = SkyTree(ra0, dec0)
     assert S.isolated_gaia(ra0, dec0, gonly, None).tolist() == [True, True, True]
+
+
+def test_score_known_bodies_with_only_comets_have_numeric_v(tmp_path):
+    """A photo whose only known bodies are comets (no V) gave v as None objects, which pd.cut could not bin."""
+    import json
+
+    import score_bench as S
+    d = tmp_path / "cache" / "mpc" / "w_x"
+    d.mkdir(parents=True)
+    (d / "run_a.json").write_text(json.dumps({
+        "per_photo": {"obs_id": ["o_1"], "detector": [1], "name": ["C/2099 A1"], "ra": [1.0], "dec": [2.0]},
+        "objects": {"name": ["C/2099 A1"], "v": [None], "class": ["comet"], "dra_arcsec_h": [None],
+                    "ddec_arcsec_h": [None]}}))
+    k = S.load_known(tmp_path, "w_x")
+    assert k["v"].dtype.kind == "f" and k["v"].isna().all()
+    pd.cut(k["v"], S.V_BINS)  # no TypeError
