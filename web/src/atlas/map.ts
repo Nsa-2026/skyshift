@@ -5,6 +5,7 @@ import type { Target } from "../app/state";
 import type { Cell } from "./heat";
 import type { Box } from "./labels";
 import type { ProvisionalSet, SearchLayer } from "./search";
+import type { NowLayer } from "./spherex-now";
 import type { ZoneArea } from "./zones";
 
 export interface MapView extends SkyPos {
@@ -25,6 +26,8 @@ export interface Layers {
   search: boolean;
   /** A combined zone's provisional suspects, close in. */
   provisional: boolean;
+  /** SPHEREx now: the newest real photos, where the survey works today and where it probably points. */
+  now?: boolean;
 }
 
 export interface MapModel {
@@ -41,6 +44,8 @@ export interface MapModel {
   search: SearchLayer | null;
   /** Provisional suspects of the combined zone in view, or null. */
   provisional: ProvisionalSet | null;
+  /** SPHEREx now (null until its file has loaded, or with the switch off). */
+  now?: NowLayer | null;
 }
 
 export interface MapCallbacks {

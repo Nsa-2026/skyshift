@@ -68,6 +68,13 @@ describe("formatState", () => {
     expect(formatState({ ...base, kinds: [] })).toBe("122.5542,17.0036,4.2,none");
   });
 
+  it("carries SPHEREx now as a flag, and leaves it out when off", () => {
+    expect(formatState({ ...base, mol: true, now: true })).toBe("122.5542,17.0036,4.2,mol,now");
+    expect(formatState({ ...base, now: false })).toBe("122.5542,17.0036,4.2");
+    expect(parseState("10,-5,30,now,mol")).toMatchObject({ now: true, mol: true, kinds: ALL });
+    expect(parseState("10,-5,30")?.now).toBeUndefined();
+  });
+
   it("round-trips", () => {
     const states: AtlasState[] = [
       base,

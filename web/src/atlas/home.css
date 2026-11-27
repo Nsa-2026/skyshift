@@ -59,6 +59,38 @@
 .atl .atl-kinds {display:flex;flex-wrap:wrap;gap:var(--s2);}
 .atl .atl-more-note {color:var(--ink-2);font-size:var(--step--1);}
 
+/* SPHEREx now: the switch sits with the map shape; its panel under the intro holds the date shown,
+   the slider (survey start → six months ahead), the key and the two clocks' facts. */
+.atl .atl-now {
+  display:grid;gap:var(--s2);min-height:0;overflow:auto;padding:var(--s3) var(--s4);
+  border-radius:var(--radius-panel);background:var(--sheet);box-shadow:0 4px 20px -10px var(--ink-3);
+}
+.atl .atl-now-head {display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--s1) var(--s3);}
+.atl .atl-now-time {font-variant-numeric:tabular-nums;font-weight:600;}
+.atl .atl-now-mode {color:var(--ink-2);font-size:var(--step--1);}
+.atl .atl-now-range {width:100%;margin:0;accent-color:var(--pencil-violet);}
+.atl .atl-now-scale {display:flex;height:5px;margin-top:-2px;border-radius:2px;overflow:hidden;}
+.atl .atl-now-scale > span {flex:0 0 auto;}
+.atl .atl-now-scale .is-real {background:var(--d3);}
+.atl .atl-now-scale .is-wait {background:var(--partial);}
+.atl .atl-now-scale .is-next {background:repeating-linear-gradient(90deg, var(--pencil-violet) 0 5px, transparent 5px 8px);}
+.atl .atl-now-row {display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2);}
+.atl .atl-now-live {
+  min-height:32px;padding:0 var(--s3);border:1px solid var(--hair);border-radius:var(--radius-ctl);
+  background:var(--sheet);color:var(--ink);font:inherit;font-size:var(--step--1);font-weight:600;cursor:pointer;
+}
+.atl .atl-now-live:hover {background:var(--sheet-2);}
+.atl .atl-now-key {display:grid;gap:2px;margin:0;padding:0;list-style:none;color:var(--ink-2);font-size:var(--step--1);}
+.atl .atl-now-key li {display:flex;align-items:center;gap:var(--s2);}
+.atl .atl-now-key i {flex:none;width:12px;height:12px;border-radius:50%;}
+.atl .atl-now-key .is-real {background:var(--d3);}
+.atl .atl-now-key .is-today {border-radius:2px;background:radial-gradient(circle, var(--pencil-violet) 1.4px, transparent 1.9px) 0 0 / 4px 4px;}
+.atl .atl-now-key .is-next {border-radius:2px;opacity:.6;background:radial-gradient(circle, var(--pencil-violet) 1px, transparent 1.4px) 0 0 / 5px 5px;}
+.atl .atl-now-key .is-here {border:1.5px dashed var(--pencil-violet);background:color-mix(in srgb, var(--pencil-violet) 18%, transparent);}
+.atl .atl-now-facts,
+.atl .atl-now-spot {margin:0;color:var(--ink-2);font-size:var(--step--1);line-height:1.4;}
+.atl .atl-now-spot:empty {display:none;}
+
 .atl .atl-status {left:var(--s4);bottom:var(--s4);max-width:calc(100% - 2 * var(--s4) - 240px);}
 .atl .atl-zoom {right:var(--s4);bottom:var(--s4);}
 

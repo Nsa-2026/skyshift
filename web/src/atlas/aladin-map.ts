@@ -16,6 +16,7 @@ import type { BackgroundId, Layers, MapCallbacks, MapHandle, MapModel, MapView }
 import { arrowLengthPx, drawLabel, drawSignal, drawSignalDot, drawTarget, nearestHit, paToScreen, signalInk, type Ink, type Vec } from "./marks";
 import { paintSearch, type SearchInk } from "./searchdraw";
 import { offsetPa, sepDeg } from "./sphere";
+import { CONE_DEG, orbitMinutes, overheadAt, overheadTrack, patternAt, smallCircle, sunAt } from "./spherex-now";
 import { LABEL_MIN_PX, WHOLE_FOV, cellPx, heatOrder, levelFor, showsDots, showsHeat, type Level } from "./zoom";
 import { areaAt, densifyRing, type ZoneArea } from "./zones";
 import { BRIGHT_STARS } from "./stars";
@@ -88,6 +89,10 @@ export function rgba(hex: string, a: number): string {
   const n = parseInt(m[1], 16);
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a.toFixed(3)})`;
 }
+
+/** "12 Jan" for an MJD (UTC). */
+const fmtDay = (mjd: number): string =>
+  new Date((mjd - 40587) * 864e5).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
 
 /** The projection's widest field: the whole sky (Mollweide) is 360° across, the globe (SIN) 180°. */
 export const projectionMax = (mol: boolean): number => (mol ? 360 : 180);
@@ -496,6 +501,11 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
   zoneCanvas.className = 'atl-zonecanvas';
   zoneCanvas.setAttribute('aria-hidden', 'true');
   searchCanvas.after(zoneCanvas);
+  // SPHEREx now: over the zones, under Aladin's marks and the names.
+  const nowCanvas = document.createElement("canvas");
+  nowCanvas.className = "atl-nowcanvas";
+  nowCanvas.setAttribute("aria-hidden", "true");
+  zoneCanvas.after(nowCanvas);
 
   /** Size a canvas to the map at the screen's pixel ratio; its 2D context, scaled to CSS px. */
   function prepare(canvas: HTMLCanvasElement): CanvasRenderingContext2D | null {
@@ -521,6 +531,132 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
     const layer = model?.search;
     if (!ctx || !layer || !model?.layers.search || !showsHeat(level) || !(host.clientWidth > 0)) return;
     paintSearch(ctx, layer, (ra, dec) => rawScreen({ ra, dec }), searchInk, { w: host.clientWidth, h: host.clientHeight });
+  }
+
+  // ---- SPHEREx now: real photos, the survey's measured pattern today and the point overhead --------
+  /** Colours for the dark sky, or for the plate negative (light glass). */
+  function nowInk() {
+    return layers.negative
+      ? { real: "#0e7f68", today: ink.violet, next: ink.violet, here: ink.ink, cone: rgba(ink.violet, 0.12), sun: "#a35f00", halo: rgba(ink.glass, 0.95), text: ink.ink }
+      : { real: "#4fd6b0", today: "#c9b2ff", next: "#b993ff", here: "#ffffff", cone: "rgba(185, 147, 255, 0.16)", sun: "#ffc85c", halo: "rgba(0, 0, 0, 0.9)", text: "#f5f7f9" };
+  }
+
+  function drawNow() {
+    const ctx = prepare(nowCanvas);
+    const now = model?.now;
+    if (!ctx || !now || !model?.layers.now || !(host.clientWidth > 0)) return;
+    const W = host.clientWidth;
+    const H = host.clientHeight;
+    const v = view();
+    const c = nowInk();
+    const t = now.t;
+    // The globe shows its near side only; the oval shows everything.
+    const at = (p: SkyPos) => (!mol && sepDeg(p, v) > 90 ? null : rawScreen(p));
+    const inside = (q: { x: number; y: number } | null) => !!q && q.x > -8 && q.y > -8 && q.x < W + 8 && q.y < H + 8;
+    // Dots grow a little as the view closes in, so a zoomed-in patch still reads as photos.
+    const px = Math.max(2, Math.min(7, 2 * Math.sqrt(180 / Math.max(1, v.fov))));
+    const dots = (pts: readonly SkyPos[], color: string, alpha: (i: number) => number, size: number) => {
+      ctx.fillStyle = color;
+      pts.forEach((p, i) => {
+        const q = at(p);
+        if (!inside(q)) return;
+        ctx.globalAlpha = alpha(i);
+        ctx.fillRect(q!.x - size / 2, q!.y - size / 2, size, size);
+      });
+      ctx.globalAlpha = 1;
+    };
+    const line = (pts: readonly SkyPos[], color: string, width: number, dash: number[] = []) => {
+      ctx.beginPath();
+      let prev: { x: number; y: number } | null = null;
+      for (const p of pts) {
+        const q = at(p);
+        if (q && prev && Math.abs(q.x - prev.x) < W / 3 && Math.abs(q.y - prev.y) < H / 3) ctx.lineTo(q.x, q.y);
+        else if (q) ctx.moveTo(q.x, q.y);
+        prev = q;
+      }
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.setLineDash(dash);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    };
+    // A label goes on the pattern's visible point nearest the middle of the map, clear of the panels.
+    const reserved = cb.reserved?.() ?? [];
+    const free = (q: { x: number; y: number }) => !reserved.some((r) => q.x > r.x0 - 60 && q.x < r.x1 + 60 && q.y > r.y0 - 20 && q.y < r.y1 + 20);
+    const label = (pts: readonly SkyPos[], text: string, color: string) => {
+      let best: { x: number; y: number } | null = null;
+      let bestD = Infinity;
+      for (const p of pts) {
+        const q = at(p);
+        if (!inside(q) || q!.y < 24 || q!.y > H - 24 || !free(q!)) continue;
+        const d = (q!.x - W / 2) ** 2 + (q!.y - H / 2) ** 2;
+        if (d < bestD) {
+          bestD = d;
+          best = q;
+        }
+      }
+      if (best) drawLabel(ctx, ink, best.x, best.y - 12, text, { color, shadow: c.halo, weight: 650, size: 12 });
+    };
+    // 1. Real photos up to the moment shown, fading over two months.
+    const real = now.model.photos.filter((p) => p.mjd <= t);
+    dots(real, c.real, (i) => Math.max(0.5, 1 - (t - real[i].mjd) / 120), Math.max(2.2, px * 0.85));
+    // 2. Where the survey goes next, then where it works on the day shown.
+    for (const d of [45, 90]) {
+      const pts = patternAt(now.model, t + d, 3);
+      dots(pts, c.next, () => 0.3, px * 0.6);
+      label(pts, fmtDay(t + d), c.next);
+    }
+    const today = patternAt(now.model, t);
+    dots(today, c.today, () => 0.7, px);
+    label(today, "survey today", c.today);
+    // 3. The point overhead and the cone it points into, from the orbit elements (when fresh enough).
+    const o = now.model.file.orbit;
+    if (o && Math.abs(t - o.epoch_mjd) < 21) {
+      const here = overheadAt(o, t);
+      const cone = smallCircle(here, CONE_DEG);
+      ctx.beginPath();
+      let first = true;
+      for (const p of cone) {
+        const q = at(p);
+        if (!q) continue;
+        if (first) ctx.moveTo(q.x, q.y);
+        else ctx.lineTo(q.x, q.y);
+        first = false;
+      }
+      // The fill only where the whole cone is on show in one piece (a seam or the limb would cut it badly).
+      const qs = cone.map(at);
+      const whole = qs.every((q, i) => q && (i === 0 || (Math.abs(q.x - qs[i - 1]!.x) < W / 3 && Math.abs(q.y - qs[i - 1]!.y) < H / 3)));
+      if (whole) {
+        ctx.closePath();
+        ctx.fillStyle = c.cone;
+        ctx.fill();
+      }
+      line(cone, c.next, 1.2, [5, 4]);
+      line(overheadTrack(o, t, Math.round(orbitMinutes(o) / 2), 1), c.here, 1.4, [2, 4]);
+      const q = at(here);
+      if (inside(q)) {
+        ctx.fillStyle = c.next;
+        ctx.globalAlpha = 0.45;
+        ctx.beginPath();
+        ctx.arc(q!.x, q!.y, 10, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = c.here;
+        ctx.beginPath();
+        ctx.arc(q!.x, q!.y, 4, 0, 2 * Math.PI);
+        ctx.fill();
+        drawLabel(ctx, ink, q!.x + 14, q!.y - 10, "probably here", { color: c.text, shadow: c.halo, weight: 700, size: 12.5, align: "left" });
+      }
+    }
+    // 4. The Sun, for bearings.
+    const sun = at(sunAt(t));
+    if (inside(sun)) {
+      ctx.fillStyle = c.sun;
+      ctx.beginPath();
+      ctx.arc(sun!.x, sun!.y, 6, 0, 2 * Math.PI);
+      ctx.fill();
+      drawLabel(ctx, ink, sun!.x + 10, sun!.y, "Sun", { color: c.sun, shadow: c.halo, weight: 650, size: 12, align: "left" });
+    }
   }
 
   // ---- labels: zone badges and target names, placed clear of each other --------------------------
@@ -729,6 +865,7 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
       drawTargets();
     }
     drawZones();
+    drawNow();
     drawSearch();
     drawLabels();
     cb.onView(v);
@@ -879,6 +1016,7 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
       if (!prev || prev.targets !== m.targets) drawTargets();
       if (!prev || prev.provisional !== m.provisional || prev.layers.provisional !== m.layers.provisional) drawProvisional();
       if (!prev || prev.search !== m.search || prev.layers.search !== m.layers.search) drawSearch();
+      if (!prev || prev.now !== m.now || prev.layers.now !== m.layers.now || layersChanged) drawNow();
       if (prev && prev.selectedId !== m.selectedId) repaint();
       // The page's panels may have moved (the header, a message): refit the whole sky, place names again.
       clip(fitView());
@@ -964,6 +1102,7 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
       ro?.disconnect();
       searchCanvas.remove();
       zoneCanvas.remove();
+      nowCanvas.remove();
       labelCanvas.remove();
       mapEl.remove();
     },
