@@ -186,9 +186,11 @@ DOT_FLAG_SAT_CORE = 0x10       # the one dot of a saturated core, placed by its 
 DOT_FLAG_SAT_NOFIT = 0x20      # ... whose wings fit gave no flux: flux_ujy, flux_psf_ujy NaN
 DOT_FLAG_SAT_CORE_DUP = 0x40   # matched-filter dot within SAT_CORE_DUP_PX of a saturated core's dot: the star again
                                # (a refused peak in its hole) or a real neighbour (a moon, an asteroid passing it)
+DOT_FLAG_POS_NOREFIT = 0x80    # a refused matched-filter dot (0x1/0x2/0x4) with a saturated pixel in its 3 x 3 whose
+                               # wings fit was skipped (SAT_REFIT_REFUSED_*): x, y are the matched-filter position
 DOT_FLAGS = {"mf_guard": DOT_FLAG_MF_GUARD, "mf_mirror": DOT_FLAG_MF_MIRROR, "mf_glow_piece": DOT_FLAG_MF_GLOW_PIECE,
              "mf_low_snr": DOT_FLAG_MF_LOW_SNR, "sat_core": DOT_FLAG_SAT_CORE, "sat_nofit": DOT_FLAG_SAT_NOFIT,
-             "sat_core_dup": DOT_FLAG_SAT_CORE_DUP}
+             "sat_core_dup": DOT_FLAG_SAT_CORE_DUP, "pos_norefit": DOT_FLAG_POS_NOREFIT}
 # In memory, until the dot table is built, detections are core.detect's DETECTION_DTYPE rows, whose sep_flag is int32:
 # the dot_flag bits ride there shifted up by DOT_FLAG_SHIFT (dot_flag_mem), above sep_flag's own 16 bits, and
 # dots._measure_dots splits them into the two columns. No file ever holds the shifted form.
@@ -212,9 +214,10 @@ MF_REFUSED_DOTS = os.environ.get("SKYSHIFT_MF_REFUSED_DOTS", "1") == "1"  # env 
 # (env SKYSHIFT_MF_DOT_LOW_SNR, for the bench).
 MF_DOT_LOW_SNR = float(os.environ.get("SKYSHIFT_MF_DOT_LOW_SNR", "4.5"))
 # Peaks file (v2): every other local maximum of the same S/N map >= MF_PEAK_SNR with no dot within MF_PASS_DEDUP_PX
-# (S/N 4 to MF_DOT_LOW_SNR; with MF_REFUSED_DOTS off also the peaks the guard / glow / mirror test refused):
-# <folder>_peaks/<obs_id>D<det>.parquet.
-MF_PEAK_SNR = 4.0
+# (S/N MF_PEAK_SNR to MF_DOT_LOW_SNR; with MF_REFUSED_DOTS off also the peaks the guard / glow / mirror test refused):
+# <folder>_peaks/<obs_id>D<det>.parquet. 27 Nov: 4.0 -> 3.5 (lead: more rather than less; measured by the fake-object
+# agent: ~16.4k rows, 0.4 MB per photo against 9.7k rows, 0.2 MB at 4.0). Env SKYSHIFT_MF_PEAK_SNR.
+MF_PEAK_SNR = float(os.environ.get("SKYSHIFT_MF_PEAK_SNR", "3.5"))
 # Extended-source pass (18 Nov, agent "comets"; psf.ext_pass, dots._ext_pass, dots.ext_table): diffuse sources a point
 # filter misses (comet comae, galaxies). On the matched-filter pass's residual with every other dot's ePSF subtracted
 # too: filters EXT_SCALES × the PSF FWHM wide (ePSF ⊗ Gaussian), noise-normalised like the matched filter; a peak >=
@@ -430,6 +433,15 @@ def zone_dots(zone: str | None) -> tuple[str, float]:
 PIXEL_ARCSEC = 6.152
 NET_RETRIES = 3
 SAT_RECENTROID_HALF_PX = 12    # stamp half-size for the wings fit of saturated dots
+# Wings fit of refused matched-filter dots (27 Nov). A refused dot (dot_flag 0x1/0x2/0x4) with a saturated pixel in its
+# 3 x 3 gets the wings fit like any saturated dot (dots.recentroid_saturated, ~8 ms each), but crowded saturated
+# fields hold tens of thousands of them (t_gc D3: 45k refused dots, ~140 of 199 s of detection). They are fitted when
+# their matched-filter S/N at the matched-filter position (psf.mf_at: the snr_mf column's definition) is at least
+# SAT_REFIT_REFUSED_MIN_SNR_MF, brightest first, at most SAT_REFIT_REFUSED_MAX per measured set (< 0: no cap); the
+# others keep the matched-filter position and get DOT_FLAG_POS_NOREFIT. Real objects carry these bits (3I/ATLAS in D3:
+# mirror-refused, S/N 32) and keep the fit. MIN 0 and MAX < 0: every one is fitted (before 27 Nov).
+SAT_REFIT_REFUSED_MIN_SNR_MF = float(os.environ.get("SKYSHIFT_SAT_REFIT_MIN_SNR_MF", "7.0"))
+SAT_REFIT_REFUSED_MAX = int(os.environ.get("SKYSHIFT_SAT_REFIT_MAX", "2000"))
 FINAST_OK = 0                  # IMAGE header FINAST != 0 means bad astrometry: skip the photo
 DOTS_TASK_PHOTOS = 4           # photos per worker task (one process per core); the run order is unchanged
 DOTS_PREFETCH = True           # read the next photo of a task while this one is measured (same results)

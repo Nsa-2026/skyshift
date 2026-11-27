@@ -186,6 +186,35 @@ def recentroid_saturated(data: np.ndarray, flags: np.ndarray, x: np.ndarray, y: 
     return x, y, n
 
 
+REFUSED_BITS = C.DOT_FLAG_MF_GUARD | C.DOT_FLAG_MF_MIRROR | C.DOT_FLAG_MF_GLOW_PIECE
+
+
+def refit_refused_skip(l2, ctx, x: np.ndarray, y: np.ndarray, mem: np.ndarray, fit: np.ndarray,
+                       min_snr: float | None = None, cap: int | None = None) -> np.ndarray:
+    """Which refused matched-filter dots (dot_flag 0x1/0x2/0x4 in the in-memory sep_flag `mem`) among those to be
+    wings-fitted (`fit`) skip the fit (config SAT_REFIT_REFUSED_*): matched-filter S/N at (x, y) (psf.mf_at on
+    l2.data minus the background, as the snr_mf column) below min_snr, or beyond the cap counted brightest first."""
+    min_snr = C.SAT_REFIT_REFUSED_MIN_SNR_MF if min_snr is None else min_snr
+    cap = C.SAT_REFIT_REFUSED_MAX if cap is None else cap
+    skip = np.zeros(x.size, bool)
+    cand = np.flatnonzero(fit & ((mem & C.dot_flag_mem(REFUSED_BITS)) != 0))
+    if not cand.size or (min_snr <= 0 and cap < 0):
+        return skip
+    epsf = getattr(l2, "epsf", None)
+    if epsf is None or ctx is None:
+        return skip
+    sub = np.where(ctx.bad, 0.0, np.asarray(l2.data, np.float64) - ctx.bkg_level)
+    s = mf_at(sub, ctx.noise0, ctx.bad, x[cand], y[cand], epsf)
+    s = np.where(np.isfinite(s), s, 0.0)
+    keep = s >= min_snr
+    if cap >= 0 and keep.sum() > cap:
+        order = np.argsort(-np.where(keep, s, -np.inf), kind="stable")
+        keep = np.zeros_like(keep)
+        keep[order[:cap]] = True
+    skip[cand[~keep]] = True
+    return skip
+
+
 def pos_err_arcsec(snr: np.ndarray) -> np.ndarray:
     """contracts/dots.md: sqrt((1.4 × 3.2″ / snr)² + 0.25″²); NaN where snr <= 0."""
     snr = np.asarray(snr, np.float64)
@@ -918,7 +947,11 @@ def _measure_dots(l2, det: np.ndarray, ctx: PhotoContext, obs_id: str, detector:
     t0 = time.perf_counter()
     mem = np.asarray(det["sep_flag"]).astype(np.int64)  # sep_flag + dot_flag << DOT_FLAG_SHIFT (config.dot_flag_mem)
     core = (mem & C.dot_flag_mem(C.DOT_FLAG_SAT_CORE)) != 0  # placed by add_core_dots
-    x, y, _ = recentroid_saturated(data, np.asarray(l2.flags), x, y, sat & ~core)
+    fit = sat & ~core
+    norefit = refit_refused_skip(l2, ctx, x, y, mem, fit)  # config SAT_REFIT_REFUSED_*
+    if norefit.any():
+        mem = mem | np.where(norefit, C.dot_flag_mem(C.DOT_FLAG_POS_NOREFIT), 0)
+    x, y, _ = recentroid_saturated(data, np.asarray(l2.flags), x, y, fit & ~norefit)
     sat |= core
     timing["recentroid_s"] = time.perf_counter() - t0
     ix, iy = pixel_of(x, y, data.shape)
