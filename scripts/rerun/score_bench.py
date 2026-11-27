@@ -463,6 +463,16 @@ def main(argv=None) -> dict:
                                .agg(rate=("rate", "mean"), v=("v", "first"), n=("after", "size"), dot=("after", "sum"),
                                     streak=("after_streak", "sum"), either=("after_or_streak", "sum"))
                                .round(1).reset_index().to_dict("records") if len(bo) and "has_streaks" in bo else []),
+        # every scored photo, with or without an old dot file (the wide sample's photos have none: wide_targets.json)
+        "gaia_found_by_detector_all": table(st, ["detector"], ["after", "after_peaks", "after_stack", "control_after"]),
+        "gaia_found_by_g_all": table(st, ["g_bin"], ["after", "after_peaks", "after_stack", "control_after"]),
+        "gaia_found_by_zone_all": table(st, ["zone", "detector"], ["after", "after_peaks", "after_stack",
+                                                                   "control_after"]),
+        "known_found_by_v_all": table(bo, ["v_bin"], ["after", "after_peaks", "after_stack", "control_after",
+                                                      "control_peaks"]),
+        "known_found_by_rate_all": table(bo, ["rate_bin"], ["after", "after_peaks", "after_stack", "control_after"]),
+        "known_found_by_zone_all": table(bo[pd.to_numeric(bo["v"], errors="coerce") < 18] if len(bo) else bo, ["zone"],
+                                         ["after", "after_peaks", "after_stack", "control_after"]),
         "streaks": streak_report(streak_rows),
         "named_bodies": named_bodies(bo),
         "unmatched_per_photo": (un.groupby(["which", "detector"])[["dots", "unmatched", "unmatched_shifted",
@@ -477,7 +487,7 @@ def main(argv=None) -> dict:
     pd.set_option("display.width", 200)
     for k in ("dots_per_photo", "dot_flag_per_photo", "gaia_found_by_detector", "gaia_found_by_g", "known_found_by_v",
               "known_found_by_rate", "known_found_by_detector", "unmatched_per_photo", "bright_found_by_g",
-              "known_found_by_rate_streaks", "fast_known_streaks"):
+              "known_found_by_rate_streaks", "fast_known_streaks", "gaia_found_by_g_all", "known_found_by_v_all"):
         print(f"\n== {k}\n{pd.DataFrame(rep[k]).to_string(index=False)}")
     if rep["streaks"]:
         print("\n== streaks per photo, by detector")
