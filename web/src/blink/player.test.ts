@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Det, Epoch, FramesResponse } from "../api/types";
 import type { View } from "../app/modules";
 import { mountBlink } from "./index";
-import { PAGE_RETRY_MS } from "./pages";
+import { PAGE_RETRY_MS, PAGE_TRIES } from "./pages";
 
 const N = 8;
 const epoch = (id: string, det: Det, mjd: number): Epoch => ({
@@ -442,26 +442,88 @@ describe("blink player", () => {
       h.destroy();
     });
 
-    it("asks a failed page once more, then says plainly how many photos could not be loaded", async () => {
+    /** Retries a few ms apart instead of 3, 6 and 12 s. */
+    const quickRetries = () => {
+      const real = globalThis.setTimeout;
+      return vi.spyOn(globalThis, "setTimeout").mockImplementation(((fn: () => void, ms?: number) =>
+        real(fn, ms != null && ms >= PAGE_RETRY_MS ? 5 : ms)) as typeof setTimeout);
+    };
+
+    it("asks a failed page again (a busy service), up to PAGE_TRIES times, then says plainly how many photos could not be loaded", async () => {
+      quickRetries();
       let busy = 0;
       serve({ "2:1": p1, "2:2": p2 });
       const ok = vi.mocked(fetch).getMockImplementation()!;
       vi.mocked(fetch).mockImplementation(async (input, init) =>
-        String(input).includes("page=2") && !busy++ ? new Response(JSON.stringify({ error: { code: "upstream", message: "busy" } }), { status: 503 }) : ok(input, init));
+        String(input).includes("page=2") && busy++ < 2 ? new Response(JSON.stringify({ error: { code: "upstream", message: "busy" } }), { status: 503 }) : ok(input, init));
       const h = mountBlink(el, { onViewChange: vi.fn(), onPick: vi.fn() });
       await h.show(hv, p0, LIVE, { singleDetector: true, pages: true });
-      await vi.waitFor(() => expect(text()).toBe("6 of 9 photos of this visit loaded · loading…"));
-      await vi.waitFor(() => expect(text()).toBe("9 of 9 photos of this visit"), { timeout: PAGE_RETRY_MS + 4000 });
-      expect(busy).toBe(2);
-      // a page that fails twice: the rest goes on, and the line says how many are missing
+      await vi.waitFor(() => expect(text()).toBe("9 of 9 photos of this visit"));
+      expect(busy).toBe(3); // two 503s, then the page
+      // a page that keeps failing: asked PAGE_TRIES times, the rest goes on, and the line says how many are missing
       serve({ "2:1": { ...p1, center: { ra: 10, dec: 4.76883 } }, "2:2": 502 });
       await h.show({ ...hv, ra: 10 }, { ...p0, center: { ra: 10, dec: 4.76883 } }, LIVE.replace("ra=269.4462", "ra=10"), { singleDetector: true, pages: true });
-      await vi.waitFor(
-        () => expect(text()).toBe("6 of 9 photos of this visit loaded; 3 could not be loaded (SkyShift's live service did not answer for them)"),
-        { timeout: PAGE_RETRY_MS + 4000 },
-      );
+      await vi.waitFor(() =>
+        expect(text()).toBe("6 of 9 photos of this visit loaded; 3 could not be loaded (SkyShift's live service did not answer for them)"));
+      expect(asked().filter((u) => u.searchParams.get("ra") === "10" && u.searchParams.get("page") === "2")).toHaveLength(PAGE_TRIES);
       h.destroy();
-    }, 2 * PAGE_RETRY_MS + 10000);
+    });
+
+    it("asks a partial page again only when it lacks photos (cutouts too late), not when Gaia failed", async () => {
+      quickRetries();
+      serve({ "2:1": p1, "2:2": p2 });
+      const ok = vi.mocked(fetch).getMockImplementation()!;
+      const why: Record<string, string> = { "1": "Gaia failed", "2": "2 of 3 cutouts not in time; Gaia failed" };
+      vi.mocked(fetch).mockImplementation(async (input, init) => {
+        const res = await ok(input, init);
+        const k = new URL(String(input), "https://example.test").searchParams.get("page");
+        if (!k || !why[k]) return res;
+        return new Response(await res.text(), { headers: { "Content-Type": "application/json", "X-SkyShift-Partial": why[k] } });
+      });
+      const h = mountBlink(el, { onViewChange: vi.fn(), onPick: vi.fn() });
+      await h.show(hv, p0, LIVE, { singleDetector: true, pages: true });
+      await vi.waitFor(() => expect(text()).toBe("9 of 9 photos of this visit"));
+      await vi.waitFor(() => expect(asked().filter((u) => u.searchParams.get("page") === "2")).toHaveLength(2));
+      expect(asked().filter((u) => u.searchParams.get("page") === "1")).toHaveLength(1);
+      h.destroy();
+    });
+
+    it("keeps the pages on their way when the same plate is shown again (Show all), and aborts them for another plate", async () => {
+      const gate: (() => void)[] = [];
+      const signals: AbortSignal[] = [];
+      let open = false;
+      serve({ "2:1": p1, "2:2": p2 });
+      const ok = vi.mocked(fetch).getMockImplementation()!;
+      vi.mocked(fetch).mockImplementation(async (input, init) => {
+        if (String(input).includes("page=") && !open) {
+          if (init?.signal) signals.push(init.signal);
+          await new Promise<void>((go) => gate.push(go));
+        }
+        return ok(input, init);
+      });
+      const h = mountBlink(el, { onViewChange: vi.fn(), onPick: vi.fn() });
+      await h.show(hv, p0, LIVE, { singleDetector: true, pages: true });
+      await vi.waitFor(() => expect(gate).toHaveLength(1)); // page 1 on its way
+      // "Show all": the app says it is loading, then shows the same plate again
+      h.status("loading", "Loading frames…");
+      await h.show(hv, p0, LIVE, { singleDetector: true, pages: true });
+      h.status("idle");
+      open = true;
+      gate.forEach((go) => go());
+      await vi.waitFor(() => expect(text()).toBe("9 of 9 photos of this visit"));
+      expect(asked().filter((u) => u.searchParams.has("page")).map((u) => u.searchParams.get("page"))).toEqual(["1", "2"]); // page 1 not asked again
+      // another plate: the requests of the one before still on their way are aborted
+      open = false;
+      gate.length = 0;
+      signals.length = 0;
+      await h.show({ ...hv, ra: 10 }, { ...p0, center: { ra: 10, dec: 4.76883 } }, LIVE.replace("ra=269.4462", "ra=10"), { singleDetector: true, pages: true });
+      await vi.waitFor(() => expect(gate).toHaveLength(1));
+      expect(signals[0].aborted).toBe(false);
+      await h.show({ ...hv, ra: 20 }, { ...p0, center: { ra: 20, dec: 4.76883 } }, LIVE.replace("ra=269.4462", "ra=20"), { singleDetector: true, pages: true });
+      expect(signals[0].aborted).toBe(true);
+      gate.forEach((go) => go());
+      h.destroy();
+    });
 
     it("continues a saved file live at the same visit, and an object's day of the find stays on show", async () => {
       // a saved file (an object's frames): the find's session, two photos
@@ -473,7 +535,8 @@ describe("blink player", () => {
       const filter = (f: FramesResponse) => ({ ...f, epochs: f.epochs.filter((e) => Math.abs(e.mjd_mid - T) <= 1 || e.id === "d2-c") });
       await h.show(hv, saved, "https://example.test/data/cand/x/frames.json", { singleDetector: true, pages: true, visitMjd: T + 0.001, filter });
       expect(sub()).toBe("exposure 1 of 2");
-      await vi.waitFor(() => expect(text()).toBe("9 of 9 photos of this visit"));
+      // the line says the plate shows fewer than the visit: else the visit looks short of photos
+      await vi.waitFor(() => expect(text()).toBe("9 of 9 photos of this visit · the plate shows the 3 within a day of the find"));
       // page 0 asked at the find's time, the rest of the same visit after it
       expect(asked().map((u) => [u.searchParams.get("page"), u.searchParams.get("mjd")])).toEqual([[null, String(T + 0.001)], ["1", String(T + 0.001)], ["2", String(T + 0.001)]]);
       // the whole visit to the page, the find's day (and what the filter keeps) on the plate

@@ -103,6 +103,16 @@ describe("every real object.json", () => {
     expect(el.querySelector(".cd-says")?.textContent).toMatch(/^moved between visits 2 and 3 \(0\.99 years\)/);
   });
 
+  it("reads a measurement without its numbers (Gaia reference stars failed) as none, without throwing", () => {
+    const obj = load("barnard");
+    const el = document.createElement("section");
+    const card = mountCard(el);
+    const bad = { ...obj, measure: { ...obj.measure!, sigma_arcsec: null, shift_arcsec: null } } as unknown as typeof obj;
+    expect(() => card.show(viewFor("barnard"), bad, null)).not.toThrow();
+    expect(el.querySelector(".cd-n")).toBeNull();
+    expect(() => card.status("idle")).not.toThrow();
+  });
+
   it("puts Barnard's saturation on the number as note 1 and the parallax on the distance as note 2", () => {
     const el = cardFor("barnard");
     const heroRef = el.querySelector(".cd-hero .cd-ref a");
