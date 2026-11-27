@@ -140,6 +140,32 @@ export function patternAt(m: NowModel, mjd: number, step = 1): SkyPos[] {
   return out;
 }
 
+/** One 2° cell of the band: its centre and its four corners (shared with the neighbouring cells). */
+export interface BandCell {
+  centre: SkyPos;
+  corners: [SkyPos, SkyPos, SkyPos, SkyPos];
+}
+
+/** The band the survey works in on a day: the measured 2° cells, turned with the Sun. */
+export function bandAt(m: NowModel, mjd: number): BandCell[] {
+  const sl = sunLon(mjd);
+  const verts = new Map<number, SkyPos>();
+  const vert = (i: number, j: number): SkyPos => {
+    const k = (i % 180) * 91 + j;
+    let p = verts.get(k);
+    if (!p) verts.set(k, (p = eclToEq(i * 2 + sl, j * 2 - 90)));
+    return p;
+  };
+  const out: BandCell[] = [];
+  for (let k = 0; k < m.grid.length; k++) {
+    if (!m.grid[k]) continue;
+    const i = Math.floor(k / 90);
+    const j = k % 90;
+    out.push({ centre: eclToEq(i * 2 + 1 + sl, j * 2 - 89), corners: [vert(i, j), vert(i + 1, j), vert(i + 1, j + 1), vert(i, j + 1)] });
+  }
+  return out;
+}
+
 /** True when the measured pattern, turned to this day, covers the position. */
 export function covered(m: NowModel, pos: SkyPos, mjd: number): boolean {
   const e = eqToEcl(pos);

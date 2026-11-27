@@ -16,7 +16,7 @@ import type { BackgroundId, Layers, MapCallbacks, MapHandle, MapModel, MapView }
 import { arrowLengthPx, drawLabel, drawSignal, drawSignalDot, drawTarget, nearestHit, paToScreen, signalInk, type Ink, type Vec } from "./marks";
 import { paintSearch, type SearchInk } from "./searchdraw";
 import { offsetPa, sepDeg } from "./sphere";
-import { CONE_DEG, orbitMinutes, overheadAt, overheadTrack, patternAt, smallCircle, sunAt } from "./spherex-now";
+import { bandAt, CONE_DEG, overheadAt, overheadTrack, sunAt, type BandCell, type NowModel } from "./spherex-now";
 import { LABEL_MIN_PX, WHOLE_FOV, cellPx, heatOrder, levelFor, showsDots, showsHeat, type Level } from "./zoom";
 import { areaAt, densifyRing, type ZoneArea } from "./zones";
 import { BRIGHT_STARS } from "./stars";
@@ -89,10 +89,6 @@ export function rgba(hex: string, a: number): string {
   const n = parseInt(m[1], 16);
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a.toFixed(3)})`;
 }
-
-/** "12 Jan" for an MJD (UTC). */
-const fmtDay = (mjd: number): string =>
-  new Date((mjd - 40587) * 864e5).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
 
 /** The projection's widest field: the whole sky (Mollweide) is 360° across, the globe (SIN) 180°. */
 export const projectionMax = (mol: boolean): number => (mol ? 360 : 180);
@@ -533,13 +529,18 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
     paintSearch(ctx, layer, (ra, dec) => rawScreen({ ra, dec }), searchInk, { w: host.clientWidth, h: host.clientHeight });
   }
 
-  // ---- SPHEREx now: real photos, the survey's measured pattern today and the point overhead --------
+  // ---- SPHEREx now: the band the survey works in, where it is probably looking, its newest photos --
   /** Colours for the dark sky, or for the plate negative (light glass). */
   function nowInk() {
     return layers.negative
-      ? { real: "#0e7f68", today: ink.violet, next: ink.violet, here: ink.ink, cone: rgba(ink.violet, 0.12), sun: "#a35f00", halo: rgba(ink.glass, 0.95), text: ink.ink }
-      : { real: "#4fd6b0", today: "#c9b2ff", next: "#b993ff", here: "#ffffff", cone: "rgba(185, 147, 255, 0.16)", sun: "#ffc85c", halo: "rgba(0, 0, 0, 0.9)", text: "#f5f7f9" };
+      ? { band: ink.violet, bandA: 0.14, look: ink.violet, lookA: 0.4, real: "#0e7f68", craft: ink.ink, sun: "#a35f00", halo: rgba(ink.glass, 0.95), text: ink.ink }
+      : { band: "#9d7dff", bandA: 0.2, look: "#f1ebff", lookA: 0.5, real: "#4fd6b0", craft: "#ffffff", sun: "#ffc85c", halo: "rgba(0, 0, 0, 0.85)", text: "#f5f7f9" };
   }
+
+  // The band's cells are painted as one opaque shape on their own canvas, then laid on the map at one
+  // alpha (and softened), so they read as one smooth area instead of a field of dots.
+  const bandCanvas = document.createElement("canvas");
+  let bandCache: { model: NowModel; t: number; cells: BandCell[] } | null = null;
 
   function drawNow() {
     const ctx = prepare(nowCanvas);
@@ -547,113 +548,120 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
     if (!ctx || !now || !model?.layers.now || !(host.clientWidth > 0)) return;
     const W = host.clientWidth;
     const H = host.clientHeight;
+    const dpr = nowCanvas.width / W;
     const v = view();
     const c = nowInk();
     const t = now.t;
     // The globe shows its near side only; the oval shows everything.
     const at = (p: SkyPos) => (!mol && sepDeg(p, v) > 90 ? null : rawScreen(p));
-    const inside = (q: { x: number; y: number } | null) => !!q && q.x > -8 && q.y > -8 && q.x < W + 8 && q.y < H + 8;
-    // Dots grow a little as the view closes in, so a zoomed-in patch still reads as photos.
-    const px = Math.max(2, Math.min(7, 2 * Math.sqrt(180 / Math.max(1, v.fov))));
-    const dots = (pts: readonly SkyPos[], color: string, alpha: (i: number) => number, size: number) => {
-      ctx.fillStyle = color;
-      pts.forEach((p, i) => {
-        const q = at(p);
-        if (!inside(q)) return;
-        ctx.globalAlpha = alpha(i);
-        ctx.fillRect(q!.x - size / 2, q!.y - size / 2, size, size);
-      });
-      ctx.globalAlpha = 1;
-    };
-    const line = (pts: readonly SkyPos[], color: string, width: number, dash: number[] = []) => {
-      ctx.beginPath();
-      let prev: { x: number; y: number } | null = null;
-      for (const p of pts) {
-        const q = at(p);
-        if (q && prev && Math.abs(q.x - prev.x) < W / 3 && Math.abs(q.y - prev.y) < H / 3) ctx.lineTo(q.x, q.y);
-        else if (q) ctx.moveTo(q.x, q.y);
-        prev = q;
-      }
-      ctx.strokeStyle = color;
-      ctx.lineWidth = width;
-      ctx.setLineDash(dash);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    };
-    // A label goes on the pattern's visible point nearest the middle of the map, clear of the panels.
-    const reserved = cb.reserved?.() ?? [];
-    const free = (q: { x: number; y: number }) => !reserved.some((r) => q.x > r.x0 - 60 && q.x < r.x1 + 60 && q.y > r.y0 - 20 && q.y < r.y1 + 20);
-    const label = (pts: readonly SkyPos[], text: string, color: string) => {
-      let best: { x: number; y: number } | null = null;
-      let bestD = Infinity;
-      for (const p of pts) {
-        const q = at(p);
-        if (!inside(q) || q!.y < 24 || q!.y > H - 24 || !free(q!)) continue;
-        const d = (q!.x - W / 2) ** 2 + (q!.y - H / 2) ** 2;
-        if (d < bestD) {
-          bestD = d;
-          best = q;
-        }
-      }
-      if (best) drawLabel(ctx, ink, best.x, best.y - 12, text, { color, shadow: c.halo, weight: 650, size: 12 });
-    };
-    // 1. Real photos up to the moment shown, fading over two months.
-    const real = now.model.photos.filter((p) => p.mjd <= t);
-    dots(real, c.real, (i) => Math.max(0.5, 1 - (t - real[i].mjd) / 120), Math.max(2.2, px * 0.85));
-    // 2. Where the survey goes next, then where it works on the day shown.
-    for (const d of [45, 90]) {
-      const pts = patternAt(now.model, t + d, 3);
-      dots(pts, c.next, () => 0.3, px * 0.6);
-      label(pts, fmtDay(t + d), c.next);
-    }
-    const today = patternAt(now.model, t);
-    dots(today, c.today, () => 0.7, px);
-    label(today, "survey today", c.today);
-    // 3. The point overhead and the cone it points into, from the orbit elements (when fresh enough).
+    const inside = (q: { x: number; y: number } | null, m = 8) => !!q && q.x > -m && q.y > -m && q.x < W + m && q.y < H + m;
+    // Pixels per degree near the middle of the view.
+    const mid = rawScreen(v);
+    const off = rawScreen({ ra: v.ra, dec: v.dec > 0 ? v.dec - 2 : v.dec + 2 });
+    const perDeg = mid && off ? Math.hypot(off.x - mid.x, off.y - mid.y) / 2 : W / Math.max(1, v.fov);
+
+    // 1. The band the survey works in that day (the Sun moves it about 1° a day: recomputed every ~15 min).
+    if (!bandCache || bandCache.model !== now.model || Math.abs(bandCache.t - t) > 0.01) bandCache = { model: now.model, t, cells: bandAt(now.model, t) };
     const o = now.model.file.orbit;
-    if (o && Math.abs(t - o.epoch_mjd) < 21) {
-      const here = overheadAt(o, t);
-      const cone = smallCircle(here, CONE_DEG);
-      ctx.beginPath();
-      let first = true;
-      for (const p of cone) {
+    const here = o && Math.abs(t - o.epoch_mjd) < 21 ? overheadAt(o, t) : null;
+    const b = bandCanvas.getContext("2d");
+    if (b) {
+      bandCanvas.width = nowCanvas.width;
+      bandCanvas.height = nowCanvas.height;
+      const seen = new Map<SkyPos, { x: number; y: number } | null>();
+      const proj = (p: SkyPos) => {
+        if (!seen.has(p)) seen.set(p, at(p));
+        return seen.get(p)!;
+      };
+      const paint = (cells: readonly BandCell[], color: string, alpha: number) => {
+        b.setTransform(1, 0, 0, 1, 0, 0);
+        b.clearRect(0, 0, bandCanvas.width, bandCanvas.height);
+        b.setTransform(dpr, 0, 0, dpr, 0, 0);
+        b.beginPath();
+        for (const cell of cells) {
+          const [p0, p1, p2, p3] = cell.corners.map(proj);
+          if (!p0 || !p1 || !p2 || !p3) continue; // past the globe's limb
+          const x0 = Math.min(p0.x, p1.x, p2.x, p3.x);
+          const x1 = Math.max(p0.x, p1.x, p2.x, p3.x);
+          const y0 = Math.min(p0.y, p1.y, p2.y, p3.y);
+          const y1 = Math.max(p0.y, p1.y, p2.y, p3.y);
+          if (x1 < -4 || y1 < -4 || x0 > W + 4 || y0 > H + 4) continue;
+          if (x1 - x0 > W / 4 || y1 - y0 > H / 4) continue; // split by the oval's seam
+          b.moveTo(p0.x, p0.y);
+          b.lineTo(p1.x, p1.y);
+          b.lineTo(p2.x, p2.y);
+          b.lineTo(p3.x, p3.y);
+          b.closePath();
+        }
+        b.fillStyle = color;
+        b.fill();
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.globalAlpha = alpha;
+        ctx.filter = `blur(${Math.round(Math.max(1, Math.min(4, perDeg * 0.6)) * dpr)}px)`;
+        ctx.drawImage(bandCanvas, 0, 0);
+        ctx.restore();
+      };
+      paint(bandCache.cells, c.band, c.bandA);
+      // 2. The part it is probably looking at now: the band within 35° of the point overhead.
+      if (here) paint(bandCache.cells.filter((cell) => sepDeg(cell.centre, here) <= CONE_DEG), c.look, c.lookA);
+    }
+
+    // 3. Real photos, only on days the public data covers: the week up to the moment shown.
+    if (t <= now.model.newest + 0.5) {
+      const size = Math.max(2.5, Math.min(7, 2.2 * Math.sqrt(180 / Math.max(1, v.fov))));
+      ctx.fillStyle = c.real;
+      for (const p of now.model.photos) {
+        if (p.mjd > t || p.mjd <= t - 7) continue;
         const q = at(p);
-        if (!q) continue;
-        if (first) ctx.moveTo(q.x, q.y);
-        else ctx.lineTo(q.x, q.y);
-        first = false;
+        if (!inside(q)) continue;
+        ctx.globalAlpha = 0.35 + 0.65 * (1 - (t - p.mjd) / 7);
+        ctx.fillRect(q!.x - size / 2, q!.y - size / 2, size, size);
       }
-      // The fill only where the whole cone is on show in one piece (a seam or the limb would cut it badly).
-      const qs = cone.map(at);
-      const whole = qs.every((q, i) => q && (i === 0 || (Math.abs(q.x - qs[i - 1]!.x) < W / 3 && Math.abs(q.y - qs[i - 1]!.y) < H / 3)));
-      if (whole) {
-        ctx.closePath();
-        ctx.fillStyle = c.cone;
-        ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    // 4. SPHEREx: the point overhead, with the last 12 minutes of its path as a fading trail.
+    if (o && here) {
+      const trail = overheadTrack(o, t - 12 / 1440, 12, 0.5);
+      ctx.lineCap = "round";
+      for (let i = 1; i < trail.length; i++) {
+        const a = at(trail[i - 1]);
+        const z = at(trail[i]);
+        if (!a || !z || Math.abs(a.x - z.x) > W / 4 || Math.abs(a.y - z.y) > H / 4) continue;
+        const f = i / (trail.length - 1);
+        ctx.strokeStyle = rgba(c.craft, 0.05 + 0.75 * f);
+        ctx.lineWidth = 1 + 2 * f;
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(z.x, z.y);
+        ctx.stroke();
       }
-      line(cone, c.next, 1.2, [5, 4]);
-      line(overheadTrack(o, t, Math.round(orbitMinutes(o) / 2), 1), c.here, 1.4, [2, 4]);
       const q = at(here);
       if (inside(q)) {
-        ctx.fillStyle = c.next;
-        ctx.globalAlpha = 0.45;
+        ctx.fillStyle = rgba(c.look, 0.3);
         ctx.beginPath();
-        ctx.arc(q!.x, q!.y, 10, 0, 2 * Math.PI);
+        ctx.arc(q!.x, q!.y, 11, 0, 2 * Math.PI);
         ctx.fill();
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = c.here;
+        ctx.strokeStyle = c.craft;
+        ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.arc(q!.x, q!.y, 4, 0, 2 * Math.PI);
+        ctx.arc(q!.x, q!.y, 6.5, 0, 2 * Math.PI);
+        ctx.stroke();
+        ctx.fillStyle = c.craft;
+        ctx.beginPath();
+        ctx.arc(q!.x, q!.y, 3, 0, 2 * Math.PI);
         ctx.fill();
-        drawLabel(ctx, ink, q!.x + 14, q!.y - 10, "probably here", { color: c.text, shadow: c.halo, weight: 700, size: 12.5, align: "left" });
+        drawLabel(ctx, ink, q!.x + 16, q!.y, "SPHEREx", { color: c.text, shadow: c.halo, weight: 700, size: 13, align: "left" });
       }
     }
-    // 4. The Sun, for bearings.
+
+    // 5. The Sun, for bearings: the survey works in a ring about 90° from it.
     const sun = at(sunAt(t));
     if (inside(sun)) {
       ctx.fillStyle = c.sun;
       ctx.beginPath();
-      ctx.arc(sun!.x, sun!.y, 6, 0, 2 * Math.PI);
+      ctx.arc(sun!.x, sun!.y, 5, 0, 2 * Math.PI);
       ctx.fill();
       drawLabel(ctx, ink, sun!.x + 10, sun!.y, "Sun", { color: c.sun, shadow: c.halo, weight: 650, size: 12, align: "left" });
     }

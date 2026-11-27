@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import file from "../../public/data/spherex-now.json";
 import { sepDeg } from "./sphere";
 import {
+  bandAt,
   buildModel,
   covered,
   eclToEq,
@@ -98,6 +99,19 @@ describe("the measured survey pattern", () => {
     const week = model.photos.filter((p) => p.mjd > model.newest - 7);
     const hit = week.filter((p) => covered(model, p, p.mjd)).length;
     expect(hit).toBe(week.length);
+  });
+
+  it("draws the band from the same cells the visits use, turned to the day", () => {
+    const t = model.newest + 40;
+    const band = bandAt(model, t);
+    expect(band.length).toBe(model.grid.reduce((n, v) => n + v, 0));
+    for (const c of band) {
+      expect(covered(model, c.centre, t)).toBe(true);
+      for (const k of c.corners) expect(sepDeg(k, c.centre)).toBeLessThan(1.5);
+    }
+    // SPHEREx works in a ring round the Sun: no band cell within 60° of it.
+    const sun = eclToEq(sunLon(t), 0);
+    expect(Math.min(...band.map((c) => sepDeg(c.centre, sun)))).toBeGreaterThan(60);
   });
 
   it("predicts Barnard's Star's visits to within two weeks of the ones we measured", () => {

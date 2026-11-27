@@ -43,7 +43,7 @@ import { cellSideDeg } from "./healpix";
 import { mountZoomFocus } from './focus';
 import { liveLine, loadSearch, loadZoneSuspects, provisionalZone, type ProvisionalSet, type SearchLayer } from "./search";
 import { areaFov, areaName, badgeTexts, zoneAreas, type ZoneArea } from "./zones";
-import { loadNow, mjdOf, newestBatch, releaseLagDays, visitsAt, type NowLayer, type NowModel } from "./spherex-now";
+import { CONE_DEG, loadNow, mjdOf, newestBatch, releaseLagDays, visitsAt, type NowLayer, type NowModel } from "./spherex-now";
 
 const html = String.raw;
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
@@ -91,29 +91,38 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
               <button type="button" data-proj="globe" aria-pressed="true" title="Globe: half the sky at a time; drag to turn it"><span class="atl-shape-icon" aria-hidden="true"></span>Globe</button>
             </div>
             <button class="atl-switch atl-now-switch" type="button" data-now aria-pressed="false" aria-controls="atl-now"
-              title="Where NASA's SPHEREx is probably looking now, where the survey goes next, and its newest public photos">SPHEREx now</button>
+              title="Where NASA's SPHEREx is probably looking now, and its newest public photos">SPHEREx now</button>
           </div>
           <p class="atl-msg" data-msg role="status" aria-live="polite"></p>
         </div>
         <section class="atl-now" id="atl-now" data-now-panel hidden aria-label="SPHEREx now">
-          <div class="atl-now-head"><b>SPHEREx now</b><span class="atl-now-time" data-now-time></span><span class="atl-now-mode" data-now-mode></span></div>
+          <div class="atl-now-head">
+            <span class="atl-now-time" data-now-time></span>
+            <span class="atl-now-mode" data-now-mode></span>
+          </div>
           <input class="atl-now-range" id="atl-now-range" type="range" step="0.01" aria-label="Date shown on the map" data-now-range>
-          <div class="atl-now-scale" aria-hidden="true"><span class="is-real" data-now-bar="real"></span><span class="is-wait" data-now-bar="wait"></span><span class="is-next" data-now-bar="next"></span></div>
+          <div class="atl-now-scale" aria-hidden="true">
+            <span class="is-real" data-now-bar="real">Public</span><span class="is-wait" data-now-bar="wait">Not out yet</span><span class="is-next" data-now-bar="next">Forecast</span>
+          </div>
           <div class="atl-now-row">
-            <button type="button" class="atl-now-live" data-now-live>Back to now</button>
-            <div class="seg" role="group" aria-label="Clock speed">
-              <button type="button" data-now-speed="1" aria-pressed="true">Real time</button>
-              <button type="button" data-now-speed="600" aria-pressed="false">10 min a second</button>
+            <button type="button" class="atl-now-btn" data-now-live>Now</button>
+            <button type="button" class="atl-now-btn" data-now-newest>Newest photos</button>
+            <div class="seg atl-now-speed" role="group" aria-label="Clock speed">
+              <button type="button" data-now-speed="1" aria-pressed="true">1×</button>
+              <button type="button" data-now-speed="600" aria-pressed="false" title="10 minutes a second">Fast</button>
             </div>
           </div>
           <ul class="atl-now-key">
-            <li><i class="is-real" aria-hidden="true"></i>Real photos, newest public batches</li>
-            <li><i class="is-today" aria-hidden="true"></i>Where the survey works that day</li>
-            <li><i class="is-next" aria-hidden="true"></i>Where it goes in 45 and 90 days</li>
-            <li><i class="is-here" aria-hidden="true"></i>Probably pointing here (35° round the point overhead)</li>
+            <li><i class="is-band" aria-hidden="true"></i>Where the survey works that day</li>
+            <li><i class="is-look" aria-hidden="true"></i>Where SPHEREx is probably looking</li>
+            <li><i class="is-real" aria-hidden="true"></i><span data-now-real-key>Real photos</span></li>
           </ul>
           <p class="atl-now-facts" data-now-facts></p>
           <p class="atl-now-spot" data-now-spot></p>
+          <details class="atl-now-how">
+            <summary>How we know</summary>
+            <p data-now-how></p>
+          </details>
         </section>
         <div class="atl-more" id="atl-more" hidden>
           <div class="atl-more-row">
@@ -585,6 +594,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   }
 
   // ---- SPHEREx now ------------------------------------------------------------------------------
+  // Off until switched on, and never kept in the address: every visit and every link opens without it.
   // The map shows one moment: now by default, ticking in real time (or 10 min a second); the slider
   // picks any day from the oldest photo the file carries to six months ahead. Real photos come from
   // the newest public batches; the rest is the measured pattern turned with the Sun and the orbit.
@@ -633,8 +643,10 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     const newest = nowModel.newest;
     const start = Math.floor(nowModel.photos[0]?.mjd ?? newest - 42);
     q<HTMLElement>("[data-now-time]").textContent = `${day(t)}, ${hm(t)} UTC`;
-    const mode = nowClock.live ? "live estimate" : t <= newest ? "real photos up to here" : t <= today ? "taken, not public yet" : "forecast";
-    q<HTMLElement>("[data-now-mode]").textContent = mode;
+    const mode = nowClock.live ? "live" : t <= newest + 0.5 ? "real" : t <= today ? "wait" : "next";
+    const modeEl = q<HTMLElement>("[data-now-mode]");
+    modeEl.dataset.mode = mode;
+    modeEl.textContent = { live: "Live estimate", real: "Real photos", wait: "Taken, not out yet", next: "Forecast" }[mode];
     nowRange.min = String(start);
     nowRange.max = end.toFixed(2);
     if (document.activeElement !== nowRange) nowRange.value = Math.min(end, Math.max(start, t)).toFixed(2);
@@ -642,16 +654,20 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     q<HTMLElement>('[data-now-bar="real"]').style.flexBasis = `${((newest - start) / span) * 100}%`;
     q<HTMLElement>('[data-now-bar="wait"]').style.flexBasis = `${((today - newest) / span) * 100}%`;
     q<HTMLElement>('[data-now-bar="next"]').style.flexBasis = `${((end - today) / span) * 100}%`;
+    q<HTMLElement>("[data-now-real-key]").textContent = `Real photos (up to ${day(newest, false)})`;
     const b = newestBatch(nowModel);
-    const lag = Math.round(releaseLagDays(nowModel));
-    const age = Math.floor(today - newest);
-    const orbit = nowModel.file.orbit;
-    const orbitAge = orbit ? Math.abs(t - orbit.epoch_mjd) : Infinity;
+    const weeks = Math.round(releaseLagDays(nowModel) / 7);
     q<HTMLElement>("[data-now-facts]").textContent =
-      `Newest public photo: ${day(newest)}, ${hm(newest)} UTC, ${age} days ago. ` +
-      (b ? `NASA puts out a week of photos at a time, about once a week: the last batch came out on ${day(b.published, false)} with photos from ${day(b.first, false)}–${day(b.last, false)}, ${lag} days after the last of them. ` : "") +
-      `NASA publishes no pointing schedule: the survey's place comes from its pattern on those photos, turned with the Sun, ` +
-      (orbitAge < 21 ? `and "probably here" from SPHEREx's orbit elements.` : `and the orbit elements are too old for "probably here" on this date.`);
+      `NASA puts photos out a week at a time, about ${weeks} weeks late` +
+      (b ? `: the newest public ones are from ${day(newest, false)}, out on ${day(b.published, false)}.` : ".");
+    const orbit = nowModel.file.orbit;
+    const fresh = !!orbit && Math.abs(t - orbit.epoch_mjd) < 21;
+    q<HTMLElement>("[data-now-how]").textContent =
+      "NASA publishes no pointing schedule. SPHEREx always works in a ring about 90° from the Sun, so the band is " +
+      "the pattern of its newest public week of photos, turned with the Sun to the day shown. " +
+      (fresh
+        ? `The bright part is within ${CONE_DEG}° of the point overhead SPHEREx, worked out from its public orbit (NORAD 63182); the trail is its last 12 minutes.`
+        : "Its orbit elements are too old for this date, so the bright part and the marker are left out.");
     renderNowSpot();
   }
 
@@ -675,10 +691,8 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
 
   async function setNow(on: boolean) {
     layers = { ...layers, now: on };
-    state = { ...state, now: on };
     nowSwitch.setAttribute("aria-pressed", String(on));
     nowPanel.hidden = !on;
-    writeHash();
     if (!on) {
       scheduleNow();
       map?.update(model());
@@ -709,6 +723,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   nowSwitch.addEventListener("click", () => void setNow(!layers.now));
   nowRange.addEventListener("input", () => setClock(Number(nowRange.value)));
   q<HTMLButtonElement>("[data-now-live]").addEventListener("click", () => setClock(null, 1));
+  q<HTMLButtonElement>("[data-now-newest]").addEventListener("click", () => nowModel && setClock(nowModel.newest, 1));
   el.querySelectorAll<HTMLButtonElement>("[data-now-speed]").forEach((b) =>
     b.addEventListener("click", () => {
       const speed = Number(b.dataset.nowSpeed);
@@ -935,7 +950,6 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     syncSeg("[data-proj]", state.mol ? "mol" : "globe", "proj");
     if (state.mol && state.fov === WHOLE_FOV) state.fov = 360;
     await startMap();
-    if (state.now && map?.kind === "aladin") void setNow(true);
   }
 
   // ---- controls ------------------------------------------------------------------------------
@@ -1171,10 +1185,9 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       const next = parseState(param);
       if (next) {
         if (!sameState(next, state)) applyState(next, wasVisible);
-        if (!!next.now !== layers.now && map?.kind === "aladin") void setNow(!!next.now);
       } else if (wasVisible && data) {
         // The Sky link while already here: back to the whole sky.
-        applyState({ ...defaultState(), gal: state.gal, mol: state.mol, kinds: state.kinds, now: state.now, fov: wholeFov(state.mol) }, true);
+        applyState({ ...defaultState(), gal: state.gal, mol: state.mol, kinds: state.kinds, fov: wholeFov(state.mol) }, true);
       }
       if (data && !map) void startMap();
       scheduleNow();
