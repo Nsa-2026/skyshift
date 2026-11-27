@@ -234,3 +234,60 @@ def test_visits_near_the_ecliptic_pole_are_cut_into_parts():
         assert max(t) - min(t) <= 30.0
     assert {im.visit for im in images if im.obs_id.startswith("Q")} == {5}
     assert [im.visit for im in images] == sorted(im.visit for im in images)  # numbered in time order
+
+
+def test_gaia_csv_from_irsa_nulls_stay_null():
+    text = ("source_id,ra,dec,pmra,pmdec,parallax,phot_g_mean_mag\n"
+            "4253498051115501824,280.27570117928,-5.61848485960,,,,11.760853\n"
+            "2161688071217418240,270.34705106937,65.94887411202,5.353,35.718,5.9489,7.817915\n")
+    a, b = gaia.parse_tap_csv(text)
+    assert a == {"id": "4253498051115501824", "ra": 280.27570117928, "dec": -5.6184848596,
+                 "pmra": None, "pmdec": None, "parallax": None, "g": 11.761}
+    assert b["pmdec"] == 35.718 and b["parallax"] == 5.949 and isinstance(b["id"], str)
+
+
+def test_gaia_falls_back_to_irsa_and_pauses_esa(tmp_path, monkeypatch):
+    """ESA's TAP answering an HTML page (25 Nov 2026): IRSA's gaia_dr3_source answers, at once, and
+    ESA is not asked again for ESA_PAUSE_S."""
+    esa, irsa = [], []
+
+    class Html:
+        status_code = 200
+        headers = {"content-type": "text/html; charset=UTF-8"}
+        text = "<!doctype html>"
+
+        def json(self):
+            raise ValueError("not JSON")
+
+    class Csv:
+        status_code = 200
+        headers = {"content-type": "text/csv"}
+        text = "source_id,ra,dec,pmra,pmdec,parallax,phot_g_mean_mag\n1,270.0,66.0,1.0,2.0,3.0,9.5\n"
+
+    def post(url, data, **kw):
+        (esa if url == gaia.TAP_SYNC else irsa).append(data["QUERY"])
+        return Html() if url == gaia.TAP_SYNC else Csv()
+
+    monkeypatch.setattr(gaia.requests, "post", post)
+    monkeypatch.setattr(gaia.time, "sleep", lambda s: None)
+    monkeypatch.setattr(gaia, "_esa_down_until", 0.0)
+    c = Cache(str(tmp_path))
+    stars = gaia.cone(270.0, 66.0, 14.1, cache=c)
+    assert stars == [{"id": "1", "ra": 270.0, "dec": 66.0, "pmra": 1.0, "pmdec": 2.0, "parallax": 3.0, "g": 9.5}]
+    assert len(esa) == 1 and "gaiadr3.gaia_source" in esa[0]  # an HTML page is not asked twice
+    assert len(irsa) == 1 and "FROM gaia_dr3_source" in irsa[0]
+    gaia.cone(10.0, 20.0, 14.1, cache=c)  # another cone: ESA paused, IRSA first
+    assert len(esa) == 1 and len(irsa) == 2
+
+
+def test_gaia_both_failing_is_an_upstream_error(monkeypatch):
+    class Down:
+        status_code = 503
+        headers = {"content-type": "text/plain"}
+        text = "Service Unavailable"
+
+    monkeypatch.setattr(gaia.requests, "post", lambda url, data, **kw: Down())
+    monkeypatch.setattr(gaia.time, "sleep", lambda s: None)
+    monkeypatch.setattr(gaia, "_esa_down_until", 0.0)
+    with pytest.raises(UpstreamError, match="IRSA Gaia query failed"):
+        gaia.stars_in(270.0, 66.0, 14.1)
