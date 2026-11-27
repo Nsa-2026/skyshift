@@ -1,0 +1,834 @@
+{
+ "about": "WIDE sample for scripts/rerun/rerun.py bench (scripts/rerun/wide_sample.py sample): whole sessions of small sample zones w_<name> spread over the sky conditions (zodiacal glow, ecliptic poles, galactic plane and bulge, Magellanic Clouds, high-latitude sky, time), none holding a bench or hold-out photo. Same format as bench_targets.json; `box` is the zone's RA/Dec box (its photo list photolists/zones/<zone>.parquet and its catalogue truth cover it).",
+ "made": "2026-11-27T14:04:11",
+ "seed": 20261127,
+ "photos": 1724,
+ "sessions": 177,
+ "targets": [
+  {
+   "zone": "w_zodi060",
+   "sessions": [
+    49,
+    50,
+    51,
+    52,
+    53,
+    54
+   ],
+   "box": [
+    57.2844,
+    58.3531,
+    19.6504,
+    20.6504
+   ],
+   "why": "strongest zodiacal glow: on the ecliptic (\u03bb 60\u00b0), lowest solar elongation. Cell: |\u03b2| 0\u20135\u00b0, elong 82\u201385\u00b0, |b| 20\u201345\u00b0, Gaia G<17.5 1500\u20132449/deg\u00b2, depth 60\u2013100 exposures, months 10,15, in the sky zones"
+  },
+  {
+   "zone": "w_zodi200",
+   "sessions": [
+    27,
+    28,
+    29,
+    30,
+    31,
+    32
+   ],
+   "box": [
+    197.9607,
+    198.9713,
+    -8.3192,
+    -7.3192
+   ],
+   "why": "strongest zodiacal glow: on the ecliptic (\u03bb 200\u00b0), lowest solar elongation. Cell: |\u03b2| 0\u20135\u00b0, elong 82\u201385\u00b0, |b| 45\u201390\u00b0, Gaia G<17.5 700\u20131500/deg\u00b2, depth 60\u2013100 exposures, months 2,8, in the sky zones"
+  },
+  {
+   "zone": "w_zodi330",
+   "sessions": [
+    1,
+    2,
+    3,
+    5,
+    49,
+    50
+   ],
+   "box": [
+    331.5783,
+    332.6006,
+    -11.972,
+    -10.972
+   ],
+   "why": "strongest zodiacal glow: on the ecliptic (\u03bb 330\u00b0), lowest solar elongation. Cell: |\u03b2| 0\u20135\u00b0, elong 82\u201383\u00b0, |b| 45\u201390\u00b0, Gaia G<17.5 700\u20131500/deg\u00b2, depth 60\u2013100 exposures, months 0,12, in the sky zones"
+  },
+  {
+   "zone": "w_nep",
+   "sessions": [
+    159,
+    2730,
+    5600
+   ],
+   "box": [
+    268.7171,
+    271.2829,
+    66.0607,
+    67.0607
+   ],
+   "why": "north ecliptic pole: deepest coverage, outside the zones. Cell: |\u03b2| 80\u201390\u00b0, elong 89\u201390\u00b0, |b| 20\u201345\u00b0, Gaia G<17.5 1500\u20132449/deg\u00b2, depth >=1000 exposures, months 0,8,16, outside the sky zones"
+  },
+  {
+   "zone": "w_sep",
+   "sessions": [
+    207,
+    616,
+    818
+   ],
+   "box": [
+    89.3651,
+    90.6349,
+    -66.8107,
+    -66.3107
+   ],
+   "why": "south ecliptic pole: deepest coverage, outside the zones. Cell: |\u03b2| 80\u201390\u00b0, elong 89\u201391\u00b0, |b| 20\u201345\u00b0, Gaia G<17.5 2449\u20135000/deg\u00b2 (capped list), depth >=1000 exposures, months 0,6,10, outside the sky zones"
+  },
+  {
+   "zone": "w_nep80",
+   "sessions": [
+    2,
+    74,
+    171,
+    233
+   ],
+   "box": [
+    267.767,
+    272.233,
+    76.0607,
+    77.0607
+   ],
+   "why": "ecliptic latitude \u00b180\u00b0: deep coverage, outside the zones. Cell: |\u03b2| 80\u201390\u00b0, elong 83\u201396\u00b0, |b| 20\u201345\u00b0, Gaia G<17.5 1500\u20132449/deg\u00b2, depth 500\u20131000 exposures, months 2,6,10,12, outside the sky zones"
+  },
+  {
+   "zone": "w_sep80",
+   "sessions": [
+    1,
+    56,
+    117,
+    177,
+    233
+   ],
+   "box": [
+    88.9043,
+    91.0957,
+    -76.8107,
+    -76.3107
+   ],
+   "why": "ecliptic latitude \u00b180\u00b0: deep coverage, outside the zones. Cell: |\u03b2| 60\u201380\u00b0, elong 83\u201398\u00b0, |b| 20\u201345\u00b0, Gaia G<17.5 2449\u20135000/deg\u00b2 (capped list), depth 150\u2013250 exposures, months 3,4,9,11,15, outside the sky zones"
+  },
+  {
+   "zone": "w_gc",
+   "sessions": [
+    3,
+    26,
+    49
+   ],
+   "box": [
+    266.1186,
+    266.6914,
+    -29.186,
+    -28.686
+   ],
+   "why": "galactic centre: the most crowded field. Cell: |\u03b2| 5\u201315\u00b0, elong 91\u2013115\u00b0, |b| 0\u20132\u00b0, Gaia G<17.5 >=5000/deg\u00b2 (capped list), depth 60\u2013100 exposures, months 4,10,16, in the sky zones"
+  },
+  {
+   "zone": "w_baade",
+   "sessions": [
+    2,
+    33,
+    72
+   ],
+   "box": [
+    270.6015,
+    271.1805,
+    -30.285,
+    -29.785
+   ],
+   "why": "galactic bulge, Baade's window (b -3.9\u00b0). Cell: |\u03b2| 5\u201315\u00b0, elong 89\u2013119\u00b0, |b| 2\u20135\u00b0, Gaia G<17.5 >=5000/deg\u00b2 (capped list), depth 60\u2013100 exposures, months 4,10,16, in the sky zones"
+  },
+  {
+   "zone": "w_plane030",
+   "sessions": [
+    1,
+    32,
+    90
+   ],
+   "box": [
+    281.2713,
+    281.772,
+    -2.8591,
+    -2.3591
+   ],
+   "why": "galactic plane l 30\u00b0, b 0\u00b0. Cell: |\u03b2| 15\u201330\u00b0, elong 83\u2013121\u00b0, |b| 0\u20132\u00b0, Gaia G<17.5 >=5000/deg\u00b2 (capped list), depth 60\u2013100 exposures, months 4,10,16, in the sky zones"
+  },
+  {
+   "zone": "w_plane090",
+   "sessions": [
+    12,
+    44,
+    75
+   ],
+   "box": [
+    317.6265,
+    318.3823,
+    48.0796,
+    48.5796
+   ],
+   "why": "galactic plane l 90\u00b0, b 0\u00b0. Cell: |\u03b2| 30\u201360\u00b0, elong 82\u2013109\u00b0, |b| 0\u20132\u00b0, Gaia G<17.5 >=5000/deg\u00b2 (capped list), depth 100\u2013150 exposures, months 1,6,13, outside the sky zones"
+  },
+  {
+   "zone": "w_plane180",
+   "sessions": [
+    1,
+    22,
+    43
+   ],
+   "box": [
+    86.1186,
+    86.6913,
+    28.6862,
+    29.1862
+   ],
+   "why": "galactic plane l 180\u00b0, b 0\u00b0. Cell: |\u03b2| 0\u20135\u00b0, elong 82\u2013111\u00b0, |b| 0\u20132\u00b0, Gaia G<17.5 >=5000/deg\u00b2 (capped list), depth 60\u2013100 exposures, months 4,10,16, in the sky zones"
+  },
+  {
+   "zone": "w_plane270",
+   "sessions": [
+    2,
+    47,
+    148
+   ],
+   "box": [
+    137.6265,
+    138.3823,
+    -48.5796,
+    -48.0796
+   ],
+   "why": "galactic plane l 270\u00b0, b 0\u00b0. Cell: |\u03b2| 30\u201360\u00b0, elong 82\u2013106\u00b0, |b| 0\u20132\u00b0, Gaia G<17.5 >=5000/deg\u00b2 (capped list), depth 100\u2013150 exposures, months 0,6,12, outside the sky zones"
+  },
+  {
+   "zone": "w_plane310",
+   "sessions": [
+    1,
+    41,
+    92
+   ],
+   "box": [
+    207.534,
+    208.609,
+    -62.2838,
+    -61.7838
+   ],
+   "why": "galactic plane l 310\u00b0, b 0\u00b0. Cell: |\u03b2| 30\u201360\u00b0, elong 83\u2013111\u00b0, |b| 0\u20132\u00b0, Gaia G<17.5 >=5000/deg\u00b2 (capped list), depth 100\u2013150 exposures, months 2,9,14, partly outside the sky zones"
+  },
+  {
+   "zone": "w_plane060b4",
+   "sessions": [
+    1,
+    4,
+    37,
+    92
+   ],
+   "box": [
+    291.8461,
+    292.4028,
+    25.5868,
+    26.0868
+   ],
+   "why": "galactic plane l 60\u00b0, b 4\u00b0. Cell: |\u03b2| 30\u201360\u00b0, elong 82\u2013114\u00b0, |b| 5\u201310\u00b0, Gaia G<17.5 >=5000/deg\u00b2 (capped list), depth 100\u2013150 exposures, months 0,4,11,16, partly outside the sky zones"
+  },
+  {
+   "zone": "w_lmc",
+   "sessions": [
+    125,
+    447,
+    851
+   ],
+   "box": [
+    83.9611,
+    85.3789,
+    -69.35,
+    -68.85
+   ],
+   "why": "Large Magellanic Cloud, 30 Doradus (crowding, nebula). Cell: |\u03b2| 80\u201390\u00b0, elong 89\u201395\u00b0, |b| 20\u201345\u00b0, Gaia G<17.5 >=5000/deg\u00b2 (capped list), depth >=1000 exposures, months 0,4,7, outside the sky zones"
+  },
+  {
+   "zone": "w_smc",
+   "sessions": [
+    7,
+    126,
+    177
+   ],
+   "box": [
+    12.331,
+    14.049,
+    -73.08,
+    -72.58
+   ],
+   "why": "Small Magellanic Cloud (crowding). Cell: |\u03b2| 60\u201380\u00b0, elong 82\u2013106\u00b0, |b| 20\u201345\u00b0, Gaia G<17.5 1500\u20132449/deg\u00b2 (capped list), depth 100\u2013150 exposures, months 0,11,17, outside the sky zones"
+  },
+  {
+   "zone": "w_ngp",
+   "sessions": [
+    6,
+    43,
+    73
+   ],
+   "box": [
+    192.2956,
+    193.4244,
+    26.63,
+    27.63
+   ],
+   "why": "north galactic pole: high-latitude empty sky. Cell: |\u03b2| 15\u201330\u00b0, elong 83\u2013118\u00b0, |b| 45\u201390\u00b0, Gaia G<17.5 300\u2013700/deg\u00b2, depth 60\u2013100 exposures, months 0,7,13, in the sky zones"
+  },
+  {
+   "zone": "w_sgp",
+   "sessions": [
+    14,
+    55,
+    88
+   ],
+   "box": [
+    12.2956,
+    13.4244,
+    -27.63,
+    -26.63
+   ],
+   "why": "south galactic pole: high-latitude empty sky. Cell: |\u03b2| 30\u201360\u00b0, elong 82\u2013102\u00b0, |b| 45\u201390\u00b0, Gaia G<17.5 300\u2013700/deg\u00b2, depth 60\u2013100 exposures, months 1,7,13, in the sky zones"
+  },
+  {
+   "zone": "w_lockman",
+   "sessions": [
+    12,
+    62
+   ],
+   "box": [
+    160.2931,
+    162.2069,
+    57.5,
+    58.5
+   ],
+   "why": "Lockman Hole: the emptiest high-latitude sky. Cell: |\u03b2| 30\u201360\u00b0, elong 82\u2013102\u00b0, |b| 45\u201390\u00b0, Gaia G<17.5 300\u2013700/deg\u00b2, depth 60\u2013100 exposures, months 6,11, outside the sky zones"
+  },
+  {
+   "zone": "w_omegacen",
+   "sessions": [
+    17,
+    57,
+    78
+   ],
+   "box": [
+    201.3253,
+    202.0687,
+    -47.73,
+    -47.23
+   ],
+   "why": "omega Centauri: a globular cluster's crowded core. Cell: |\u03b2| 30\u201360\u00b0, elong 82\u2013126\u00b0, |b| 10\u201320\u00b0, Gaia G<17.5 >=5000/deg\u00b2 (capped list), depth 60\u2013100 exposures, months 2,8,13, in the sky zones"
+  },
+  {
+   "zone": "w_orion",
+   "sessions": [
+    33,
+    73,
+    107
+   ],
+   "box": [
+    83.3173,
+    84.3227,
+    -5.89,
+    -4.89
+   ],
+   "why": "Orion Nebula: bright extended emission. Cell: |\u03b2| 15\u201330\u00b0, elong 86\u201393\u00b0, |b| 10\u201320\u00b0, Gaia G<17.5 1500\u20132449/deg\u00b2, depth 60\u2013100 exposures, months 4,10,16, in the sky zones"
+  },
+  {
+   "zone": "w_sirius",
+   "sessions": [
+    25,
+    44,
+    72
+   ],
+   "box": [
+    101.0256,
+    101.5484,
+    -16.966,
+    -16.466
+   ],
+   "why": "Sirius: the brightest star (glints, ghosts, bleed). Cell: |\u03b2| 30\u201360\u00b0, elong 82\u2013100\u00b0, |b| 5\u201310\u00b0, Gaia G<17.5 >=5000/deg\u00b2 (capped list), depth 60\u2013100 exposures, months 5,10,17, in the sky zones"
+  },
+  {
+   "zone": "w_e00g10a",
+   "sessions": [
+    13,
+    27,
+    57
+   ],
+   "box": [
+    281.6289,
+    282.1828,
+    -25.4693,
+    -24.9693
+   ],
+   "why": "stratified: |\u03b2| 0\u20135\u00b0, |b| 10\u201320\u00b0. Cell: |\u03b2| 0\u20135\u00b0, elong 91\u2013121\u00b0, |b| 10\u201320\u00b0, Gaia G<17.5 >=5000/deg\u00b2 (capped list), depth 60\u2013100 exposures, months 4,11,16, in the sky zones"
+  },
+  {
+   "zone": "w_e00g20a",
+   "sessions": [
+    2,
+    44,
+    62
+   ],
+   "box": [
+    216.3433,
+    217.3955,
+    -18.1147,
+    -17.1147
+   ],
+   "why": "stratified: |\u03b2| 0\u20135\u00b0, |b| 20\u201345\u00b0. Cell: |\u03b2| 0\u20135\u00b0, elong 89\u2013121\u00b0, |b| 20\u201345\u00b0, Gaia G<17.5 1500\u20132449/deg\u00b2, depth 60\u2013100 exposures, months 2,9,14, in the sky zones"
+  },
+  {
+   "zone": "w_e00g02a",
+   "sessions": [
+    1,
+    24,
+    49
+   ],
+   "box": [
+    86.9257,
+    87.4591,
+    19.8805,
+    20.3805
+   ],
+   "why": "stratified: |\u03b2| 0\u20135\u00b0, |b| 2\u20135\u00b0. Cell: |\u03b2| 0\u20135\u00b0, elong 82\u2013103\u00b0, |b| 2\u20135\u00b0, Gaia G<17.5 >=5000/deg\u00b2 (capped list), depth 60\u2013100 exposures, months 4,10,16, in the sky zones"
+  },
+  {
+   "zone": "w_e00g45a",
+   "sessions": [
+    1,
+    30,
+    61
+   ],
+   "box": [
+    173.8025,
+    174.8052,
+    3.2279,
+    4.2279
+   ],
+   "why": "stratified: |\u03b2| 0\u20135\u00b0, |b| 45\u201390\u00b0. Cell: |\u03b2| 0\u20135\u00b0, elong 83\u2013123\u00b0, |b| 45\u201390\u00b0, Gaia G<17.5 300\u2013700/deg\u00b2, depth 60\u2013100 exposures, months 0,7,12, in the sky zones"
+  },
+  {
+   "zone": "w_e00g05a",
+   "sessions": [
+    3,
+    25,
+    46
+   ],
+   "box": [
+    97.6652,
+    98.2148,
+    24.0232,
+    24.5232
+   ],
+   "why": "stratified: |\u03b2| 0\u20135\u00b0, |b| 5\u201310\u00b0. Cell: |\u03b2| 0\u20135\u00b0, elong 83\u2013103\u00b0, |b| 5\u201310\u00b0, Gaia G<17.5 >=5000/deg\u00b2 (capped list), depth 60\u2013100 exposures, months 5,10,16, in the sky zones"
+  },
+  {
+   "zone": "w_e15g00a",
+   "sessions": [
+    5,
+    42,
+    66
+   ],
+   "box": [
+    73.4483,
+    74.149,
+    43.9731,
+    44.4731
+   ],
+   "why": "stratified: |\u03b2| 15\u201330\u00b0, |b| 0\u20132\u00b0. Cell: |\u03b2| 15\u201330\u00b0, elong 82\u2013107\u00b0, |b| 0\u20132\u00b0, Gaia G<17.5 >=5000/deg\u00b2 (capped list), depth 60\u2013100 exposures, months 4,9,16, in the sky zones"
+  },
+  {
+   "zone": "w_e15g10a",
+   "sessions": [
+    2,
+    29,
+    65
+   ],
+   "box": [
+    224.5587,
+    225.2843,
+    -46.4428,
+    -45.9428
+   ],
+   "why": "stratified: |\u03b2| 15\u201330\u00b0, |b| 10\u201320\u00b0. Cell: |\u03b2| 15\u201330\u00b0, elong 83\u2013118\u00b0, |b| 10\u201320\u00b0, Gaia G<17.5 >=5000/deg\u00b2 (capped list), depth 60\u2013100 exposures, months 2,9,14, in the sky zones"
+  },
+  {
+   "zone": "w_e15g20a",
+   "sessions": [
+    1,
+    37,
+    55
+   ],
+   "box": [
+    322.1646,
+    322.6742,
+    10.6234,
+    11.1234
+   ],
+   "why": "stratified: |\u03b2| 15\u201330\u00b0, |b| 20\u201345\u00b0. Cell: |\u03b2| 15\u201330\u00b0, elong 82\u2013110\u00b0, |b| 20\u201345\u00b0, Gaia G<17.5 2449\u20135000/deg\u00b2 (capped list), depth 60\u2013100 exposures, months 0,6,12, in the sky zones"
+  },
+  {
+   "zone": "w_e15g02a",
+   "sessions": [
+    1,
+    36,
+    90
+   ],
+   "box": [
+    60.6637,
+    61.4084,
+    47.3264,
+    47.8264
+   ],
+   "why": "stratified: |\u03b2| 15\u201330\u00b0, |b| 2\u20135\u00b0. Cell: |\u03b2| 15\u201330\u00b0, elong 83\u2013110\u00b0, |b| 2\u20135\u00b0, Gaia G<17.5 >=5000/deg\u00b2 (capped list), depth 60\u2013100 exposures, months 3,9,16, in the sky zones"
+  },
+  {
+   "zone": "w_e15g45a",
+   "sessions": [
+    13,
+    34,
+    101
+   ],
+   "box": [
+    324.8755,
+    326.1353,
+    -37.4559,
+    -36.4559
+   ],
+   "why": "stratified: |\u03b2| 15\u201330\u00b0, |b| 45\u201390\u00b0. Cell: |\u03b2| 15\u201330\u00b0, elong 86\u2013113\u00b0, |b| 45\u201390\u00b0, Gaia G<17.5 700\u20131500/deg\u00b2, depth 60\u2013100 exposures, months 0,5,12, in the sky zones"
+  },
+  {
+   "zone": "w_e15g05a",
+   "sessions": [
+    27,
+    48,
+    95
+   ],
+   "box": [
+    96.2315,
+    96.7347,
+    -6.5472,
+    -6.0472
+   ],
+   "why": "stratified: |\u03b2| 15\u201330\u00b0, |b| 5\u201310\u00b0. Cell: |\u03b2| 15\u201330\u00b0, elong 86\u2013101\u00b0, |b| 5\u201310\u00b0, Gaia G<17.5 >=5000/deg\u00b2 (capped list), depth 60\u2013100 exposures, months 5,10,17, in the sky zones"
+  },
+  {
+   "zone": "w_e30g00a",
+   "sessions": [
+    1,
+    3,
+    51
+   ],
+   "box": [
+    115.5174,
+    116.074,
+    -26.0631,
+    -25.5631
+   ],
+   "why": "stratified: |\u03b2| 30\u201360\u00b0, |b| 0\u20132\u00b0. Cell: |\u03b2| 30\u201360\u00b0, elong 82\u2013101\u00b0, |b| 0\u20132\u00b0, Gaia G<17.5 >=5000/deg\u00b2 (capped list), depth 60\u2013100 exposures, months 0,5,11, partly outside the sky zones"
+  },
+  {
+   "zone": "w_e30g10a",
+   "sessions": [
+    1,
+    36,
+    108
+   ],
+   "box": [
+    270.4987,
+    271.0056,
+    8.9412,
+    9.4412
+   ],
+   "why": "stratified: |\u03b2| 30\u201360\u00b0, |b| 10\u201320\u00b0. Cell: |\u03b2| 30\u201360\u00b0, elong 82\u2013121\u00b0, |b| 10\u201320\u00b0, Gaia G<17.5 >=5000/deg\u00b2 (capped list), depth 100\u2013150 exposures, months 3,10,15, in the sky zones"
+  },
+  {
+   "zone": "w_e30g20a",
+   "sessions": [
+    23,
+    54,
+    101
+   ],
+   "box": [
+    165.3701,
+    166.5658,
+    -33.2413,
+    -32.2413
+   ],
+   "why": "stratified: |\u03b2| 30\u201360\u00b0, |b| 20\u201345\u00b0. Cell: |\u03b2| 30\u201360\u00b0, elong 82\u2013119\u00b0, |b| 20\u201345\u00b0, Gaia G<17.5 1500\u20132449/deg\u00b2 (capped list), depth 60\u2013100 exposures, months 1,7,12, in the sky zones"
+  },
+  {
+   "zone": "w_e30g02a",
+   "sessions": [
+    10,
+    34,
+    73
+   ],
+   "box": [
+    39.8444,
+    40.9335,
+    62.1693,
+    62.6693
+   ],
+   "why": "stratified: |\u03b2| 30\u201360\u00b0, |b| 2\u20135\u00b0. Cell: |\u03b2| 30\u201360\u00b0, elong 82\u2013112\u00b0, |b| 0\u20132\u00b0, Gaia G<17.5 >=5000/deg\u00b2 (capped list), depth 100\u2013150 exposures, months 3,8,15, in the sky zones"
+  },
+  {
+   "zone": "w_e30g45a",
+   "sessions": [
+    2,
+    103,
+    136
+   ],
+   "box": [
+    22.6249,
+    23.9911,
+    -42.95,
+    -41.95
+   ],
+   "why": "stratified: |\u03b2| 30\u201360\u00b0, |b| 45\u201390\u00b0. Cell: |\u03b2| 30\u201360\u00b0, elong 82\u201395\u00b0, |b| 45\u201390\u00b0, Gaia G<17.5 300\u2013700/deg\u00b2, depth 100\u2013150 exposures, months 1,7,13, outside the sky zones"
+  },
+  {
+   "zone": "w_e30g45b",
+   "sessions": [
+    31,
+    71,
+    122
+   ],
+   "box": [
+    52.1006,
+    53.2433,
+    -28.9485,
+    -27.9485
+   ],
+   "why": "stratified: |\u03b2| 30\u201360\u00b0, |b| 45\u201390\u00b0. Cell: |\u03b2| 30\u201360\u00b0, elong 86\u201394\u00b0, |b| 45\u201390\u00b0, Gaia G<17.5 300\u2013700/deg\u00b2, depth 60\u2013100 exposures, months 3,9,15, partly outside the sky zones"
+  },
+  {
+   "zone": "w_e30g05a",
+   "sessions": [
+    20,
+    43,
+    60
+   ],
+   "box": [
+    4.1721,
+    5.0257,
+    53.644,
+    54.144
+   ],
+   "why": "stratified: |\u03b2| 30\u201360\u00b0, |b| 5\u201310\u00b0. Cell: |\u03b2| 30\u201360\u00b0, elong 82\u2013109\u00b0, |b| 5\u201310\u00b0, Gaia G<17.5 >=5000/deg\u00b2 (capped list), depth 100\u2013150 exposures, months 2,8,14, outside the sky zones"
+  },
+  {
+   "zone": "w_e05g00a",
+   "sessions": [
+    1,
+    32,
+    57
+   ],
+   "box": [
+    273.3583,
+    273.8735,
+    -13.9613,
+    -13.4613
+   ],
+   "why": "stratified: |\u03b2| 5\u201315\u00b0, |b| 0\u20132\u00b0. Cell: |\u03b2| 5\u201315\u00b0, elong 88\u2013123\u00b0, |b| 0\u20132\u00b0, Gaia G<17.5 >=5000/deg\u00b2 (capped list), depth 60\u2013100 exposures, months 3,10,16, in the sky zones"
+  },
+  {
+   "zone": "w_e05g10a",
+   "sessions": [
+    4,
+    24,
+    45
+   ],
+   "box": [
+    80.1914,
+    80.7073,
+    13.7819,
+    14.2819
+   ],
+   "why": "stratified: |\u03b2| 5\u201315\u00b0, |b| 10\u201320\u00b0. Cell: |\u03b2| 5\u201315\u00b0, elong 82\u2013104\u00b0, |b| 10\u201320\u00b0, Gaia G<17.5 2449\u20135000/deg\u00b2 (capped list), depth 60\u2013100 exposures, months 4,10,16, in the sky zones"
+  },
+  {
+   "zone": "w_e05g20a",
+   "sessions": [
+    1,
+    45,
+    69
+   ],
+   "box": [
+    202.2247,
+    203.3054,
+    -22.2906,
+    -21.2906
+   ],
+   "why": "stratified: |\u03b2| 5\u201315\u00b0, |b| 20\u201345\u00b0. Cell: |\u03b2| 5\u201315\u00b0, elong 88\u2013127\u00b0, |b| 20\u201345\u00b0, Gaia G<17.5 700\u20131500/deg\u00b2, depth 60\u2013100 exposures, months 1,8,13, in the sky zones"
+  },
+  {
+   "zone": "w_e05g02a",
+   "sessions": [
+    11,
+    35,
+    57
+   ],
+   "box": [
+    73.8498,
+    74.466,
+    35.2563,
+    35.7563
+   ],
+   "why": "stratified: |\u03b2| 5\u201315\u00b0, |b| 2\u20135\u00b0. Cell: |\u03b2| 5\u201315\u00b0, elong 85\u201397\u00b0, |b| 2\u20135\u00b0, Gaia G<17.5 >=5000/deg\u00b2 (capped list), depth 60\u2013100 exposures, months 4,10,16, in the sky zones"
+  },
+  {
+   "zone": "w_e05g45a",
+   "sessions": [
+    2,
+    36,
+    71
+   ],
+   "box": [
+    5.9297,
+    6.9342,
+    -5.445,
+    -4.445
+   ],
+   "why": "stratified: |\u03b2| 5\u201315\u00b0, |b| 45\u201390\u00b0. Cell: |\u03b2| 5\u201315\u00b0, elong 82\u2013118\u00b0, |b| 45\u201390\u00b0, Gaia G<17.5 300\u2013700/deg\u00b2, depth 60\u2013100 exposures, months 1,7,13, in the sky zones"
+  },
+  {
+   "zone": "w_e05g05a",
+   "sessions": [
+    12,
+    26,
+    75
+   ],
+   "box": [
+    91.1327,
+    91.6416,
+    10.192,
+    10.692
+   ],
+   "why": "stratified: |\u03b2| 5\u201315\u00b0, |b| 5\u201310\u00b0. Cell: |\u03b2| 5\u201315\u00b0, elong 86\u2013114\u00b0, |b| 5\u201310\u00b0, Gaia G<17.5 >=5000/deg\u00b2 (capped list), depth 60\u2013100 exposures, months 4,10,17, in the sky zones"
+  },
+  {
+   "zone": "w_e60g10a",
+   "sessions": [
+    1,
+    30,
+    90
+   ],
+   "box": [
+    107.0634,
+    107.7353,
+    -41.9187,
+    -41.4187
+   ],
+   "why": "stratified: |\u03b2| 60\u201380\u00b0, |b| 10\u201320\u00b0. Cell: |\u03b2| 60\u201380\u00b0, elong 86\u201398\u00b0, |b| 10\u201320\u00b0, Gaia G<17.5 >=5000/deg\u00b2 (capped list), depth 100\u2013150 exposures, months 0,5,11, outside the sky zones"
+  },
+  {
+   "zone": "w_e60g20a",
+   "sessions": [
+    28,
+    105,
+    153
+   ],
+   "box": [
+    79.4479,
+    80.7179,
+    -38.0569,
+    -37.0569
+   ],
+   "why": "stratified: |\u03b2| 60\u201380\u00b0, |b| 20\u201345\u00b0. Cell: |\u03b2| 60\u201380\u00b0, elong 86\u201392\u00b0, |b| 20\u201345\u00b0, Gaia G<17.5 1500\u20132449/deg\u00b2, depth 100\u2013150 exposures, months 4,10,16, outside the sky zones"
+  },
+  {
+   "zone": "w_e60g02a",
+   "sessions": [
+    20,
+    94,
+    151
+   ],
+   "box": [
+    156.295,
+    157.3083,
+    -60.4329,
+    -59.9329
+   ],
+   "why": "stratified: |\u03b2| 60\u201380\u00b0, |b| 2\u20135\u00b0. Cell: |\u03b2| 30\u201360\u00b0, elong 86\u2013108\u00b0, |b| 0\u20132\u00b0, Gaia G<17.5 >=5000/deg\u00b2 (capped list), depth 100\u2013150 exposures, months 2,8,13, outside the sky zones"
+  },
+  {
+   "zone": "w_e60g45a",
+   "sessions": [
+    2,
+    88,
+    134
+   ],
+   "box": [
+    52.4589,
+    54.0543,
+    -51.1875,
+    -50.1875
+   ],
+   "why": "stratified: |\u03b2| 60\u201380\u00b0, |b| 45\u201390\u00b0. Cell: |\u03b2| 60\u201380\u00b0, elong 84\u201396\u00b0, |b| 45\u201390\u00b0, Gaia G<17.5 700\u20131500/deg\u00b2, depth 100\u2013150 exposures, months 1,8,14, outside the sky zones"
+  },
+  {
+   "zone": "w_e60g05a",
+   "sessions": [
+    16,
+    75,
+    137
+   ],
+   "box": [
+    166.9644,
+    168.3066,
+    -68.1278,
+    -67.6278
+   ],
+   "why": "stratified: |\u03b2| 60\u201380\u00b0, |b| 5\u201310\u00b0. Cell: |\u03b2| 60\u201380\u00b0, elong 86\u2013101\u00b0, |b| 5\u201310\u00b0, Gaia G<17.5 >=5000/deg\u00b2 (capped list), depth 100\u2013150 exposures, months 2,9,14, outside the sky zones"
+  },
+  {
+   "zone": "w_e80g20a",
+   "sessions": [
+    156,
+    2189,
+    4600
+   ],
+   "box": [
+    78.6109,
+    80.5265,
+    -58.5322,
+    -57.5322
+   ],
+   "why": "stratified: |\u03b2| 80\u201390\u00b0, |b| 20\u201345\u00b0. Cell: |\u03b2| 80\u201390\u00b0, elong 82\u2013100\u00b0, |b| 20\u201345\u00b0, Gaia G<17.5 1500\u20132449/deg\u00b2, depth >=1000 exposures, months 0,8,17, outside the sky zones"
+  },
+  {
+   "zone": "w_e80g20b",
+   "sessions": [
+    1,
+    51,
+    151,
+    176,
+    184,
+    253
+   ],
+   "box": [
+    109.4795,
+    110.6401,
+    -64.4797,
+    -63.9797
+   ],
+   "why": "stratified: |\u03b2| 80\u201390\u00b0, |b| 20\u201345\u00b0. Cell: |\u03b2| 80\u201390\u00b0, elong 85\u201397\u00b0, |b| 20\u201345\u00b0, Gaia G<17.5 2449\u20135000/deg\u00b2 (capped list), depth 150\u2013250 exposures, months 0,2,8,9,12,15, outside the sky zones"
+  }
+ ]
+}

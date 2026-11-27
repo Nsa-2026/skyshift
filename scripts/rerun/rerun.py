@@ -115,6 +115,17 @@ def zone_photos(data: Path, zone: str) -> pd.DataFrame:
     return pd.read_parquet(data / "photolists" / "zones" / f"{zone}.parquet")
 
 
+def zone_box(zone: str, target: dict | None = None):
+    """The zone's RA/Dec box: config's zone, else the target's `box` [ra_min, ra_max, dec_min, dec_max] (the wide
+    sample's zones w_<name>, wide_targets.json), else None (score_bench then counts the whole photo)."""
+    from skyshift_pipeline import config as C
+
+    if zone in C.ZONES:
+        return C.ZONES[zone]
+    box = (target or {}).get("box")
+    return C.Zone(zone, *(float(x) for x in box)) if box else None
+
+
 # --- plan: reads, overlap, time, disk -----------------------------------------------------------------------------
 
 
