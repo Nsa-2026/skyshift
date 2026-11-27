@@ -62,6 +62,9 @@ ESTIMATE = {
     "ram_gb_per_worker": 1.7,
 }
 SKY_PREFIXES = ("ecl",)               # the 332 ecliptic zones; + hunt = the 333 zones of the sky run
+TEST_ZONE_PREFIXES = ("w_",)          # test-only zones (the wide sample's w_<name>, 27 Nov): never in "all" (their photos
+#                                       are other zones' photos too: a whole-sky plan would count and read them twice);
+#                                       named one by one they run as asked
 
 
 def log(msg: str) -> None:
@@ -90,11 +93,12 @@ def load_index(data: Path) -> pd.DataFrame:
 
 def sky_zone_names(data: Path, which: str) -> list[str]:
     """Zones in run order. "sky": hunt, then the ecliptic zones nearest the ecliptic first (row 0, ±1, …), column by
-    column, so neighbouring zones (which share ~half their photos) follow each other. "all": every zone with a list.
-    Otherwise a comma list."""
+    column, so neighbouring zones (which share ~half their photos) follow each other. "all": every zone with a list
+    except the test zones (TEST_ZONE_PREFIXES, e.g. the wide sample's w_*). Otherwise a comma list (test zones allowed
+    by name)."""
     have = sorted(p.stem for p in (data / "photolists" / "zones").glob("*.parquet"))
     if which == "all":
-        return have
+        return [z for z in have if not z.startswith(TEST_ZONE_PREFIXES)]
     if which != "sky":
         names = [z.strip() for z in which.split(",") if z.strip()]
         missing = [z for z in names if z not in have]

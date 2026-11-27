@@ -72,6 +72,16 @@ def test_sky_zone_order_hunt_first_then_nearest_the_ecliptic(tmp_path):
         R.sky_zone_names(tmp_path, "nope")
 
 
+def test_all_leaves_out_the_wide_samples_test_zones_unless_named(tmp_path):
+    z = tmp_path / "photolists" / "zones"
+    z.mkdir(parents=True)
+    for n in ("ecl00", "hunt", "t_nep", "w_gc", "w_zodi060"):
+        (z / f"{n}.parquet").write_bytes(b"")
+    assert R.sky_zone_names(tmp_path, "all") == ["ecl00", "hunt", "t_nep"]
+    assert "w_gc" not in R.sky_zone_names(tmp_path, "sky")
+    assert R.sky_zone_names(tmp_path, "w_gc,hunt") == ["w_gc", "hunt"]
+
+
 def test_parallel_workers_counts_smt_threads_at_a_fraction():
     assert R.parallel_workers(8, 12, 0.25) == 8
     assert R.parallel_workers(20, 12, 0.25) == 14
