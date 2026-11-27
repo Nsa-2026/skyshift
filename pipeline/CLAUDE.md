@@ -258,6 +258,13 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   scripts/rerun/cond_report.py groups the files (noise × star density × detector) with score_bench --stars-out.
   62 bench photos: 22.3 kB per photo (64 px 53 kB, 256 px 12.8 kB; the footer's per-column metadata is ~5 kB),
   +0.21 s CPU per photo for the table and +0.08–0.11 s in mf_pass for the negative peaks (v2 detection 22 s median).
+- Stamps (27 Nov, agent "comet-stamps"; stamps.py, stamplist.py; config STAMP_*, env SKYSHIFT_STAMPS,
+  SKYSHIFT_STAMP_LIST): with extraction v2 the dots worker cuts a patch (IMAGE, VARIANCE, FLAGS, ZODI, its background,
+  the ext pass's point-free residual, bad mask, wavelength, bandwidth) around every stamp-list position in the photo,
+  moved to MJD-AVG and to SPHEREx (header X_SC..), into <folder>_stamps/<obs_id>D<det>.parquet (read_stamps); never
+  raises, never changes a dot (footer `stamps`). The list (`python -m skyshift_pipeline.stamplist`, once on the PC,
+  ~2 min): every MPC comet (cometels + allcometels, 3I/ATLAS included) within 0.25° of each index photo, geocentric,
+  no magnitude cut; half-width 30–128 px from a 1e5 km coma. Stack: scripts/rerun/stack_stamps.py.
 - classify and photoz read only sources.parquet (+ optional dot shape columns, crossids, refcat); never photos.
   photoz queries SDSS DR17 once per zone (cached in cache/sdss/<zone>.parquet); a network failure only skips the report.
 - refcat: Gaia DR3 (G<20), CatWISE2020, 2MASS PSC over zone + 0.1° in 1° tiles (cache/refcat/<zone>/), writes

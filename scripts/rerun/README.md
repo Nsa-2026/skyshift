@@ -42,3 +42,21 @@ uses those numbers once they exist.
   zones gets two stack keys: 121,735 photos (14%) are read a second time for a stack.
 - Smoke test (R Draconis, 8 photos, 2 workers): detection 6.5 s per photo; the read took 32 s on the PC's Wi-Fi
   (~2–4 MB/s per download, ~10 MB/s for any number in parallel). The run is network-bound until the PC is on Ethernet.
+
+## Comet stamps (27 Nov, agent "comet-stamps")
+
+The worker cuts a small patch (IMAGE, VARIANCE, FLAGS, ZODI, its background, the point-free residual, wavelength,
+bandwidth) around every known comet in each photo, so faint comets can be stacked along their path later without a
+second read (pipeline/src/skyshift_pipeline/stamps.py; one file per photo with comets, `<v2 folder>_stamps/`). The list
+of comets per photo is built once on the PC, before the run, from the MPC's comet files (free) with kete:
+
+```bash
+mkdir -p ~/skyshift-data/stamplists/orbits && cd ~/skyshift-data/stamplists/orbits
+curl -O https://minorplanetcenter.net/Extended_Files/cometels.json.gz -O https://minorplanetcenter.net/Extended_Files/allcometels.json.gz
+cd ~/skyshift && uv run --project pipeline python -m skyshift_pipeline.stamplist --index ~/skyshift-data/photolists/s3index \
+    --orbits ~/skyshift-data/stamplists/orbits --out ~/skyshift-data/stamplists --workers 3   # ~2 min, 1.1 M rows
+```
+
+`bench` links `<data>/stamplists` into its root when it exists; `run` roots find it as `stamplists/` (or set
+`SKYSHIFT_STAMP_LIST=<folder>`). `SKYSHIFT_STAMPS=0` turns the stamps off. Stack one comet's stamps:
+`uv run --project pipeline python scripts/rerun/stack_stamps.py --root <root> --name "306P/LINEAR" [--frame star]`.

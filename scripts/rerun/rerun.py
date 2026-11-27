@@ -291,9 +291,9 @@ def _worker_init(map_zones: tuple) -> None:
 def bench_root(data: Path, root: Path) -> None:
     """The bench root: its own output folders, the data root's photo lists and sky forced lists linked in."""
     root.mkdir(parents=True, exist_ok=True)
-    for rel in ("photolists", "refcat"):
+    for rel in ("photolists", "refcat", "stamplists"):  # stamplists: stamplist.py's lists, when built
         link = root / rel
-        if not link.exists():
+        if not link.exists() and not link.is_symlink() and (rel != "stamplists" or (data / rel).exists()):
             link.symlink_to(data / rel)
 
 

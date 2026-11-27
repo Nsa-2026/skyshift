@@ -597,6 +597,8 @@ def _ext_pass(l2, det: np.ndarray, comp: tuple | None, ctx: PhotoContext, s: C.D
                      "flux": ep.dots["flux"], "flux_err": ep.dots["flux_err"], "snr_ext": ep.snr_ext,
                      "snr_point": ep.snr_point, "scale": ep.scale, "flux_ext": ep.flux_ext}
     extras["ext_stats"] = {k: v for k, v in info.items() if isinstance(v, dict)}
+    if C.STAMPS:  # stamps.py cuts patches of it (a reference, no copy)
+        extras["point_free"] = ep.resid
     timing["ext_pass_s"] = time.perf_counter() - t0
 
 
@@ -1527,6 +1529,8 @@ class Pending:
     streaks_rel: str | None = None
     cond: object | None = None  # the conditions table (cond.py; a pyarrow Table)
     cond_rel: str | None = None
+    stamps: object = None  # stamps.py: the stamp table (pyarrow) of a photo with stamp-list rows
+    stamps_rel: str | None = None
 
 
 def _measure(store: Store, l2, obs_id: str, detector: int, session: int, visit: int, zone: str | None,
@@ -1604,6 +1608,9 @@ def _measure(store: Store, l2, obs_id: str, detector: int, session: int, visit: 
                 if C.COND:  # the conditions table (cond.py): never raises, never changes a dot
                     from . import cond as CD
                     CD.attach(out, l2, ctx, extras, forced, obs_id, detector, ddir, st)
+            if C.STAMPS and ctx is not None:  # patches around listed comets: own file, never raises (stamps.py)
+                from . import stamps as SP
+                SP.attach(store, out, l2, ctx, extras, obs_id, detector, ddir, st)
             st["v2_s"] = round(time.time() - t0, 2)
         return out
     except Exception as e:  # noqa: BLE001
@@ -1633,6 +1640,9 @@ def _finish(store: Store, p: Pending | None, st: dict) -> dict:
         if p.cond is not None:  # never raises: an error goes to the dot file's footer cond.error
             from . import cond as CD
             CD.write(store, p, st)
+        if p.stamps is not None:
+            from . import stamps as SP
+            SP.write(store, p, st)  # a failed write is noted in the footer, the dots stay
         if "partner_flux_ujy" in p.df:
             p.meta["n_partner"] = int(np.isfinite(p.df["partner_flux_ujy"].to_numpy(np.float64)).sum())
         table = dots_arrow(p.df, p.meta)
