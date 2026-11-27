@@ -2,7 +2,7 @@
 // how a page joins, which page to ask next, and the line under the strip.
 import { describe, expect, it } from "vitest";
 import type { Det, Epoch, FramesResponse, Measured } from "../api/types";
-import { joinPage, liveVisitUrl, newStream, nextPage, pageUrl, pagesText, photosOf, streamDone, visitMjd, visitSource } from "./pages";
+import { joinPage, liveVisitUrl, newStream, nextPage, pageUrl, pagesText, partialLacksPhotos, photosOf, retryDelay, streamDone, visitMjd, visitSource } from "./pages";
 import { visitSpan } from "./strip";
 
 const ep = (id: string, mjd: number, det: Det = 2): Epoch => ({
@@ -124,6 +124,10 @@ describe("the whole hours visit", () => {
     );
     expect(pagesText(1, null, false)).toBe("1 photo of this visit");
     expect(pagesText(6, 4, false)).toBe("6 photos of this visit");
+    // an object to check shows the day of its find
+    expect(pagesText(19, 19, false, 0, 4)).toBe("19 of 19 photos of this visit · the plate shows the 4 within a day of the find");
+    expect(pagesText(6, 19, true, 0, 4)).toBe("6 of 19 photos of this visit loaded · loading… · the plate shows the 4 within a day of the find");
+    expect(pagesText(19, 19, false, 0, 19)).toBe("19 of 19 photos of this visit");
   });
 
   it("dates a months visit by its weeks", () => {
@@ -132,5 +136,18 @@ describe("the whole hours visit", () => {
     expect(visitSpan(61007.5, 61023.5)).toBe("28 Nov – 14 Dec 2025");
     expect(visitSpan(61029.5, 61046.5)).toBe("20 Dec 2025 – 6 Jan 2026");
     expect(visitSpan(61021.2, 61021.3)).toBe("12 Dec 2025");
+  });
+});
+
+describe("asking again", () => {
+  it("asks a partial page again only when cutouts came too late", () => {
+    expect(partialLacksPhotos("2 of 6 cutouts not in time")).toBe(true);
+    expect(partialLacksPhotos("Gaia failed; 1 of 6 cutouts not in time")).toBe(true);
+    expect(partialLacksPhotos("Gaia failed")).toBe(false);
+    expect(partialLacksPhotos("known objects not in time; measured layer unavailable")).toBe(false);
+    expect(partialLacksPhotos(null)).toBe(false);
+  });
+  it("waits 3, 6 and 12 s between tries", () => {
+    expect([1, 2, 3].map(retryDelay)).toEqual([3000, 6000, 12000]);
   });
 });

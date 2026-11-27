@@ -17,9 +17,21 @@ export const PAGE_SIZE = 6;
  */
 export const PAGES_AT_ONCE = 3;
 export const PAGES_AT_ONCE_PAIRED = 2;
-/** A page that failed (an error, a busy archive, or cutouts that came too late) is asked once more,
- *  this long after; the server keeps the cutouts that arrived, so the second answer is quick. */
+/** A page that failed (an error, a busy service: Cloud Run's 503) is asked again after PAGE_RETRY_MS,
+ *  then twice as long each time, PAGE_TRIES times in all (3, 6 and 12 s between tries). */
 export const PAGE_RETRY_MS = 3000;
+export const PAGE_TRIES = 4;
+export const retryDelay = (fails: number): number => PAGE_RETRY_MS * 2 ** Math.max(0, fails - 1);
+
+/**
+ * A partial answer (X-SkyShift-Partial, the reasons joined by "; ") lacks photos only when cutouts came
+ * too late ("2 of 6 cutouts not in time"): that page is asked once more, and the server keeps the cutouts
+ * that arrived. Other reasons ("Gaia failed", "known objects not in time") leave every photo there, and
+ * asking again only rebuilds the same answer.
+ */
+export function partialLacksPhotos(why: string | null | undefined): boolean {
+  return !!why && /cutouts? not in time/i.test(why);
+}
 
 const base = (): string => (typeof location !== "undefined" ? location.href : "http://localhost/");
 
@@ -194,12 +206,14 @@ export function streamDone(s: PageStream, have: number): boolean {
  * "6 of 57 photos of this visit loaded · loading…", "57 of 57 photos of this visit", and when some
  * could not be loaded, how many.
  */
-export function pagesText(loaded: number, total: number | null | undefined, busy: boolean, failed = 0): string {
+export function pagesText(loaded: number, total: number | null | undefined, busy: boolean, failed = 0, onPlate?: number): string {
   const n = (k: number) => `${k} photo${k === 1 ? "" : "s"}`;
   const t = total && total >= loaded ? total : null;
-  if (busy) return `${t ? `${loaded} of ${t} photos` : n(loaded)} of this visit loaded · loading…`;
-  if (!t) return `${n(loaded)} of this visit`;
-  if (loaded >= t) return `${loaded} of ${t} photos of this visit`;
+  // An object to check shows the day of its find: say so, or the visit looks short of photos.
+  const plate = onPlate != null && onPlate < loaded ? ` · the plate shows the ${onPlate} within a day of the find` : "";
+  if (busy) return `${t ? `${loaded} of ${t} photos` : n(loaded)} of this visit loaded · loading…${plate}`;
+  if (!t) return `${n(loaded)} of this visit${plate}`;
+  if (loaded >= t) return `${loaded} of ${t} photos of this visit${plate}`;
   const miss = t - loaded;
-  return `${loaded} of ${t} photos of this visit loaded; ${miss} could not be loaded${failed ? " (SkyShift's live service did not answer for them)" : ""}`;
+  return `${loaded} of ${t} photos of this visit loaded; ${miss} could not be loaded${failed ? " (SkyShift's live service did not answer for them)" : ""}${plate}`;
 }

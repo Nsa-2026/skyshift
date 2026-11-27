@@ -220,7 +220,10 @@ export const mountCard: MountCard = (el, options = {}) => {
   // ---- the measurement -----------------------------------------------------------------------
   function measureHtml(s: Shown, notes: Note[]): string {
     const object = s.object;
-    const m = object?.measure ?? null;
+    // A measurement without its numbers (the server's Gaia reference stars failed: sigma null) is
+    // no measurement: reading it threw, and the throw stopped every later Viewer change (Hours, D1–D6).
+    const raw = object?.measure ?? null;
+    const m = raw && [raw.shift_arcsec, raw.sigma_arcsec, raw.rate_arcsec_yr].every(Number.isFinite) ? raw : null;
     const src = m ? measureSource(m) : null; // v3.9; absent in older files: then we don't name it
     const g = object?.gaia ?? null;
     const pc = distancePc(g?.parallax);

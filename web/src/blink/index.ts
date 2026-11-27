@@ -12,11 +12,13 @@ import {
   joinPage,
   newStream,
   nextPage,
-  PAGE_RETRY_MS,
+  PAGE_TRIES,
   PAGES_AT_ONCE,
   PAGES_AT_ONCE_PAIRED,
   pageUrl,
   pagesText,
+  partialLacksPhotos,
+  retryDelay,
   photosOf,
   sameGrid,
   streamDone,
@@ -556,11 +558,15 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   /**
    * The whole visit on show (hours: contracts/api.md v3.23 `page`). `merged` is the answer show() was
    * handed with every page joined since (all its detectors); the plate shows `filter(merged)`. One
-   * stream per detector asks the live pages. `gen` changes when the plate goes elsewhere, and a page
-   * of an older generation is dropped when it lands.
+   * stream per detector asks the live pages. A page that lands is kept while its stream is still the
+   * plate's (pagesReset drops the streams and aborts their requests). `gen` changes with every pump
+   * and quiet load the plate starts; `hold` while another plate may be coming (status): pages still
+   * land and are joined, but nothing new is asked or shown until the plate is shown again.
    */
   const pg = {
-    gen: 0, on: false, key: "",
+    gen: 0, on: false, key: "", hold: false,
+    /** Aborts the visit's page requests when the plate goes elsewhere (they hold Cloud Run slots). */
+    abort: null as AbortController | null,
     /** The URL of the answer show() was handed (the same plate again keeps its visit), and the one its
      *  relative data_url resolve against (a live answer's, once the plate went live on another grid). */
     src: "", base: "",
@@ -571,8 +577,10 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     switched: "",
     /** Pages joined that the plate doesn't show yet. */
     dirty: false,
-    /** Photos of the shown detector on the plate (joined and loaded into the blink), for the line. */
+    /** Photos of the shown detector joined and loaded into the blink, for the line… */
     shown: 0,
+    /** …and of those, the ones the plate shows (an object to check: the day of its find). */
+    plate: 0,
   };
   /** The last full load (not a quiet one): pages wait for it, so they never cut it short. */
   let pendingLoad: Promise<void> = Promise.resolve();
@@ -2715,7 +2723,9 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   }
 
   // ---- all wavelengths ---------------------------------------------------------------------
-  const waveKey = (v: View) => `${v.ra.toFixed(5)},${v.dec.toFixed(5)},${v.clock},${v.fov}`;
+  // Months: every detector of the field. Hours: the shown detector's partner, so the detector is in the key
+  // (D2 then D3 with All on must fetch D6, not keep D5).
+  const waveKey = (v: View) => `${v.ra.toFixed(5)},${v.dec.toFixed(5)},${v.clock},${v.fov}${v.clock === "hours" ? `,${v.det}` : ""}`;
   /** The responses for this field: the app's, and the other detectors fetched live. */
   function waveSources(v: View, resp: FramesResponse, url: string) {
     const extra = liveDets.key === waveKey(v) ? [...liveDets.got.values()].filter((x) => x.resp !== resp && sameGrid(x.resp, resp)) : [];
@@ -2813,12 +2823,13 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     const main = view && pg.on && view.clock === "hours" && pg.key === pagesKey(view) ? mainOf() : undefined;
     pagesEl.hidden = !main;
     if (!main) return;
-    pagesN.textContent = pagesText(pg.shown, main.total, pagesLoading(), main.failed) + (pg.switched ? `. ${pg.switched}` : "");
+    pagesN.textContent = pagesText(pg.shown, main.total, pagesLoading(), main.failed, pg.filter ? pg.plate : undefined) + (pg.switched ? `. ${pg.switched}` : "");
   }
   /** A new plate: forget its visit (an older page is dropped when it lands). */
   function pagesReset() {
     pg.gen++;
-    Object.assign(pg, { on: false, key: "", src: "", base: "", merged: null, filter: null, streams: [], switched: "", dirty: false, shown: 0 });
+    pg.abort?.abort();
+    Object.assign(pg, { on: false, hold: false, abort: null, key: "", src: "", base: "", merged: null, filter: null, streams: [], switched: "", dirty: false, shown: 0, plate: 0 });
     renderPages();
   }
   /** Load the rest of the visit behind the plate just shown (resp from url). `mjd`: a time inside
@@ -2828,16 +2839,18 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     if (!src) return;
     pg.gen++;
     const main: Stream = { ...newStream(v.det, src), part: false, first: src.start === 1 ? idsOf(resp, v.det) : "", joined: new Set() };
-    Object.assign(pg, { on: true, key: pagesKey(v), src: url, base: url, merged: resp, streams: [main], switched: "", dirty: false, shown: photosOf(resp, v.det) });
+    Object.assign(pg, { on: true, hold: false, abort: new AbortController(), key: pagesKey(v), src: url, base: url, merged: resp, streams: [main], switched: "", dirty: false, shown: photosOf(resp, v.det), plate: photosOf(shownOf(resp), v.det) });
     renderPages();
     pump(pg.gen);
   }
-  /** The same plate shown again (a layer, a panel, "Show all"): what is loaded stays, and loading goes on. */
+  /** The same plate shown again (a layer, a panel, "Show all"): what is loaded stays, the pages on their
+   *  way still land, and loading goes on. */
   function pagesRestart() {
     pg.gen++;
-    for (const s of pg.streams) s.asking = new Set();
+    pg.hold = false;
     renderPages();
     pump(pg.gen);
+    if (pg.dirty && !pairPending()) schedule();
   }
   const idsOf = (r: FramesResponse, det: Det) => r.epochs.filter((e) => e.det === det).map((e) => e.id).sort().join(",");
   /** The time the main stream asks the live API at (its URL's `mjd`), so a partner shows the same visit. */
@@ -2860,7 +2873,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   }
   /** Ask the next pages, a few page numbers at a time; every stream asks the same numbers together. */
   function pump(gen: number) {
-    if (gen !== pg.gen || !pg.on || !view || destroyed) return;
+    if (gen !== pg.gen || !pg.on || pg.hold || !view || destroyed) return;
     // All wavelengths: the detector beside the plate is on its way (fetchOtherDets); its pages and
     // these go together once it is here, so no moment shows one detector alone.
     if (allWave && liveDets.key === waveKey(view) && liveDets.pending) return renderPages();
@@ -2873,14 +2886,14 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       const k = want.reduce<number | null>((lo, n) => (n != null && (lo == null || n < lo) ? n : lo), null);
       if (k == null) break;
       pg.streams.forEach((s, i) => {
-        if (want[i] === k) void askPage(s, k, gen);
+        if (want[i] === k) void askPage(s, k);
       });
     }
     renderPages();
   }
   /** A page answer and whether it is partial (cutouts that came too late: X-SkyShift-Partial). */
-  async function getPage(url: string): Promise<{ page: FramesResponse; partial: boolean }> {
-    const res = await fetch(url);
+  async function getPage(url: string, signal?: AbortSignal): Promise<{ page: FramesResponse; partial: boolean }> {
+    const res = await fetch(url, { signal });
     if (!res.ok) {
       let code = "internal";
       try {
@@ -2892,36 +2905,42 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     }
     const page = (await res.json()) as FramesResponse;
     if ((page as { synthetic?: unknown }).synthetic === true) throw new ApiFailure("synthetic", 502, "upstream");
-    return { page, partial: !!res.headers.get("X-SkyShift-Partial") };
+    return { page, partial: partialLacksPhotos(res.headers.get("X-SkyShift-Partial")) };
   }
-  const later = () => new Promise((ok) => setTimeout(ok, PAGE_RETRY_MS));
-  /** Ask page k of stream s; a failed or partial answer is asked once more, a few seconds later. */
-  async function askPage(s: Stream, k: number, gen: number) {
+  const later = (fails: number) => new Promise((ok) => setTimeout(ok, retryDelay(fails)));
+  /** The stream is still the plate's: its pages are kept when they land. */
+  const live = (s: Stream) => pg.streams.includes(s);
+  /** Ask page k of stream s. An error (a busy service, the network) is asked again up to PAGE_TRIES
+   *  times, a few seconds apart; an answer that lacks photos (cutouts too late) once more. */
+  async function askPage(s: Stream, k: number) {
     s.asking.add(k);
     const url = pageUrl(s.url0, k);
+    const signal = pg.abort?.signal;
+    let fails = 0;
+    let again = false;
     try {
-      for (let attempt = 0; attempt < 2; attempt++) {
+      for (;;) {
         let got: { page: FramesResponse; partial: boolean };
         try {
-          got = await getPage(url);
+          got = await getPage(url, signal);
         } catch (e) {
-          if (gen !== pg.gen) return;
+          if (!live(s)) return;
           if (e instanceof ApiFailure && (e.status === 404 || e.status === 400)) {
             // Past the visit's last page (or nothing the API can page here): nothing more to ask.
             s.last = Math.min(s.last ?? k - 1, k - 1);
             s.got.add(k);
             return;
           }
-          if (attempt === 0) {
-            await later();
-            if (gen !== pg.gen) return;
+          if (++fails < PAGE_TRIES) {
+            await later(fails);
+            if (!live(s)) return;
             continue;
           }
           s.failed++;
           s.got.add(k);
           return;
         }
-        if (gen !== pg.gen) return;
+        if (!live(s)) return;
         const { page, partial } = got;
         if (page.visit_exposures != null) s.total = page.visit_exposures;
         if (page.more !== true) s.last = Math.min(s.last ?? k, k);
@@ -2935,20 +2954,24 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
         }
         join(s, page, url);
         s.joined.add(k);
-        if (pg.dirty && !pairPending()) schedule();
-        if (partial && attempt === 0) {
-          await later();
-          if (gen !== pg.gen) return;
+        if (pg.dirty && !pg.hold && !pairPending()) schedule();
+        if (partial && !again) {
+          again = true;
+          await later(1);
+          if (!live(s)) return;
           continue;
         }
         s.got.add(k);
         return;
       }
     } finally {
-      if (gen === pg.gen) {
+      if (live(s)) {
         s.asking.delete(k);
-        if (pg.dirty && !pairPending()) schedule();
-        pump(gen);
+        if (pg.hold) renderPages();
+        else {
+          if (pg.dirty && !pairPending()) schedule();
+          pump(pg.gen);
+        }
       }
     }
   }
@@ -3006,15 +3029,16 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
         do {
           applyAgain = false;
           await pendingLoad;
-          if (gen !== pg.gen || !view || !pg.merged || pagesKey(view) !== pg.key) return;
+          if (gen !== pg.gen || pg.hold || !view || !pg.merged || pagesKey(view) !== pg.key) return;
           if (pairPending()) return; // the page's partner lands soon and asks again
           pg.dirty = false;
           const shown = shownOf(pg.merged);
           const photos = photosOf(pg.merged, view.det);
+          const plate = photosOf(shown, view.det);
           rawF = shown; // a load started meanwhile (another detector arriving, All switched) takes it too
           opts.onFrames?.(pg.merged);
           await load(view, shown, pg.base, "force");
-          if (gen === pg.gen) pg.shown = photos;
+          if (gen === pg.gen) Object.assign(pg, { shown: photos, plate });
           renderPages();
         } while (applyAgain && gen === pg.gen);
       } finally {
@@ -3628,8 +3652,13 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
         pg.filter = filter;
         if (pg.merged !== resp) opts.onFrames?.(pg.merged);
         const shown = shownOf(pg.merged);
+        const photos = photosOf(pg.merged, next.det);
+        pg.dirty = false; // pages joined during this load make it dirty again
         await load(next, shown, pg.base);
-        if (!destroyed && rawF === shown) pagesRestart();
+        if (!destroyed && rawF === shown) {
+          Object.assign(pg, { shown: photos, plate: photosOf(shown, next.det) });
+          pagesRestart();
+        }
         return;
       }
       pagesReset();
@@ -3669,8 +3698,12 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     status(kind, message) {
       appStatus =
         kind === "idle" ? null : { kind, message: message ?? (kind === "loading" ? "Loading frames…" : "Something went wrong.") };
-      // A plate elsewhere is coming (or failed): pages of this one are dropped when they land.
-      if (kind !== "idle") pg.gen++;
+      // A plate elsewhere may be coming (or it failed): this one's pages still land and are kept, but
+      // nothing new is asked or shown. The same plate again goes on (pagesRestart); another one drops them.
+      if (kind !== "idle") {
+        pg.gen++;
+        pg.hold = true;
+      }
       if (kind === "error") {
         loadCtl++;
         busy = null;
