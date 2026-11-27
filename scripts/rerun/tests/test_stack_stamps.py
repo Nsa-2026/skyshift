@@ -89,9 +89,10 @@ def test_moving_source_found_in_comet_frame_only(tmp_path):
     assert star["n"] < 40
     com_flux = com["ap2"]["flux_ujy"]
     assert star["ap2"]["flux_ujy"] > 3 * com_flux  # the star, not the comet
-    nostar = SS.stack(SS.load(SS.find_files(fake_stamps(tmp_path / "b", flux=flux, sigma=sigma, seed=3)), "P/Fake"),
-                      "star", "sub")
-    assert abs(nostar["mf1"]["snr"]) < 4  # the comet alone does not stack in the star frame
+    alone = SS.load(SS.find_files(fake_stamps(tmp_path / "b", flux=flux, sigma=sigma, seed=3)), "P/Fake")
+    assert SS.stack(alone, "comet", "sub")["mf1"]["snr"] > 5.5
+    assert abs(SS.stack(alone, "star", "sub")["mf1"]["snr"]) < 4  # the comet alone does not stack in the star frame
+    assert abs(SS.stack(alone, "reverse", "sub")["mf1"]["snr"]) < 4  # nor along its path run backwards
 
 
 def test_pure_noise_and_output_files(tmp_path):

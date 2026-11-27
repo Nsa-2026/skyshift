@@ -248,6 +248,13 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   What is left is D2's top rows (y ≥ ~1975, a background ramp in every D2 photo): no re-extraction; suspects warn
   `edge` (values ramp_dots, ramp_y, ramp_from_y, ramp_detector; config VET_D2_RAMP_*) when a mover's motion rests on
   such a dot (its other dots < 2 exposures and < 2 detectors). 7 zones as if unknown: real 0.4% vs rest 0.3%: never a reason.
+- Stamps (27 Nov, agent "comet-stamps"; stamps.py, stamplist.py; config STAMP_*, env SKYSHIFT_STAMPS,
+  SKYSHIFT_STAMP_LIST): with extraction v2 the dots worker cuts a patch (IMAGE, VARIANCE, FLAGS, ZODI, its background,
+  the ext pass's point-free residual, bad mask, wavelength, bandwidth) around every stamp-list position in the photo,
+  moved to MJD-AVG and to SPHEREx (header X_SC..), into <folder>_stamps/<obs_id>D<det>.parquet (read_stamps); never
+  raises, never changes a dot (footer `stamps`). The list (`python -m skyshift_pipeline.stamplist`, once on the PC,
+  ~2 min): every MPC comet (cometels + allcometels, 3I/ATLAS included) within 0.25° of each index photo, geocentric,
+  no magnitude cut; half-width 30–128 px from a 1e5 km coma. Stack: scripts/rerun/stack_stamps.py.
 - classify and photoz read only sources.parquet (+ optional dot shape columns, crossids, refcat); never photos.
   photoz queries SDSS DR17 once per zone (cached in cache/sdss/<zone>.parquet); a network failure only skips the report.
 - refcat: Gaia DR3 (G<20), CatWISE2020, 2MASS PSC over zone + 0.1° in 1° tiles (cache/refcat/<zone>/), writes

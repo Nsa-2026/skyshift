@@ -9,7 +9,8 @@ never a photo.
 Per detector: every stamp of the target is resampled (bilinear, on IMAGE − background with 1/VARIANCE weights; bad
 pixels weight 0) onto one grid of 6.152″ pixels whose centre is the target's predicted place in that photo (frame
 `comet`) or one fixed sky point, the prediction at the middle photo's time (frame `star`, the control: the comet's light
-smears along its path, the stars stack). Planes: `sub` IMAGE − the worker's background; `resid` the point-free
+smears along its path, the stars stack) or the path run backwards about the middle photo's place (frame `reverse`,
+a second control: the comet's light lands 2× its motion away from the centre). Planes: `sub` IMAGE − the worker's background; `resid` the point-free
 residual (stars and the glow subtracted; a comet bright enough to be a dot is subtracted too); `masked` (default) `sub`
 with the pixels where the subtracted point model exceeds the noise set to weight 0, except within --keep-px of the
 prediction (the target's own light stays). Each stamp's local background (median of its annulus 12–20 px around the
@@ -237,7 +238,11 @@ def stack(stamps: list[dict], frame: str = "comet", which: str = "masked", half:
     singles, used = [], 0
     for s in stamps:
         d, w = plane(s, which, keep_px)
-        off = (0.0, 0.0) if frame == "comet" else offsets_of(s["ra_pred"], s["dec_pred"], mid["ra_pred"], mid["dec_pred"])
+        if frame == "comet":
+            off = (0.0, 0.0)
+        else:  # star: the middle photo's predicted place, fixed; reverse: the path run backwards about it
+            e, n = offsets_of(s["ra_pred"], s["dec_pred"], mid["ra_pred"], mid["dec_pred"])
+            off = (e, n) if frame == "star" else (2 * e, 2 * n)
         n, dn = resample(s, d, w, half, off)
         if dn.sum() == 0:
             continue
@@ -315,7 +320,7 @@ def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--root", required=True)
     ap.add_argument("--name", required=True, help="the target's name in the stamp files (exact or a prefix)")
-    ap.add_argument("--frame", choices=("comet", "star"), default="comet")
+    ap.add_argument("--frame", choices=("comet", "star", "reverse"), default="comet")
     ap.add_argument("--plane", choices=("masked", "sub", "resid"), default="masked")
     ap.add_argument("--detectors", default="", help="comma list (default every detector with stamps)")
     ap.add_argument("--folder", default=None, help="the v2 dots folder (default: any *_stamps folder in the root)")
