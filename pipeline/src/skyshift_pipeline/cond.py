@@ -418,15 +418,18 @@ def photo_summary(col: dict, T: Tiles, obs_id: str, det: int, min_snr: float, us
 def table_bytes(table: pa.Table) -> bytes:
     """Parquet bytes of a conditions table: zstd, byte-stream-split floats, delta-packed integers, no column
     statistics and no stored Arrow schema (the Parquet types say it all; on 256 rows the footer was a third of the
-    file)."""
+    file). With config PARQUET_SLIM (env SKYSHIFT_PARQUET_SLIM=1) the same encodings at zstd PARQUET_SLIM_LEVEL, one
+    data page per column chunk (lossless: only the compression changes)."""
     enc = {f.name: ("BYTE_STREAM_SPLIT" if pa.types.is_floating(f.type) else "DELTA_BINARY_PACKED")
            for f in table.schema}
     md = {k.decode(): v.decode() for k, v in (table.schema.metadata or {}).items()}
     table = table.replace_schema_metadata(None)
     out = pa.BufferOutputStream()
     # store_schema=False drops the table's key-value metadata, so the summary is added to the footer after the rows
-    with pq.ParquetWriter(out, table.schema, compression="zstd", compression_level=9, use_dictionary=False,
-                          column_encoding=enc, write_statistics=False, store_schema=False) as w:
+    kw = (dict(compression_level=C.PARQUET_SLIM_LEVEL, max_rows_per_page=C.PARQUET_SLIM_ROWS_PER_PAGE,
+               data_page_size=C.PARQUET_SLIM_PAGE_BYTES) if C.PARQUET_SLIM else dict(compression_level=9))
+    with pq.ParquetWriter(out, table.schema, compression="zstd", use_dictionary=False,
+                          column_encoding=enc, write_statistics=False, store_schema=False, **kw) as w:
         w.write_table(table)
         if md:
             w.add_key_value_metadata(md)

@@ -337,9 +337,14 @@ def parquet_bytes(t) -> bytes:
     import pyarrow.parquet as pq
     buf = io.BytesIO()
     floats = [f.name for f in t.schema if pa.types.is_floating(f.type)]
-    pq.write_table(t, buf, compression="zstd", compression_level=C.STAMP_ZSTD_LEVEL,
+    # config PARQUET_SLIM (env SKYSHIFT_PARQUET_SLIM=1): the same encodings (planes byte-shuffled, floats
+    # byte-stream-split) at zstd max(STAMP_ZSTD_LEVEL, PARQUET_SLIM_LEVEL), one data page per column chunk: lossless
+    kw = (dict(compression_level=max(C.STAMP_ZSTD_LEVEL, C.PARQUET_SLIM_LEVEL),
+               max_rows_per_page=C.PARQUET_SLIM_ROWS_PER_PAGE, data_page_size=C.PARQUET_SLIM_PAGE_BYTES)
+          if C.PARQUET_SLIM else dict(compression_level=C.STAMP_ZSTD_LEVEL))
+    pq.write_table(t, buf, compression="zstd",
                    use_dictionary=["kind", "name", "obs_id", "observer", STAMP_META_KEY], use_byte_stream_split=floats or False,
-                   write_statistics=[c for c in ROW_COLUMNS], store_schema=False)  # no copies of the planes or the footer
+                   write_statistics=[c for c in ROW_COLUMNS], store_schema=False, **kw)  # no copies of the planes or the footer
     return buf.getvalue()
 
 

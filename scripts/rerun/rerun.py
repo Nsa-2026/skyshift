@@ -446,13 +446,13 @@ def bench_report(data: Path, root: Path, folder: str) -> dict:
         "peaks": [file_size(root / f"{folder}_peaks" / f"{o}D{d}.parquet") for o, d in zip(ok["obs_id"], ok["detector"])],
         "forced": [file_size(root / C.FORCED_DIR / f"{o}D{d}.parquet") for o, d in zip(ok["obs_id"], ok["detector"])],
         **{side: [file_size(root / f"{folder}_{side}" / f"{o}D{d}.parquet") for o, d in zip(ok["obs_id"], ok["detector"])]
-           for side in ("ext", "streaks")},  # the extended-source and streak files (18 Nov)
+           for side in ("ext", "streaks", "cond", "stamps")},  # ext, streak (18 Nov), conditions and stamp files (27 Nov)
         "detector": ok["detector"].astype(int).values})
     sd, md = root / C.SESSION_STACK_DIR, root / C.SESSION_STACK_MAP_DIR
     keys = list(sk_ok["key"]) if len(sk_ok) else []
     stack_tab = {s: sum(file_size(sd / f"{k}{s}.parquet") for k in keys) for s in ("", "_photos", "_moving")}
     maps = sum(file_size(md / f"{k}.npz") for k in keys)
-    mb = {k: round(float(per[k].sum()) / n / 1e6, 3) for k in ("dots", "peaks", "forced", "ext", "streaks")}
+    mb = {k: round(float(per[k].sum()) / n / 1e6, 3) for k in ("dots", "peaks", "forced", "ext", "streaks", "cond", "stamps")}
     mb["stack_tables"] = round(sum(stack_tab.values()) / n / 1e6, 3)
     mb["stack_maps"] = round(maps / n / 1e6, 3)
     # A worker's time per photo: waiting for its read (prefetch hides most of it), measuring, writing, and its share
@@ -558,7 +558,13 @@ def main(argv: list[str] | None = None) -> None:
         if name == "bench":
             s.add_argument("--targets", default=str(TARGETS))
             s.add_argument("--dry-run", action="store_true")
+            s.add_argument("--slim", action="store_true",
+                           help="lossless slim parquet writers (env SKYSHIFT_PARQUET_SLIM=1, config PARQUET_SLIM; off by default)")
     a = ap.parse_args(argv)
+    if getattr(a, "slim", False):  # the spawned workers inherit it; set before any of them starts
+        os.environ["SKYSHIFT_PARQUET_SLIM"] = "1"
+        from skyshift_pipeline import config as _C
+        _C.PARQUET_SLIM = True
     if a.root is None:
         a.root = str(Path(a.data) / "rerun-bench") if a.cmd == "bench" else a.data
     {"plan": cmd_plan, "bench": cmd_bench, "run": cmd_run, "fetch": cmd_fetch}[a.cmd](a)
