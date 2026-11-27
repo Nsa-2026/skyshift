@@ -273,6 +273,9 @@ def main(argv=None) -> dict:
     ap.add_argument("--star-arcsec", type=float, default=3.0)
     ap.add_argument("--body-arcsec", type=float, default=C.PIXEL_ARCSEC)
     ap.add_argument("--out", default=None, help="where to write the report (default <root>/score.json)")
+    ap.add_argument("--stars-out", default=None,
+                    help="also write every isolated Gaia star's row (photo, ra, dec, g_mag, found) to this parquet "
+                         "(scripts/rerun/cond_report.py reads it)")
     a = ap.parse_args(argv)
     data = Path(a.data)
     root = Path(a.root or data / "rerun-bench")
@@ -375,6 +378,8 @@ def main(argv=None) -> dict:
                     s["has_before"] = tb is not None
                     s["iso"] = g["iso"].to_numpy() if "iso" in g else True
                     s["iso_old"] = g["iso_old"].to_numpy() if "iso_old" in g else True
+                    if a.stars_out:  # each star's own row (conditions report: Gaia found per tile)
+                        s["photo"], s["ra"], s["dec"], s["g_mag"] = pid, gra, gdec, g["g_mag"].to_numpy()
                     stars.append(s)
             # --- known bodies at this photo's time
             k = kn[(kn["obs_id"] == r.obs_id) & (kn["detector"] == det)] if len(kn) else kn
@@ -522,6 +527,9 @@ def main(argv=None) -> dict:
     }
     out = Path(a.out) if a.out else root / "score.json"
     out.write_text(json.dumps(rep, indent=1, default=str))
+    if a.stars_out and len(st):  # isolated by the current rule only (isolated_gaia), not the old one
+        cols = ["zone", "detector", "photo", "ra", "dec", "g_mag", "after", "after_peaks", "control_after"]
+        st.loc[st["iso"].astype(bool), cols].to_parquet(a.stars_out, index=False)
     pd.set_option("display.width", 200)
     for k in ("dots_per_photo", "dot_flag_per_photo", "gaia_found_by_detector", "gaia_found_by_g", "known_found_by_v",
               "known_found_by_rate", "known_found_by_detector", "unmatched_per_photo", "bright_found_by_g",

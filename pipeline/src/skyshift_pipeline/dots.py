@@ -458,6 +458,8 @@ def _detections(l2, thresh: float, min_snr: float, timing: dict, ctx: PhotoConte
         t0 = time.perf_counter()
         flags = np.asarray(l2.flags) if l2.flags is not None else np.zeros(np.shape(l2.data), np.int32)
         dsat = sat_distance(flags)
+        if extras is not None and C.COND and s.v2 and s.sat_guard_px > 0:  # the conditions table (cond.py)
+            extras["guard_px"] = dsat < s.sat_guard_px
         if s.sat_guard_px > 0 and (s.deblend_cont != C.DOTS_DEBLEND_CONT or s.clean_param != 1.0):
             # dots the sky run's setting doesn't also find, close to saturated pixels: pieces of a saturated star's wings.
             # Only the candidates (within sat_guard_px) need the test, so the sky setting's objects are measured only
@@ -534,7 +536,8 @@ def _mf_pass(l2, det: np.ndarray, comp: tuple | None, ctx: PhotoContext, s: C.De
                  primary_x=prim_x, primary_y=prim_y, sat_dist=dsat, sat_guard_px=s.sat_guard_px,
                  min_snr=C.mf_pass_snr(getattr(l2, "detector", None)), normalise=C.MF_PASS_NORMALISE,
                  refused_flags=MF_REFUSED_FLAGS if C.MF_REFUSED_DOTS else None,
-                 low_snr=C.MF_DOT_LOW_SNR, low_flag=C.dot_flag_mem(C.DOT_FLAG_MF_LOW_SNR))
+                 low_snr=C.MF_DOT_LOW_SNR, low_flag=C.dot_flag_mem(C.DOT_FLAG_MF_LOW_SNR),
+                 neg_snr=min(C.COND_NEG_SNR) if (extras is not None and C.COND and C.COND_NEG) else None)
     md = mp.dots.copy()
     md["sep_flag"] = md["sep_flag"] | C.SEP_FLAG_MF_PASS
     info = dict(mp.info)
@@ -544,6 +547,7 @@ def _mf_pass(l2, det: np.ndarray, comp: tuple | None, ctx: PhotoContext, s: C.De
         extras["mf_stats"] = stats
         extras["peaks"] = mp.peaks
         extras["mf_den"] = mp.den
+        extras["mf_neg"] = mp.neg
     if comp is None:
         comp = (md, np.zeros(shape)) if len(md) else None
     elif len(md):
@@ -656,6 +660,9 @@ def glow_dots(l2, obs_id: str, detector: int, session: int, visit: int, thresh: 
     gl = fit_glow(l2.data, l2.flags, ctx0.noise, epsf=getattr(l2, "epsf", None), r_max=C.GLOW_R_MAX_PX,
                   min_peak_snr=C.GLOW_MIN_PEAK_SNR, max_stars=C.GLOW_MAX_STARS)
     timing["glow_s"] = time.perf_counter() - t0
+    if extras is not None and C.COND and s.v2:  # the conditions table's glow columns (cond.py)
+        from .cond import glow_region
+        extras["glow_px"], extras["glow_stars"] = glow_region(gl)
     st = gl.stars
     counts["n_glow_stars"] = int(len(st))
     counts["n_glow_saturated"] = int(st["saturated"].sum()) if len(st) else 0
@@ -1518,6 +1525,8 @@ class Pending:
     ext_rel: str | None = None
     streaks: pd.DataFrame | None = None
     streaks_rel: str | None = None
+    cond: object | None = None  # the conditions table (cond.py; a pyarrow Table)
+    cond_rel: str | None = None
 
 
 def _measure(store: Store, l2, obs_id: str, detector: int, session: int, visit: int, zone: str | None,
@@ -1592,6 +1601,9 @@ def _measure(store: Store, l2, obs_id: str, detector: int, session: int, visit: 
                 elif "streaks_error" in extras:
                     meta["streaks"] = {"error": extras["streaks_error"]}
                     st["streaks_error"] = extras["streaks_error"]
+                if C.COND:  # the conditions table (cond.py): never raises, never changes a dot
+                    from . import cond as CD
+                    CD.attach(out, l2, ctx, extras, forced, obs_id, detector, ddir, st)
             st["v2_s"] = round(time.time() - t0, 2)
         return out
     except Exception as e:  # noqa: BLE001
@@ -1618,6 +1630,9 @@ def _finish(store: Store, p: Pending | None, st: dict) -> dict:
             stt = pa.Table.from_pandas(p.streaks, preserve_index=False)
             st["streaks_bytes"] = _retry(lambda: _write(store, p.streaks_rel, stt))
             st["n_streaks"] = int(len(p.streaks))
+        if p.cond is not None:  # never raises: an error goes to the dot file's footer cond.error
+            from . import cond as CD
+            CD.write(store, p, st)
         if "partner_flux_ujy" in p.df:
             p.meta["n_partner"] = int(np.isfinite(p.df["partner_flux_ujy"].to_numpy(np.float64)).sum())
         table = dots_arrow(p.df, p.meta)

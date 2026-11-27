@@ -436,18 +436,22 @@ def _weights(sub, noise, bad) -> tuple[np.ndarray, np.ndarray]:
 
 
 def matched_filter(sub: np.ndarray, noise: np.ndarray, bad: np.ndarray, epsf, half: int = C.MF_KERNEL_HALF,
-                   phases: int = C.MF_PHASES) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+                   phases: int = C.MF_PHASES, neg: dict | None = None
+                   ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Inverse-variance ePSF-matched filter for a point source on each pixel: (S/N, flux, Σ w·K², phase) maps. For
     each sub-pixel phase (mf_phases), S/N = Σ w·d·K / √(Σ w·K²) and flux = Σ w·d·K / Σ w·K² over the (2h+1)² pixels
     around the pixel, w = 1/noise² (0 on bad pixels), K = the ePSF of that pixel's zone with the source at that phase
     (each zone's rectangle filtered with its own kernels); the maps keep the phase with the highest S/N (`phase` = its
     index in mf_phases). Flux in the image's units summed over pixels (MJy/sr × px; × ujy_per_mjysr -> µJy). The
     third map is Σ w·K² of the centred phase: 1/√ of it is a point source's flux 1σ there (the depth).
-    `sub`: background-subtracted image, bad pixels 0."""
+    `sub`: background-subtracted image, bad pixels 0. `neg` (a dict; the conditions table, cond.py) also gets
+    neg["snr"]: this filter's S/N map of -sub (the negative image: the max over phases of -S/N is -(their min)); the
+    returned maps are unchanged."""
     from scipy import ndimage
     w, sw = _weights(sub, noise, bad)
     ny, nx = w.shape
     snr = np.full((ny, nx), -np.inf)
+    lo = np.full((ny, nx), np.inf) if neg is not None else None
     flux, den0 = np.zeros((ny, nx)), np.zeros((ny, nx))
     phase = np.zeros((ny, nx), np.int8)
     tiles = _zone_tiles(epsf, (ny, nx))
@@ -466,8 +470,13 @@ def matched_filter(sub: np.ndarray, noise: np.ndarray, bad: np.ndarray, epsf, ha
             snr = np.where(better, s, snr)
             flux = np.where(better, np.where(den > 0, num / den, 0.0), flux)
         phase[better] = ip
+        if lo is not None:
+            np.minimum(lo, s, out=lo)
         if ip == 0:
             den0 = den
+    if neg is not None:
+        np.negative(lo, out=lo)
+        neg["snr"] = lo
     return snr, flux, den0, phase
 
 
@@ -535,6 +544,7 @@ class MFPass:
     peaks: dict             # the other peaks >= min_peak_snr: x, y, ix, iy, snr_mf, flux (image units × px), why
     den: np.ndarray         # Σ w·K² map (matched_filter): 1/√den = a point source's flux 1σ (image units × px)
     info: dict
+    neg: dict | None = None  # mf_pass neg_snr: the negative residual's peaks >= neg_snr (ix, iy, snr), else None
 
 
 # `why` codes of the peaks file
@@ -605,7 +615,7 @@ def mf_pass(resid: np.ndarray, noise: np.ndarray, bad: np.ndarray, epsf, dot_x: 
             dedup_px: float = C.MF_PASS_DEDUP_PX, r_px: float = C.PSF_PASS_R_PX,
             mirror_r_px: float = C.PSF_PASS_MIRROR_R_PX, mirror_frac: float = C.PSF_PASS_MIRROR_FRAC,
             mirror_sigma: float = C.PSF_PASS_MIRROR_SIGMA, refused_flags: dict[int, int] | None = None,
-            low_snr: float | None = None, low_flag: int = 0) -> MFPass:
+            low_snr: float | None = None, low_flag: int = 0, neg_snr: float | None = None) -> MFPass:
     """The matched-filter pass (extraction v2): faint point sources the aperture cut (S/N >= 5 in r = 2 px) leaves out.
     resid: the image detection measured on minus its background (and minus the second pass's ePSF models), bad pixels
     0; noise: its per-pixel 1σ (with the model term); (dot_x, dot_y): every dot already found. Peaks of the matched
@@ -626,7 +636,9 @@ def mf_pass(resid: np.ndarray, noise: np.ndarray, bad: np.ndarray, epsf, dot_x: 
     with that why's bit (every test that refuses it, not just the first); a why not in the dict keeps the peak in
     `peaks`. low_snr (< min_snr): peaks from low_snr up to min_snr (both x the same block / photo scale) become dots
     with low_flag (and the refusal bits they would get at >= min_snr). Both None: dots only from peaks passing every
-    test. When two measured dots converge within dedup_px, a dot without these bits wins, then the brighter."""
+    test. When two measured dots converge within dedup_px, a dot without these bits wins, then the brighter.
+    neg_snr (the conditions table, cond.py): the same filter's local maxima on the negative residual (matched_filter
+    `neg`; pixels with data) with S/N >= neg_snr go to `neg` as pure-noise detections; nothing else changes."""
     import sep
     from scipy.spatial import cKDTree
     from skyshift_core.detect import DETECTION_DTYPE, measure_objects
@@ -634,7 +646,15 @@ def mf_pass(resid: np.ndarray, noise: np.ndarray, bad: np.ndarray, epsf, dot_x: 
     resid = np.ascontiguousarray(resid, dtype=np.float64)
     noise = np.ascontiguousarray(np.where(np.isfinite(noise), noise, 0.0), dtype=np.float64)
     bad = np.ascontiguousarray(bad, dtype=bool)
-    snr, flux, den, phase = matched_filter(resid, noise, bad, epsf)
+    negm: dict | None = {} if neg_snr is not None else None
+    snr, flux, den, phase = matched_filter(resid, noise, bad, epsf, neg=negm)
+    neg = None
+    if negm is not None:
+        ns = negm.pop("snr")
+        ns[~(den > 0)] = -np.inf
+        _, _, nix, niy, nsv = mf_peaks(ns, neg_snr)
+        neg = {"ix": nix, "iy": niy, "snr": nsv}
+        del ns
     stats = mf_noise_stats(snr, den, min_snr, grid=True)
     normalise = {True: "photo", False: "off"}.get(normalise, normalise)
     scale_grid = None
@@ -728,7 +748,7 @@ def mf_pass(resid: np.ndarray, noise: np.ndarray, bad: np.ndarray, epsf, dot_x: 
             info[f"n_mf_{name}"] = int(((dots["sep_flag"] & int(refused_flags[code])) != 0).sum())
     if low_snr is not None and low_flag:
         info["n_mf_low_snr"] = int(((dots["sep_flag"] & int(low_flag)) != 0).sum())
-    return MFPass(dots, dsnr, peaks, den, info)
+    return MFPass(dots, dsnr, peaks, den, info, neg)
 
 
 # --- extraction v2: extended (diffuse) sources: comets' comae, galaxies (agent "comets", 18 Nov) --------------------

@@ -248,6 +248,16 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   What is left is D2's top rows (y ≥ ~1975, a background ramp in every D2 photo): no re-extraction; suspects warn
   `edge` (values ramp_dots, ramp_y, ramp_from_y, ramp_detector; config VET_D2_RAMP_*) when a mover's motion rests on
   such a dot (its other dots < 2 exposures and < 2 detectors). 7 zones as if unknown: real 0.4% vs rest 0.3%: never a reason.
+- Conditions table (27 Nov, cond.py; config COND*, on under v2, env SKYSHIFT_COND=0 off): the dots worker writes
+  <v2 folder>_cond/<obs_id>D<det>.parquet, one row per COND_TILE_PX (128) tile: background, noise, ZODI, √VARIANCE,
+  the matched filter's point-source threshold in µJy as applied (thresh_ujy), masked pixels by FLAGS bit, glow/guard
+  pixels, saturated cores, forced targets, dots by pass and dot_flag bit, peaks/ext/streak rows, and negative-residual
+  peaks at S/N 4/4.5/5 × the block scale (psf.matched_filter `neg`: −(min over phases), no second filter run; env
+  SKYSHIFT_COND_NEG=0 off). Hooks in dots.py only stash arrays it has (extras glow_px, guard_px, mf_neg) and call
+  cond.attach / cond.write; a failure leaves the dots and the footer `cond.error`. Dot tables identical on and off.
+  scripts/rerun/cond_report.py groups the files (noise × star density × detector) with score_bench --stars-out.
+  62 bench photos: 22.3 kB per photo (64 px 53 kB, 256 px 12.8 kB; the footer's per-column metadata is ~5 kB),
+  +0.21 s CPU per photo for the table and +0.08–0.11 s in mf_pass for the negative peaks (v2 detection 22 s median).
 - classify and photoz read only sources.parquet (+ optional dot shape columns, crossids, refcat); never photos.
   photoz queries SDSS DR17 once per zone (cached in cache/sdss/<zone>.parquet); a network failure only skips the report.
 - refcat: Gaia DR3 (G<20), CatWISE2020, 2MASS PSC over zone + 0.1° in 1° tiles (cache/refcat/<zone>/), writes
