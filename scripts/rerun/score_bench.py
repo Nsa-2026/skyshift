@@ -259,7 +259,7 @@ def main(argv=None) -> dict:
             refcats[zone] = rc
             knowns[zone] = load_known(data, zone)
         rc, kn = refcats[zone], knowns[zone]
-        zbox = C.ZONES.get(zone)
+        zbox = R.zone_box(zone, tgt)  # a wide-sample zone (w_<name>) has its box in the targets file
         stack_keys = {}
         for t in coadd.session_tasks(rows):
             for o in t["obs_ids"]:
