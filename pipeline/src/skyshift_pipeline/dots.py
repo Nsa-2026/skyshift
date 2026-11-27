@@ -1603,6 +1603,8 @@ class Pending:
     cond_rel: str | None = None
     stamps: object = None  # stamps.py: the stamp table (pyarrow) of a photo with stamp-list rows
     stamps_rel: str | None = None
+    known: pd.DataFrame | None = None  # knownforced.py: forced photometry at known bodies' predictions (KNOWN_FORCED)
+    known_rel: str | None = None
 
 
 def _measure(store: Store, l2, obs_id: str, detector: int, session: int, visit: int, zone: str | None,
@@ -1683,6 +1685,9 @@ def _measure(store: Store, l2, obs_id: str, detector: int, session: int, visit: 
             if C.STAMPS and ctx is not None:  # patches around listed comets: own file, never raises (stamps.py)
                 from . import stamps as SP
                 SP.attach(store, out, l2, ctx, extras, obs_id, detector, ddir, st)
+            if C.KNOWN_FORCED and ctx is not None:  # known bodies' forced photometry: own file, never raises
+                from . import knownforced as KF
+                KF.attach(store, out, l2, ctx, extras, forced, obs_id, detector, ddir, st)
             st["v2_s"] = round(time.time() - t0, 2)
         return out
     except Exception as e:  # noqa: BLE001
@@ -1715,6 +1720,9 @@ def _finish(store: Store, p: Pending | None, st: dict) -> dict:
         if p.stamps is not None:
             from . import stamps as SP
             SP.write(store, p, st)  # a failed write is noted in the footer, the dots stay
+        if p.known is not None:
+            from . import knownforced as KF
+            KF.write(store, p, st)  # a failed write is noted in the footer, the dots stay
         if "partner_flux_ujy" in p.df:
             p.meta["n_partner"] = int(np.isfinite(p.df["partner_flux_ujy"].to_numpy(np.float64)).sum())
         table = dots_arrow(p.df, p.meta)
