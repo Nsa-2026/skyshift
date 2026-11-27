@@ -123,3 +123,28 @@ def test_bench_resume_redoes_zero_byte_dot_files_left_by_a_crash(tmp_path):
     assert p.stat().st_size > 0 and len(pd.read_parquet(p)) == st[0]["n_dots"]
     assert [s["status"] for s in dots.process_photos(str(tmp_path), photo, None, False, [])] == ["skipped"]
     assert Store(str(tmp_path)).complete_parquets(folder) == {"2025W18_1B_0074_2D1.parquet"}
+
+
+def test_isolated_gaia_ignores_the_stars_own_catwise_and_2mass_entries():
+    """27 Nov: a Gaia star's own CatWISE / 2MASS entries (within 2.5″) are the star itself, not neighbours; the old rule
+    (any other refcat entry within 12.3″) kept only Gaia stars without an infrared counterpart. A real neighbour at 8″
+    still drops the star, and another Gaia entry always counts."""
+    import numpy as np
+
+    import score_bench as S
+    from skyshift_pipeline.sky import SkyTree, offset_radec
+
+    ra0, dec0 = np.array([10.0, 20.0, 30.0]), np.array([5.0, 5.0, 5.0])
+    # star 0: its own CatWISE 0.6″ and 2MASS 0.9″ away; star 1: a CatWISE neighbour 8″ away; star 2: a Gaia entry 1.5″ away
+    cw_ra, cw_dec = offset_radec(np.array([10.0, 20.0]), np.array([5.0, 5.0]), np.array([0.6, 8.0]), np.array([0.0, 0.0]))
+    tm_ra, tm_dec = offset_radec(np.array([10.0]), np.array([5.0]), np.array([0.0]), np.array([0.9]))
+    g2_ra, g2_dec = offset_radec(np.array([30.0]), np.array([5.0]), np.array([1.5]), np.array([0.0]))
+    all_ra = np.r_[ra0, g2_ra, cw_ra, tm_ra]
+    all_dec = np.r_[dec0, g2_dec, cw_dec, tm_dec]
+    other = SkyTree(np.r_[cw_ra, tm_ra], np.r_[cw_dec, tm_dec])
+    full = SkyTree(all_ra, all_dec)
+    assert S.isolated_gaia(ra0, dec0, full, other).tolist() == [True, False, False]
+    assert S.isolated_gaia_old(ra0, dec0, full).tolist() == [False, False, False]
+    # a Gaia-only refcat: no other_tree, the rule is the old one
+    gonly = SkyTree(ra0, dec0)
+    assert S.isolated_gaia(ra0, dec0, gonly, None).tolist() == [True, True, True]

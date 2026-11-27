@@ -5,8 +5,9 @@ against things we know are there. Everything is read locally; run after `rerun.p
 
 After  = <root>/<v2 dots folder>/, its _peaks/ folder and <root>/session_stacks/ (the bench's output).
 Before = <data>/before/dots/ (sky run) or <data>/before/dots_deblend1e-4_cp3_g6_psf/ (the featured zones' fine run).
-Truth  = Gaia DR3 G < 20 in <data>/refcat/<zone>.parquet moved to each photo's time (isolated: no other catalogue
-         source within 12.3″, more than 30″ inside the footprint); MPC asteroids and comets at each photo's time from
+Truth  = Gaia DR3 G < 20 in <data>/refcat/<zone>.parquet moved to each photo's time (isolated: no other object
+         within 12.3″, where a CatWISE / 2MASS entry within 2.5″ is the star itself, another Gaia entry always counts
+         (isolated_gaia); more than 30″ inside the footprint); MPC asteroids and comets at each photo's time from
          SPHEREx (<data>/cache/mpc/<zone>/run_*.json per_photo); 306P/LINEAR (reports-16nov/ecl04-306P-vs-dots.csv);
          3I/ATLAS (scripts/validate/data/photolists/3i-atlas.csv); the featured targets (web/src/data/targets.json).
 Ext = <root>/<v2 dots folder>_ext/ (the extended pass, when written): named rows `ext`, known `after_peaks_ext`.
@@ -88,6 +89,32 @@ def finite(df: pd.DataFrame | None) -> pd.DataFrame | None:
         return None
     ok = np.isfinite(df["ra"].to_numpy(np.float64)) & np.isfinite(df["dec"].to_numpy(np.float64))
     return df[ok].reset_index(drop=True)
+
+
+ISO_ARCSEC = 12.3  # a scored Gaia star has no other object this close
+SELF_ARCSEC = 2.5  # an entry of another catalogue (CatWISE, 2MASS) this close to a Gaia star is that star itself
+
+
+def n_within(tree: SkyTree | None, ra, dec, arcsec: float) -> np.ndarray:
+    if tree is None:
+        return np.zeros(np.atleast_1d(ra).size, np.int64)
+    return np.array([len(x) for x in tree.query_radius(ra, dec, arcsec)], np.int64)
+
+
+def isolated_gaia(ra, dec, all_tree: SkyTree | None, other_tree: SkyTree | None,
+                  iso: float = ISO_ARCSEC, own: float = SELF_ARCSEC) -> np.ndarray:
+    """True for a Gaia star (ra, dec at the photo's time) with no OTHER object within `iso`″. `all_tree` holds every
+    refcat entry, the star included; `other_tree` only the non-Gaia ones (CatWISE, 2MASS): those within `own`″ are
+    the star's own counterparts and do not count. Another Gaia entry always counts. Before 27 Nov the rule was
+    `n_within(all_tree, iso) == 1` (isolated_gaia_old): in zones whose refcat has CatWISE and 2MASS (hunt, t_gc,
+    t_nep, t_lmc) a star's own infrared entries made it 'crowded', so only Gaia stars without an infrared
+    counterpart were scored, a sample SPHEREx mostly cannot see."""
+    return n_within(all_tree, ra, dec, iso) - n_within(other_tree, ra, dec, own) == 1
+
+
+def isolated_gaia_old(ra, dec, all_tree: SkyTree | None, iso: float = ISO_ARCSEC) -> np.ndarray:
+    """The rule before 27 Nov, kept only for the comparison table gaia_isolation_rules."""
+    return n_within(all_tree, ra, dec, iso) == 1
 
 
 def tree_of(df: pd.DataFrame | None, ra="ra", dec="dec") -> SkyTree | None:
@@ -184,6 +211,19 @@ def named_bodies(bo: pd.DataFrame) -> list[dict]:
                 after_peaks=("after_peaks", "sum"), after_peaks_ext=("after_peaks_ext", "sum"),
                 streak=("after_streak", "sum"), dot_or_streak=("after_or_streak", "sum"))
     return out.round(1).reset_index().sort_values(["cls", "rate"]).to_dict("records")
+
+
+def isolation_rules(st: pd.DataFrame) -> list[dict]:
+    """Gaia found shares per zone and G bin under the old isolation rule (iso_old) and the new one (iso)."""
+    if st.empty or "iso_old" not in st:
+        return []
+    out = []
+    for rule, col in (("old", "iso_old"), ("new", "iso")):
+        for by in (["zone"], ["zone", "g_bin"], ["g_bin"]):
+            for r in table(st[st[col]], by, ["before", "after", "after_peaks"]):
+                out.append({"rule": rule, "zone": r.get("zone", "all"), "g_bin": str(r.get("g_bin", "all")), **{
+                    k: v for k, v in r.items() if k not in ("zone", "g_bin")}})
+    return out
 
 
 def streak_report(rows: list) -> dict:
@@ -304,6 +344,8 @@ def main(argv=None) -> dict:
                 rra, rdec = move_to_epoch(rc, float(r.mjd))
                 inside = fp.edge_distance_deg(rra, rdec) > EDGE_DEG
                 cat_tree = SkyTree(rra[inside], rdec[inside]) if inside.any() else None
+                oth = inside & (rc["cat"].to_numpy() != "gaia")
+                other_tree = SkyTree(rra[oth], rdec[oth]) if oth.any() else None
                 g = rc[inside].assign(ra_t=rra[inside], dec_t=rdec[inside])
                 g = g[(g["cat"] == "gaia") & (g["g_mag"] < 20)]
                 b = rc[inside].assign(ra_t=rra[inside], dec_t=rdec[inside])
@@ -317,8 +359,10 @@ def main(argv=None) -> dict:
                                                 "sat": (fp_[bi].astype(np.int64) & F.SAT_BITS) != 0,
                                                 "core_dot": (sf[bi].astype(np.int64) & C.DOT_FLAG_SAT_CORE) != 0}))
                 if len(g) and cat_tree is not None:
-                    n2 = np.array([len(x) for x in cat_tree.query_radius(g["ra_t"].to_numpy(), g["dec_t"].to_numpy(), 12.3)])
-                    g = g[n2 == 1]
+                    gra_, gdec_ = g["ra_t"].to_numpy(), g["dec_t"].to_numpy()
+                    iso_new = isolated_gaia(gra_, gdec_, cat_tree, other_tree)
+                    iso_old = isolated_gaia_old(gra_, gdec_, cat_tree)
+                    g = g.assign(iso=iso_new, iso_old=iso_old)[iso_new | iso_old]
                 if len(g):
                     gra, gdec = g["ra_t"].to_numpy(), g["dec_t"].to_numpy()
                     cra, cdec = shifted(gra, gdec)
@@ -329,6 +373,8 @@ def main(argv=None) -> dict:
                                       "control_after": near(ta, cra, cdec, a.star_arcsec)[0]})
                     s["before"] = near(tb, gra, gdec, a.star_arcsec)[0] if tb is not None else np.nan
                     s["has_before"] = tb is not None
+                    s["iso"] = g["iso"].to_numpy() if "iso" in g else True
+                    s["iso_old"] = g["iso_old"].to_numpy() if "iso_old" in g else True
                     stars.append(s)
             # --- known bodies at this photo's time
             k = kn[(kn["obs_id"] == r.obs_id) & (kn["detector"] == det)] if len(kn) else kn
@@ -435,7 +481,8 @@ def main(argv=None) -> dict:
     st = pd.concat(stars, ignore_index=True) if stars else pd.DataFrame()
     bo = pd.concat(bodies, ignore_index=True) if bodies else pd.DataFrame()
     un = pd.DataFrame(unmatched)
-    both_st = st[st["has_before"]] if len(st) else st
+    st_all = st[st["has_before"]] if len(st) else st  # stars isolated by either rule
+    both_st = st_all[st_all["iso"]] if len(st_all) else st_all  # the scored sample: isolated_gaia
     both_bo = bo[bo["has_before"]] if len(bo) else bo
     rep = {
         "photos_scored": int(len(counts)),
@@ -448,6 +495,7 @@ def main(argv=None) -> dict:
         "gaia_found_by_g": table(num(both_st), ["g_bin"], ["before", "after", "after_peaks",
                                                                      "after_stack", "control_after"]),
         "gaia_found_by_zone": table(num(both_st), ["zone", "detector"], ["before", "after", "after_peaks"]),
+        "gaia_isolation_rules": isolation_rules(num(st_all)),
         "known_found_by_v": table(num(both_bo), ["v_bin"], ["before", "after", "after_peaks",
                                                                       "after_stack", "control_after", "control_peaks"]
                                   + [c for c in ("after_peaks_ext", "control_peaks_ext") if c in both_bo]),
