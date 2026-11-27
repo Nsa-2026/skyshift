@@ -69,10 +69,15 @@ COLUMNS: dict[str, str] = {
     **{f"n_df_{k}": "uint16" for k in C.DOT_FLAGS},  # n_df_sat_core: the tile's saturated cores (one dot each)
     "n_peaks": "uint16", "n_ext": "uint16", "n_streaks": "uint16",
     "n_neg_4": "uint16", "n_neg_45": "uint16", "n_neg_5": "uint16",  # negative-residual peaks >= 4 / 4.5 / 5 × scale
+    "n_neg_4_clear": "uint16", "n_neg_5_clear": "uint16",  # ... of them > PSF_PASS_R_PX from every dot of S/N >=
+                                                           # PSF_PASS_PRIMARY_SNR and outside the glow and guard
+                                                           # regions (pure noise; the rest: subtraction residuals)
 }
 NEG_COLUMNS = ("n_neg_4", "n_neg_45", "n_neg_5")
+NEG_CLEAR_COLUMNS = ("n_neg_4_clear", "n_neg_5_clear")
 TOTALS = ("n_sat", "n_hole", "n_glow_px", "n_guard_px", "n_gaia", "n_red", "n_dots", "n_dots_sep", "n_dots_psf",
-          "n_dots_mf", "n_dots_flagged", "n_df_sat_core", "n_peaks", "n_ext", "n_streaks") + NEG_COLUMNS
+          "n_dots_mf", "n_dots_flagged", "n_df_sat_core", "n_peaks", "n_ext", "n_streaks") + NEG_COLUMNS \
+    + NEG_CLEAR_COLUMNS
 
 
 def cond_rel(obs_id: str, det: int, folder: str) -> str:
@@ -213,6 +218,27 @@ def circles_touching(T: Tiles, stars: np.ndarray) -> np.ndarray:
     return out
 
 
+def neg_clear(ix: np.ndarray, iy: np.ndarray, dots, glow_px: np.ndarray | None, guard_px: np.ndarray | None) -> np.ndarray:
+    """Negative peaks of pure noise: farther than PSF_PASS_R_PX from every dot of S/N >= PSF_PASS_PRIMARY_SNR (whose
+    subtracted ePSF leaves dips; a positive peak there faces the mirror test) and outside the glow and guard regions.
+    On 2 photos 46% (D2) / 15% (D6) of the >= 4 negative peaks lay within 3 px of an S/N >= 20 dot (random spots 8% /
+    1%)."""
+    from scipy.spatial import cKDTree
+    ok = np.ones(len(ix), bool)
+    if not len(ix):
+        return ok
+    if dots is not None and len(dots) and "snr" in dots:
+        pr = dots["snr"].to_numpy(np.float64) >= C.PSF_PASS_PRIMARY_SNR
+        if pr.any():
+            d, _ = cKDTree(np.c_[dots["x"].to_numpy(np.float64)[pr], dots["y"].to_numpy(np.float64)[pr]]).query(
+                np.c_[ix, iy], k=1)
+            ok &= d > C.PSF_PASS_R_PX
+    for m in (glow_px, guard_px):
+        if m is not None:
+            ok &= ~np.asarray(m, bool)[iy, ix]
+    return ok
+
+
 def _xy(df) -> tuple[np.ndarray, np.ndarray]:
     if df is None or not len(df):
         return np.zeros(0), np.zeros(0)
@@ -325,8 +351,11 @@ def build(l2, ctx, extras: dict, dots, forced=None, peaks=None, ext=None, streak
         f_used = used / min_snr if min_snr > 0 else 1.0  # photo mode: its scale; block mode 1
         for c, thr in zip(NEG_COLUMNS, C.COND_NEG_SNR):
             col[c] = T.count(nix, niy, ns >= thr * sc * f_used)
+        clear = neg_clear(nix, niy, dots, gpx, gu)
+        for c, thr in zip(NEG_CLEAR_COLUMNS, (C.COND_NEG_SNR[0], C.COND_NEG_SNR[-1])):
+            col[c] = T.count(nix, niy, clear & (ns >= thr * sc * f_used))
     else:
-        for c in NEG_COLUMNS:
+        for c in NEG_COLUMNS + NEG_CLEAR_COLUMNS:
             col[c] = np.zeros(T.n)
     # the table
     arrays, fields = [], []
@@ -371,7 +400,9 @@ def photo_summary(col: dict, T: Tiles, obs_id: str, det: int, min_snr: float, us
         "n_tiles": T.n, "ntx": T.ntx, "nty": T.nty, "shape": [T.ny, T.nx],
         "mf_min_snr": min_snr, "mf_min_snr_used": used, "mf_normalise": str(C.MF_PASS_NORMALISE),
         "mf_sigma_min_scale": C.MF_SIGMA_MIN_SCALE, "mf_low_snr": C.MF_DOT_LOW_SNR, "ujy_per_mjysr": _num(conv),
-        "neg": ({"snr": list(C.COND_NEG_SNR), "columns": list(NEG_COLUMNS), "scaled": True} if have_neg else None),
+        "neg": ({"snr": list(C.COND_NEG_SNR), "columns": list(NEG_COLUMNS), "clear": list(NEG_CLEAR_COLUMNS),
+                 "clear_r_px": C.PSF_PASS_R_PX, "clear_primary_snr": C.PSF_PASS_PRIMARY_SNR, "scaled": True}
+                if have_neg else None),
         "median": {c: med(c) for c in ("bkg_mjysr", "bkg_rms_mjysr", "sky_sigma_mjysr", "zodi_mjysr",
                                        "var_sigma_mjysr", "noise_mjysr", "psf_sigma_ujy", "mf_sigma", "thresh_ujy",
                                        "wl_um")},

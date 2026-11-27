@@ -128,6 +128,14 @@ def test_build_columns_counts_and_footer(tmp_path):
     assert len(ns) and (ns >= min(C.COND_NEG_SNR)).all()
     assert df.n_neg_4.sum() == int((ns >= 4.0 * sc).sum()) >= df.n_neg_45.sum() >= df.n_neg_5.sum()
     assert df.n_neg_5.sum() == int((ns >= 5.0 * sc).sum())
+    clear = CD.neg_clear(ng["ix"], ng["iy"], dots, extras["glow_px"], extras["guard_px"])
+    assert df.n_neg_4_clear.sum() == int((clear & (ns >= 4.0 * sc)).sum()) <= df.n_neg_4.sum()
+    assert df.n_neg_5_clear.sum() == int((clear & (ns >= 5.0 * sc)).sum()) <= df.n_neg_5.sum()
+    # clear: not within PSF_PASS_R_PX of a bright dot, not in the glow or guard regions
+    bright = dots[dots.snr >= C.PSF_PASS_PRIMARY_SNR]
+    for x, y, ok in zip(ng["ix"], ng["iy"], clear):
+        near = (np.hypot(bright.x - x, bright.y - y) <= C.PSF_PASS_R_PX).any()
+        assert ok == (not near and not extras["glow_px"][y, x] and not extras["guard_px"][y, x])
     # the same lookup as mf_pass: a block with sigma > MF_SIGMA_MIN_SCALE scales the threshold by its sigma
     g = np.asarray(extras["mf_stats"]["sigma_grid"])
     assert set(np.unique(sc)) <= set(np.unique(np.where(g > C.MF_SIGMA_MIN_SCALE, g, 1.0)))

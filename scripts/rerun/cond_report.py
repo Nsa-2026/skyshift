@@ -8,9 +8,9 @@ Groups: background noise (per detector, terciles of the tiles' noise_mjysr over 
 star density (Gaia forced targets per deg² of good pixels: the forced list keeps the brightest 8,221 per HEALPix
 nside-32 partition, ~2,450 per deg², so the top bin is "crowded or capped") × detector. Per group: photos, tiles,
 median threshold (µJy, the matched filter's point-source threshold as applied), dots and flagged dots (dot_flag != 0)
-per deg², negative-residual peaks per deg² at S/N 4 / 4.5 / 5 (when stored: a group's false-alarm rate), and the
-share of isolated Gaia stars found (a dot within score_bench's 3″) by G bin; each star goes to the tile of its photo
-whose centre is nearest on the sky.
+per deg², negative-residual peaks per deg² at S/N 4 / 4.5 / 5 and the "clear" ones (away from bright dots, glow and
+guard: pure noise) at 4 and 5 (when stored: a group's false-alarm rate), and the share of isolated Gaia stars found (a
+dot within score_bench's 3″) by G bin; each star goes to the tile of its photo whose centre is nearest on the sky.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ DENSITY_BINS = [0.0, 1000.0, 2000.0, np.inf]       # Gaia forced targets per deg
 DENSITY_LABELS = ["sparse", "mid", "crowded"]
 G_BINS = [0, 14, 16, 17, 18, 19, 20]
 COLS = ["tile", "ra", "dec", "n_good", "noise_mjysr", "thresh_ujy", "psf_sigma_ujy", "n_gaia", "n_dots",
-        "n_dots_flagged", "n_neg_4", "n_neg_45", "n_neg_5"]
+        "n_dots_flagged", "n_neg_4", "n_neg_45", "n_neg_5", "n_neg_4_clear", "n_neg_5_clear"]
 
 
 def default_folder() -> str:
@@ -109,7 +109,7 @@ def report(t: pd.DataFrame, stars: pd.DataFrame | None = None) -> pd.DataFrame:
         if neg:
             gn = g[g["has_neg"]]
             an = float(gn["area_deg2"].sum())
-            for c in ("n_neg_4", "n_neg_45", "n_neg_5"):
+            for c in [x for x in ("n_neg_4", "n_neg_45", "n_neg_5", "n_neg_4_clear", "n_neg_5_clear") if x in gn]:
                 r[c.replace("n_", "") + "_deg2"] = round(float(gn[c].sum()) / an, 2) if an > 0 else None
         rows.append(r)
     rep = pd.DataFrame(rows)
