@@ -276,6 +276,10 @@ def main(argv=None) -> dict:
     ap.add_argument("--stars-out", default=None,
                     help="also write every isolated Gaia star's row (photo, ra, dec, g_mag, found) to this parquet "
                          "(scripts/rerun/cond_report.py reads it)")
+    ap.add_argument("--rows-out", default=None,
+                    help="also write one row per Gaia star (G < 20, EVERY star in the photo, iso / iso_old flags) to "
+                         "<dir>/stars.parquet and one row per known body to <dir>/bodies.parquet, each with its photo "
+                         "(the wide batch's condition cells); the report's tables stay on the isolated stars")
     a = ap.parse_args(argv)
     data = Path(a.data)
     root = Path(a.root or data / "rerun-bench")
@@ -365,7 +369,9 @@ def main(argv=None) -> dict:
                     gra_, gdec_ = g["ra_t"].to_numpy(), g["dec_t"].to_numpy()
                     iso_new = isolated_gaia(gra_, gdec_, cat_tree, other_tree)
                     iso_old = isolated_gaia_old(gra_, gdec_, cat_tree)
-                    g = g.assign(iso=iso_new, iso_old=iso_old)[iso_new | iso_old]
+                    g = g.assign(iso=iso_new, iso_old=iso_old)
+                    if not a.rows_out:
+                        g = g[iso_new | iso_old]
                 if len(g):
                     gra, gdec = g["ra_t"].to_numpy(), g["dec_t"].to_numpy()
                     cra, cdec = shifted(gra, gdec)
@@ -374,11 +380,13 @@ def main(argv=None) -> dict:
                                       "after_peaks": near(ta, gra, gdec, a.star_arcsec)[0] | near(tp, gra, gdec, a.star_arcsec)[0],
                                       "after_stack": near(ts, gra, gdec, a.star_arcsec)[0],
                                       "control_after": near(ta, cra, cdec, a.star_arcsec)[0]})
+                    if a.rows_out:
+                        s["control_peaks"] = near(ta, cra, cdec, a.star_arcsec)[0] | near(tp, cra, cdec, a.star_arcsec)[0]
                     s["before"] = near(tb, gra, gdec, a.star_arcsec)[0] if tb is not None else np.nan
                     s["has_before"] = tb is not None
                     s["iso"] = g["iso"].to_numpy() if "iso" in g else True
                     s["iso_old"] = g["iso_old"].to_numpy() if "iso_old" in g else True
-                    if a.stars_out:  # each star's own row (conditions report: Gaia found per tile)
+                    if a.stars_out or a.rows_out:  # each star's own row (conditions report: Gaia found per tile)
                         s["photo"], s["ra"], s["dec"], s["g_mag"] = pid, gra, gdec, g["g_mag"].to_numpy()
                     stars.append(s)
             # --- known bodies at this photo's time
@@ -406,6 +414,9 @@ def main(argv=None) -> dict:
                 b["cls"] = k["class"].to_numpy() if "class" in k else ""
                 b["before"] = near(tb, kra, kdec, a.body_arcsec)[0] if tb is not None else np.nan
                 b["has_before"] = tb is not None
+                if a.rows_out:
+                    b["photo"], b["ra"], b["dec"] = pid, kra, kdec
+                    b["after_ext"] = near(te, kra, kdec, a.body_arcsec)[0] if te is not None else False
                 bodies.append(b)
             # --- dots with nothing known under them (catalogue 3″, body 6″), by detector and the weak-spot rows
             ktree = tree_of(k) if len(k) else None
@@ -483,12 +494,14 @@ def main(argv=None) -> dict:
                         rec[which]["dot_flag"] = int(row.get("dot_flag", 0) or 0)
                 named.append(rec)
 
-    st = pd.concat(stars, ignore_index=True) if stars else pd.DataFrame()
+    st_rows = pd.concat(stars, ignore_index=True) if stars else pd.DataFrame()
+    st = st_rows[st_rows["iso"].astype(bool) | st_rows["iso_old"].astype(bool)].reset_index(drop=True) if len(st_rows) else st_rows
     bo = pd.concat(bodies, ignore_index=True) if bodies else pd.DataFrame()
     un = pd.DataFrame(unmatched)
     st_all = st[st["has_before"]] if len(st) else st  # stars isolated by either rule
     both_st = st_all[st_all["iso"]] if len(st_all) else st_all  # the scored sample: isolated_gaia
     both_bo = bo[bo["has_before"]] if len(bo) else bo
+    st_iso = st[st["iso"].astype(bool)] if len(st) else st  # every scored photo, isolated_gaia
     rep = {
         "photos_scored": int(len(counts)),
         "dots_per_photo": table(pd.DataFrame(counts), ["detector"],
@@ -517,9 +530,9 @@ def main(argv=None) -> dict:
                                     streak=("after_streak", "sum"), either=("after_or_streak", "sum"))
                                .round(1).reset_index().to_dict("records") if len(bo) and "has_streaks" in bo else []),
         # every scored photo, with or without an old dot file (the wide sample's photos have none: wide_targets.json)
-        "gaia_found_by_detector_all": table(st, ["detector"], ["after", "after_peaks", "after_stack", "control_after"]),
-        "gaia_found_by_g_all": table(st, ["g_bin"], ["after", "after_peaks", "after_stack", "control_after"]),
-        "gaia_found_by_zone_all": table(st, ["zone", "detector"], ["after", "after_peaks", "after_stack",
+        "gaia_found_by_detector_all": table(st_iso, ["detector"], ["after", "after_peaks", "after_stack", "control_after"]),
+        "gaia_found_by_g_all": table(st_iso, ["g_bin"], ["after", "after_peaks", "after_stack", "control_after"]),
+        "gaia_found_by_zone_all": table(st_iso, ["zone", "detector"], ["after", "after_peaks", "after_stack",
                                                                    "control_after"]),
         "known_found_by_v_all": table(bo, ["v_bin"], ["after", "after_peaks", "after_stack", "control_after",
                                                       "control_peaks"]),
@@ -540,6 +553,14 @@ def main(argv=None) -> dict:
     if a.stars_out and len(st):  # isolated by the current rule only (isolated_gaia), not the old one
         cols = ["zone", "detector", "photo", "ra", "dec", "g_mag", "after", "after_peaks", "control_after"]
         st.loc[st["iso"].astype(bool), cols].to_parquet(a.stars_out, index=False)
+    if a.rows_out:
+        od = Path(a.rows_out)
+        od.mkdir(parents=True, exist_ok=True)
+        if len(st_rows):
+            sr = st_rows.drop(columns=["g_bin"])
+            sr.to_parquet(od / "stars.parquet", index=False)
+        if len(bo):
+            bo.drop(columns=["v_bin", "rate_bin"]).to_parquet(od / "bodies.parquet", index=False)
     pd.set_option("display.width", 200)
     for k in ("dots_per_photo", "dot_flag_per_photo", "gaia_found_by_detector", "gaia_found_by_g", "known_found_by_v",
               "known_found_by_rate", "known_found_by_detector", "unmatched_per_photo", "bright_found_by_g",
