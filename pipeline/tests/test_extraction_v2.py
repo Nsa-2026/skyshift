@@ -568,3 +568,17 @@ def test_peaks_floor_env():
             env["SKYSHIFT_MF_PEAK_SNR"] = value
         out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True)
         assert float(out.stdout.strip().splitlines()[-1]) == want
+
+
+def test_ext_scales_env():
+    """SKYSHIFT_EXT_SCALES sets the extended pass's filter widths at import (default 2, 4, 6, 8 from 27 Nov)."""
+    import os
+    import subprocess
+    import sys
+    code = "import skyshift_pipeline.config as C; print(','.join(str(v) for v in C.EXT_SCALES))"
+    env = {k: v for k, v in os.environ.items() if k != "SKYSHIFT_EXT_SCALES"}
+    for value, want in ((None, "2.0,4.0,6.0,8.0"), ("2,4", "2.0,4.0")):
+        if value is not None:
+            env["SKYSHIFT_EXT_SCALES"] = value
+        out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True)
+        assert out.stdout.strip().splitlines()[-1] == want

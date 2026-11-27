@@ -235,7 +235,12 @@ MF_PEAK_SNR = float(os.environ.get("SKYSHIFT_MF_PEAK_SNR", "3.0"))
 # 1.5 → 206 / 0.20. Kept wide on purpose (the lead's rule): cut downstream on snr_ext and snr_ext / snr_point.
 # Extraction v2 only; env SKYSHIFT_DOTS_EXT=0 turns it off (no ext file).
 EXT_PASS = os.environ.get("SKYSHIFT_DOTS_EXT", "1") == "1"
-EXT_SCALES = (2.0, 4.0)
+# 27 Nov: (2, 4) -> (2, 4, 6, 8) (inject.md §8.2: fuzzy fakes of 6-12 × FWHM found 88.5% -> 90.1%). Checked on the 324
+# bench photos outside the t_ zones (731 comet sightings, 3I/ATLAS, 306P): no comet loses its ext row (3I D3 keeps its
+# 2.5" row), C/2022 N2 gains one (10" off, S/N 31, scale 8); rows per photo 508 -> 535 (4.1% of the old rows merge into
+# a wider one, 2.2% change ext_scale), 26.9 -> 27.4 kB; -IMAGE ext rows 3.25 -> 3.25 per photo (16 photos).
+# Env SKYSHIFT_EXT_SCALES: a comma list of the widths (× FWHM), e.g. "2,4" for the old filters.
+EXT_SCALES = tuple(float(v) for v in os.environ.get("SKYSHIFT_EXT_SCALES", "2,4,6,8").split(","))
 EXT_PASS_SNR = 5.0
 EXT_RATIO = 1.0
 EXT_DEDUP_PX = 1.5
