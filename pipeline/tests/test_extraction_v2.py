@@ -529,3 +529,42 @@ def test_centroid_fallback_bit_is_cores_and_clear_of_the_pass_bits():
     bits = [0xFF, C.SEP_FLAG_PSF_PASS, C.SEP_FLAG_MF_PASS, C.SEP_FLAG_CENTROID_FALLBACK]
     assert all(not (a & b) for i, a in enumerate(bits) for b in bits[i + 1:]) and max(bits) < 2 ** 15  # int16 column
     assert SEP_FLAG_CENTROID_FALLBACK <= np.iinfo(np.int16).max  # the dots column is int16
+
+
+def test_lower_peaks_floor_adds_only_peaks(tmp_path, monkeypatch):
+    """config MF_PEAK_SNR (env SKYSHIFT_MF_PEAK_SNR, 27 Nov): a lower floor adds peaks-file rows (why 0, below the old
+    floor) and changes no dot, ext or streak row; the footer says which floor wrote the file."""
+    l2 = _photo(tmp_path)
+    tabs = {}
+    for floor in (4.0, 3.0):
+        monkeypatch.setattr(C, "MF_PEAK_SNR", floor)
+        counts, extras = {}, {}
+        dots = D.dots_table(l2, "X", 1, settings=V2, counts=counts, extras=extras)
+        ctx = D.photo_context(l2, {})
+        pk = D.peaks_table(l2, ctx, extras["peaks"], dots)
+        tabs[floor] = (dots, pk, D.v2_meta(l2, ctx, extras), extras)
+    d4, p4, m4, e4 = tabs[4.0]
+    d3, p3, m3, e3 = tabs[3.0]
+    pd.testing.assert_frame_equal(d4.reset_index(drop=True), d3.reset_index(drop=True))
+    assert len(p3) > len(p4) and (p4.snr_mf >= 4.0).all() and (p3.snr_mf >= 3.0).all()
+    hi = p3[p3.snr_mf >= 4.0].sort_values(["y", "x"]).reset_index(drop=True)
+    pd.testing.assert_frame_equal(hi, p4.sort_values(["y", "x"]).reset_index(drop=True))
+    assert (p3.loc[p3.snr_mf < 4.0, "why"] == P.PEAK_BELOW).all()
+    assert m4["mf"]["peak_snr"] == 4.0 and m3["mf"]["peak_snr"] == 3.0
+    for k in set(e4.get("ext", {})) | set(e3.get("ext", {})):
+        np.testing.assert_array_equal(np.asarray(e4["ext"][k]), np.asarray(e3["ext"][k]))
+    assert ("streaks" in e4) == ("streaks" in e3)
+
+
+def test_peaks_floor_env():
+    """SKYSHIFT_MF_PEAK_SNR sets the floor at import (default 3.0 from 27 Nov)."""
+    import os
+    import subprocess
+    import sys
+    code = "import skyshift_pipeline.config as C; print(C.MF_PEAK_SNR)"
+    env = {k: v for k, v in os.environ.items() if k != "SKYSHIFT_MF_PEAK_SNR"}
+    for value, want in ((None, 3.0), ("4.0", 4.0)):
+        if value is not None:
+            env["SKYSHIFT_MF_PEAK_SNR"] = value
+        out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True)
+        assert float(out.stdout.strip().splitlines()[-1]) == want

@@ -215,9 +215,15 @@ MF_REFUSED_DOTS = os.environ.get("SKYSHIFT_MF_REFUSED_DOTS", "1") == "1"  # env 
 MF_DOT_LOW_SNR = float(os.environ.get("SKYSHIFT_MF_DOT_LOW_SNR", "4.5"))
 # Peaks file (v2): every other local maximum of the same S/N map >= MF_PEAK_SNR with no dot within MF_PASS_DEDUP_PX
 # (S/N MF_PEAK_SNR to MF_DOT_LOW_SNR; with MF_REFUSED_DOTS off also the peaks the guard / glow / mirror test refused):
-# <folder>_peaks/<obs_id>D<det>.parquet. 27 Nov: 4.0 -> 3.5 (lead: more rather than less; measured by the fake-object
-# agent: ~16.4k rows, 0.4 MB per photo against 9.7k rows, 0.2 MB at 4.0). Env SKYSHIFT_MF_PEAK_SNR.
-MF_PEAK_SNR = float(os.environ.get("SKYSHIFT_MF_PEAK_SNR", "3.5"))
+# <folder>_peaks/<obs_id>D<det>.parquet.
+# Env SKYSHIFT_MF_PEAK_SNR (27 Nov, agent "inject"; scripts/rerun/inject.py, ~/skyshift-data/rerun/reports/inject.md):
+# a lower floor only adds rows (why 0) to the peaks file; every dot, ext and streak row is the same, and the footer's
+# mf.peak_snr says which floor wrote the file. 82 bench photos with fakes (chance-corrected): point fakes found
+# anywhere (dots, peaks, ext, streaks) at optimal S/N 3.5-4 39% (4.0) -> 57% (3.5) -> 72% (3.0), S/N at 50% 4.0 ->
+# 3.5 -> 3.0 (movers 4.1 -> 3.7 -> 3.2); peaks rows per photo 9.7k -> 16.4k -> 26.5k, 0.24 -> 0.40 -> 0.66 MB;
+# -IMAGE dots + peaks at or above the floor per photo (64-px edge strip out) 236 -> 625 -> 2,340.
+# Default 27 Nov: 4.0 -> 3.0 (lead: more fakes rather than misses; inject.md §8.1: +16,860 rows, +0.42 MB per photo).
+MF_PEAK_SNR = float(os.environ.get("SKYSHIFT_MF_PEAK_SNR", "3.0"))
 # Extended-source pass (18 Nov, agent "comets"; psf.ext_pass, dots._ext_pass, dots.ext_table): diffuse sources a point
 # filter misses (comet comae, galaxies). On the matched-filter pass's residual with every other dot's ePSF subtracted
 # too: filters EXT_SCALES × the PSF FWHM wide (ePSF ⊗ Gaussian), noise-normalised like the matched filter; a peak >=

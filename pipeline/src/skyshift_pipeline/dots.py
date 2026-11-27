@@ -566,6 +566,7 @@ def _mf_pass(l2, det: np.ndarray, comp: tuple | None, ctx: PhotoContext, s: C.De
                  min_snr=C.mf_pass_snr(getattr(l2, "detector", None)), normalise=C.MF_PASS_NORMALISE,
                  refused_flags=MF_REFUSED_FLAGS if C.MF_REFUSED_DOTS else None,
                  low_snr=C.MF_DOT_LOW_SNR, low_flag=C.dot_flag_mem(C.DOT_FLAG_MF_LOW_SNR),
+                 min_peak_snr=C.MF_PEAK_SNR,
                  neg_snr=min(C.COND_NEG_SNR) if (extras is not None and C.COND and C.COND_NEG) else None)
     md = mp.dots.copy()
     md["sep_flag"] = md["sep_flag"] | C.SEP_FLAG_MF_PASS
