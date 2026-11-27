@@ -1434,6 +1434,21 @@ FRAGMENTS_BLEND_MIN_GAIA = 2
 FRAGMENTS_PARENT_G = 12.0          # a bright_fragment's parent: the brightest Gaia star brighter than this (nearer on a tie) ...
 FRAGMENTS_PARENT_ARCSEC = 60.0     # ... this close (hunt: 2,226 of 2,234 have one; the ring sits ~10″ out at G 8–11, ~30″ at G < 6)
 
+# --- slim output files (27 Nov, ~/skyshift-data/rerun/reports/slim.md) ----------------------------------------------
+# Off by default: env SKYSHIFT_PARQUET_SLIM=1 writes the photo worker's files (dots, peaks, forced, ext, streaks; the
+# session stacks' sources, _photos, _moving and maps) with lossless settings: every float column byte-stream-split
+# (the dot files' flux_ap lists too: today they are PLAIN), dictionary only for strings with repeats, DELTA for
+# integer columns that (nearly) never decrease (stack_row), one data page per column chunk, zstd PARQUET_SLIM_LEVEL;
+# maps as bzip2 members of the same .npz (np.load reads them unchanged). Same tables, schema, metadata and row order
+# (dots.parquet_bytes, coadd.npz_bytes; tests/test_slim_parquet.py).
+PARQUET_SLIM = os.environ.get("SKYSHIFT_PARQUET_SLIM", "0") == "1"
+PARQUET_SLIM_LEVEL = int(os.environ.get("SKYSHIFT_PARQUET_SLIM_LEVEL", "15"))  # zstd level (today's dot files: 3)
+PARQUET_SLIM_ROWS_PER_PAGE = 1 << 20      # rows per data page (Arrow's default 20,000 cuts a dot column into ~3 pages)
+PARQUET_SLIM_PAGE_BYTES = 8 << 20         # data page size limit (Arrow's default 1 MiB)
+PARQUET_SLIM_DICT_MAX_SHARE = 0.5         # a string column is dictionary-encoded when distinct values ≤ this share
+PARQUET_SLIM_DELTA_MIN_SORTED = 0.95      # an integer column is DELTA-coded when this share of its steps is ≥ 0
+                                          # (a stack's _photos stack_row: 99.999% of 5.3 M steps on the bench)
+
 # --- session stacks (coadd.py, step `sessionstack`, 16 Nov evening; docs/session-stacks.md) -------------------------
 # A session's 1–5 exposures (2.1 min apart) of one detector added on one grid and searched with the ePSF-matched
 # filter, every stacked source then measured in each photo. Off until the combined rerun: env SKYSHIFT_SESSION_STACK=1
