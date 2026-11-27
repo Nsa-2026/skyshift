@@ -580,6 +580,48 @@ describe("blink player", () => {
       h.destroy();
     });
 
+    it("asks the partner again at the plate's visit when its own fullest visit is another one (near the poles)", async () => {
+      const far = page([["x", 180], ["y", 180.0015], ["z", 190]], false, 5, 3); // D5's June visit
+      const q0 = page([["a", 0], ["b", 0.0015], ["g", 10]], false, 5, 3);
+      vi.mocked(fetch).mockImplementation(async (input) => {
+        const u = new URL(String(input), "https://example.test");
+        if (u.pathname === "/api/frames") {
+          const got = u.searchParams.get("det") === "5" && !u.searchParams.has("page") ? (u.searchParams.has("mjd") ? q0 : far) : 404;
+          return typeof got === "number"
+            ? new Response(JSON.stringify({ error: { code: "not_found", message: "no" } }), { status: 404 })
+            : new Response(JSON.stringify(got), { headers: { "Content-Type": "application/json" } });
+        }
+        return new Response(new Uint16Array(N * N).fill(1000).buffer);
+      });
+      const h = mountBlink(el, { onViewChange: vi.fn(), onPick: vi.fn() });
+      await h.show(hv, { ...p0, more: false, visit_exposures: 3 }, LIVE, { pages: true });
+      await vi.waitFor(() => expect(el.querySelector(".bk-det-label")!.textContent).toContain("D2 and D5"));
+      const d5 = asked().filter((u) => u.searchParams.get("det") === "5");
+      expect(d5.map((u) => u.searchParams.get("mjd"))).toEqual([null, String(T + 0.0015)]); // the median of D2's photos
+      h.destroy();
+    });
+
+    it("stops the partner's pages when All is turned off, and shows this detector's photos without waiting for them", async () => {
+      const q0 = page([["a", 0], ["b", 0.0015], ["g", 10]], true, 5, 9);
+      serve({ "2:1": p1, "2:2": p2, "5:0": q0 });
+      const ok = vi.mocked(fetch).getMockImplementation()!;
+      vi.mocked(fetch).mockImplementation(async (input, init) => {
+        const u = new URL(String(input), "https://example.test");
+        if (u.searchParams.get("det") === "5" && u.searchParams.has("page")) await new Promise(() => {}); // the partner's pages never land
+        return ok(input, init);
+      });
+      const h = mountBlink(el, { onViewChange: vi.fn(), onPick: vi.fn() });
+      await h.show(hv, p0, LIVE, { pages: true });
+      await vi.waitFor(() => expect(asked().some((u) => u.searchParams.get("det") === "2" && u.searchParams.get("page") === "1")).toBe(true));
+      await new Promise((r) => setTimeout(r, 50));
+      expect(sub()).toMatch(/ of 3$/); // D2's page 1 waits for D5's
+      el.querySelector<HTMLButtonElement>('.bk-det[data-det="2"]')!.click(); // All off: D2 alone
+      await vi.waitFor(() => expect(text()).toBe("9 of 9 photos of this visit"));
+      await vi.waitFor(() => expect(sub()).toMatch(/ of 9$/));
+      expect(asked().filter((u) => u.searchParams.get("det") === "5" && u.searchParams.get("page") === "2")).toHaveLength(0);
+      h.destroy();
+    });
+
     it("dates a months visit by its weeks", async () => {
       const h = mountBlink(el, { onViewChange: vi.fn(), onPick: vi.fn() });
       await h.show(view, frames, "https://example.test/data/x/frames.json", { singleDetector: true });
