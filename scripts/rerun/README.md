@@ -42,3 +42,39 @@ uses those numbers once they exist.
   zones gets two stack keys: 121,735 photos (14%) are read a second time for a stack.
 - Smoke test (R Draconis, 8 photos, 2 workers): detection 6.5 s per photo; the read took 32 s on the PC's Wi-Fi
   (~2–4 MB/s per download, ~10 MB/s for any number in parallel). The run is network-bound until the PC is on Ethernet.
+
+## inject.py: fake objects through the real worker (27 Nov)
+
+How much the extraction finds, where and why it loses things, and which settings cannot be fixed after the one read
+of every photo. Fakes of known flux, size and motion go into real photos from the photo cache (in memory; the cache is
+never written), with their photon noise in IMAGE and VARIANCE, and the photos run through the same worker the rerun
+runs (`dots.process_photos`, extraction v2 with the fused session stacks; imported, never copied). Its dots, peaks,
+ext, streak, forced and session-stack files are matched to the truth list.
+
+- Kinds: point (the photo's ePSF, sub-pixel), fuzzy (ePSF ⊗ Gaussian or coma, 1.5–12 × FWHM, tails), trails
+  (150–6,000″/h, streaks.trail_kernel), movers (0–50″ between exposures, every exposure of a session and both partner
+  detectors, flat / 1500 K / 5800 K spectra). S/N is the optimal (matched-filter) S/N for the fake's own shape,
+  including its own photon noise.
+- One fake per 128-px cell (±16 px jitter, ~225 per photo); `--grid 256 / 90` checks that recovery does not depend on
+  the density. Each cell's corner is a control point matched the same way (the chance level).
+- `--neg` runs the same photos as −IMAGE (the positive photo's dark-hole mask, no fakes): every row is a false alarm.
+- `--variant a+b` changes one setting in the worker processes (`VARIANTS`: background mesh, deblend, clean, guard, ext
+  scales, matched-filter phases, peaks floor) for a run of its own.
+- Every fake keeps its local conditions (noise, background, distance to saturation, mask, edge, star density, glow,
+  the footer block and the conditions table's 128-px tile `cond_tile`) and, when missed, the first cause that applies.
+
+```bash
+I="uv run --project pipeline python scripts/rerun/inject.py"
+$I run --subset ~/skyshift-data/rerun/inject/bench.json --name main_r1 --variant peaks30 --workers 5
+$I run --subset ~/skyshift-data/rerun/inject/bench.json --name neg_main --variant peaks30 --neg --workers 5
+$I match --name main_r1 && $I match --name neg_main --cond-run main_r1
+$I report --spec ~/skyshift-data/rerun/inject/spec.json --md ~/skyshift-data/rerun/inject/report_tables.md
+```
+
+A subset file is any targets file of bench_targets.json's format (`detectors`, `max_exposures` optional), e.g. the
+wide sample's wide_targets.json. Outputs go to `~/skyshift-data/rerun/inject/runs/<name>/`; at most 5 workers (the
+tool refuses more). Results and recommendations: `~/skyshift-data/rerun/reports/inject.md`.
+The worker's peaks floor is env `SKYSHIFT_MF_PEAK_SNR` (config MF_PEAK_SNR, default 4.0). It only adds `why` 0
+rows to the peaks file. The report recommends 3.0 for the rerun: +0.42 MB per photo, and points found anywhere at
+50% go from S/N 4.0 to 3.0.
+Tests: `uv run --project pipeline pytest -q scripts/rerun/tests`.
